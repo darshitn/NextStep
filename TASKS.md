@@ -30,7 +30,7 @@
   - [x] Test failure path (simulated 404 test endpoint) to verify error state.
   - [x] Push verified Milestone 1 to GitHub repository `darshitn/build-to-ship`.
 
-## Milestone 2: Single-Port Production Hosting & Replit Preparation (Active)
+## Milestone 2: Single-Port Production Hosting & Replit Migration (Completed)
 
 - [x] **M2.1 Two-Terminal Workflow Preservation**
   - [x] Maintain root `dev:client` and `dev:server` scripts for concurrent development.
@@ -51,28 +51,56 @@
 
 - [x] **M2.4 Environment & Secret Security Audit**
   - [x] Update `.gitignore` to block all secret `.env` variants while explicitly allowing `.env.example`.
-  - [x] Provide root `.env.example` documenting `PORT=3001`.
+  - [x] Provide root `.env.example` documenting `PORT=3001` and `DATABASE_URL`.
   - [x] Verify `.gitignore` rules with `git check-ignore`.
 
-- [ ] **M2.5 Runtime Verification & Documentation**
+- [x] **M2.5 Runtime Verification & Replit Migration**
   - [x] Verify `GET /api/health` returns HTTP 200 JSON on single-port Express server.
   - [x] Verify unknown `/api/non-existent-route` returns HTTP 404 JSON.
   - [x] Verify root `/` and non-API paths serve compiled React HTML from Express.
-  - [x] Document dependency installation, build, start commands, and Replit hosting procedures in `README.md`.
+  - [x] Verify in Replit environment that the application builds and runs successfully.
 
-## Milestone 3: Persistence & Authentication (Planned)
-- [ ] Connect Replit PostgreSQL database (or local PostgreSQL fallback) using `pg`.
-- [ ] Create database migration schema (`users`, `farms`, `fields`, `crops`, `advisories`).
+## Milestone 3: PostgreSQL Note Persistence (Active Checkpoint)
+
+- [x] **M3.1 Database Connection Module**
+  - [x] Install `pg` dependency in Express backend (`server/package.json`).
+  - [x] Implement `server/db.js` reusing a singleton `pg.Pool` instance.
+  - [x] Read `DATABASE_URL` strictly from the server environment (`process.env.DATABASE_URL`).
+  - [x] Ensure missing `DATABASE_URL` does not crash server startup or expose credentials.
+
+- [x] **M3.2 Non-Destructive Migration Script**
+  - [x] Implement `server/migrate.js` with `CREATE TABLE IF NOT EXISTS notes` schema.
+  - [x] Define `id SERIAL PRIMARY KEY`, `body TEXT NOT NULL`, `created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP`.
+  - [x] Add migration scripts to `server/package.json` (`"migrate": "node migrate.js"`) and root `package.json` (`"migrate"` & `"db:migrate"`).
+  - [x] Validate safe failure when `DATABASE_URL` is missing.
+
+- [x] **M3.3 REST API Endpoints**
+  - [x] Implement `POST /api/notes`: validate body is non-empty string <= 1000 chars, parameterized INSERT, return saved row with HTTP 201.
+  - [x] Implement `GET /api/notes`: return saved notes ordered newest first with HTTP 200.
+  - [x] Ensure database failures return HTTP 500 JSON and are never reported as successful saves.
+
+- [x] **M3.4 Frontend UI & State Handling**
+  - [x] Add Note input textarea with character counter in `client/src/App.jsx`.
+  - [x] Add Save Note button with disabled state and loading spinner.
+  - [x] Render Persisted Notes list displaying `#id`, timestamp, and body.
+  - [x] Implement loading states and explicit error banners for fetch and save operations.
+  - [x] Retain input text on save error so user input is never lost.
+  - [x] Add modern responsive CSS styles for notes card and list in `client/src/App.css`.
+  - [x] Verify production build (`npm run build`).
+
+- [ ] **M3.5 Live Replit Database Verification**
+  - [ ] Run `npm run migrate` in Replit with active PostgreSQL `DATABASE_URL`.
+  - [ ] Verify note insertion and persistence across browser refresh in Replit.
+
+## Milestone 4: Authentication & Domain Entities (Planned)
+- [ ] Connect Replit PostgreSQL database for User entity (`users` table).
 - [ ] Implement JWT authentication endpoints: `POST /api/auth/register`, `POST /api/auth/login`, `GET /api/auth/me`.
 - [ ] Add client-side login/registration forms with token storage and session management.
-
-## Milestone 4: Domain Entities & CRUD Operations (Planned)
 - [ ] Build Farm and Field registration endpoints (`/api/farms`, `/api/fields`).
-- [ ] Enforce user tenancy isolation.
-- [ ] Add interactive UI for adding and viewing farm records.
+- [ ] Enforce tenant data isolation across farm records.
 
 ## Milestone 5: Gemini AI Integration (Planned)
 - [ ] Integrate `@google/genai` on Express backend.
 - [ ] Configure `GEMINI_API_KEY` via server environment.
 - [ ] Implement `POST /api/advisory` with Zod validation.
-- [ ] Implement interactive AI Advisory form and history UI.
+- [ ] Add AI Crop Advisory form in React with real-time streaming/result rendering and history persistence.

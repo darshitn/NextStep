@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   CheckCircle2,
   AlertCircle,
@@ -9,17 +9,32 @@ import {
   ArrowRight,
   ShieldAlert,
   Terminal,
-  FileCode
+  FileCode,
+  Database,
+  Send,
+  FileText,
+  Clock,
+  Check,
+  Info
 } from 'lucide-react';
 import './App.css';
 
 export default function App() {
-  // State machine: 'idle' | 'loading' | 'success' | 'error'
+  // --- Checkpoint 1: Health State Machine ('idle' | 'loading' | 'success' | 'error') ---
   const [status, setStatus] = useState('idle');
   const [responseData, setResponseData] = useState(null);
   const [errorMessage, setErrorMessage] = useState('');
   const [latency, setLatency] = useState(null);
   const [lastCheckedUrl, setLastCheckedUrl] = useState('');
+
+  // --- Checkpoint 2: Notes State ---
+  const [notes, setNotes] = useState([]);
+  const [isLoadingNotes, setIsLoadingNotes] = useState(false);
+  const [fetchNotesError, setFetchNotesError] = useState('');
+  const [noteBody, setNoteBody] = useState('');
+  const [isSaving, setIsSaving] = useState(false);
+  const [saveError, setSaveError] = useState('');
+  const [saveSuccess, setSaveSuccess] = useState('');
 
   // Main verification call to GET /api/health
   const checkBackend = async (targetEndpoint = '/api/health') => {
@@ -30,7 +45,6 @@ export default function App() {
     const startTime = performance.now();
 
     try {
-      // Frontend calls relative URL '/api/health', which Vite proxies to http://localhost:3001/api/health
       const response = await fetch(targetEndpoint, {
         method: 'GET',
         headers: {
@@ -47,7 +61,6 @@ export default function App() {
 
       const data = await response.json();
 
-      // Ensure data.ok === true per requirement
       if (data && data.ok === true) {
         setResponseData(data);
         setStatus('success');
@@ -62,17 +75,98 @@ export default function App() {
     }
   };
 
+  // Fetch saved notes (newest first) from GET /api/notes
+  const fetchNotes = async () => {
+    setIsLoadingNotes(true);
+    setFetchNotesError('');
+
+    try {
+      const response = await fetch('/api/notes', {
+        method: 'GET',
+        headers: {
+          'Accept': 'application/json',
+        },
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || `HTTP ${response.status} (${response.statusText || 'Error'})`);
+      }
+
+      const data = await response.json();
+      setNotes(Array.isArray(data) ? data : (data.notes || []));
+    } catch (err) {
+      setFetchNotesError(err.message || 'Could not load notes from database');
+    } finally {
+      setIsLoadingNotes(false);
+    }
+  };
+
+  // Save new note via POST /api/notes
+  const handleSaveNote = async (e) => {
+    e.preventDefault();
+    const trimmed = noteBody.trim();
+
+    if (!trimmed) {
+      setSaveError('Note body cannot be empty.');
+      return;
+    }
+
+    if (trimmed.length > 1000) {
+      setSaveError('Note body exceeds maximum limit of 1000 characters.');
+      return;
+    }
+
+    setIsSaving(true);
+    setSaveError('');
+    setSaveSuccess('');
+
+    try {
+      const response = await fetch('/api/notes', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+        },
+        body: JSON.stringify({ body: trimmed }),
+      });
+
+      if (response.status !== 201) {
+        const errPayload = await response.json().catch(() => ({}));
+        throw new Error(errPayload.error || `Save failed with HTTP status ${response.status}`);
+      }
+
+      const savedNote = await response.json();
+      setNoteBody('');
+      setSaveSuccess(`Note #${savedNote.id || ''} saved successfully!`);
+      // Prepend the new note to the list
+      setNotes((prevNotes) => [savedNote, ...prevNotes]);
+
+      // Clear success notification after 4 seconds
+      setTimeout(() => setSaveSuccess(''), 4000);
+    } catch (err) {
+      setSaveError(err.message || 'Failed to save note due to server or database error.');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  // Initial fetch on component mount
+  useEffect(() => {
+    fetchNotes();
+  }, []);
+
   return (
     <div className="app-container">
       {/* Header */}
       <header className="app-header">
         <div className="badge-tag">
           <span className="badge-dot"></span>
-          NIAT Hackathon Stack • Checkpoint 1
+          NIAT Hackathon Stack • Checkpoint 2: PostgreSQL Persistence
         </div>
         <h1 className="main-title">AgroPulse Stack Practice</h1>
         <p className="subtitle">
-          Verifying the local decoupled architecture: React (Vite) on port 5173, Express on port 3001, and Vite reverse proxy routing.
+          Verifying full-stack connectivity and PostgreSQL persistence: React (Vite) on port 5173, Express on port 3001, and Replit PostgreSQL via connection pooling.
         </p>
       </header>
 
@@ -81,29 +175,29 @@ export default function App() {
         <div className="arch-node">
           <div className="arch-node-header">
             <span className="arch-node-title">1. Client UI</span>
-            <span className="arch-port">:5173</span>
+            <span className="arch-port">:5173 / :3001</span>
           </div>
-          <div className="arch-node-desc">React + Vite</div>
+          <div className="arch-node-desc">React 18 + Vite SPA</div>
         </div>
 
         <div className="arch-node">
           <div className="arch-node-header">
-            <span className="arch-node-title">2. Dev Proxy</span>
-            <span className="arch-port">vite.config.js</span>
+            <span className="arch-node-title">2. API Server</span>
+            <span className="arch-port">Node / Express</span>
           </div>
-          <div className="arch-node-desc">/api ➔ localhost:3001</div>
+          <div className="arch-node-desc">Unified Port (0.0.0.0)</div>
         </div>
 
         <div className="arch-node">
           <div className="arch-node-header">
-            <span className="arch-node-title">3. Backend API</span>
-            <span className="arch-port">:3001</span>
+            <span className="arch-node-title">3. Database</span>
+            <span className="arch-port">pg Pool</span>
           </div>
-          <div className="arch-node-desc">Node + Express</div>
+          <div className="arch-node-desc">PostgreSQL (DATABASE_URL)</div>
         </div>
       </div>
 
-      {/* Interactive Control Panel */}
+      {/* Section 1: Backend Connectivity Verification (Milestone 1) */}
       <main className="glass-card">
         <div className="panel-header">
           <div>
@@ -228,25 +322,174 @@ export default function App() {
         )}
       </main>
 
+      {/* Section 2: PostgreSQL Note Persistence (Checkpoint 2) */}
+      <section className="glass-card" id="notes-section">
+        <div className="panel-header">
+          <div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+              <Database size={22} color="#10b981" />
+              <h2 className="panel-title">PostgreSQL Note Persistence</h2>
+            </div>
+            <p style={{ color: 'var(--text-muted)', fontSize: '0.88rem', marginTop: '0.25rem' }}>
+              Endpoints: <span className="endpoint-target">POST /api/notes</span> & <span className="endpoint-target">GET /api/notes</span>
+            </p>
+          </div>
+          <div className="meta-stats">
+            <button
+              id="btn-refresh-notes"
+              className="btn-secondary"
+              onClick={fetchNotes}
+              disabled={isLoadingNotes}
+              title="Refresh notes from PostgreSQL"
+            >
+              <RefreshCw size={14} className={isLoadingNotes ? 'spinner' : ''} />
+              {isLoadingNotes ? 'Refreshing...' : 'Refresh List'}
+            </button>
+          </div>
+        </div>
+
+        {/* Create Note Form */}
+        <form onSubmit={handleSaveNote} className="note-form" id="form-create-note">
+          <label htmlFor="note-input" className="form-label">
+            <span>Add Practice Note</span>
+            <span className="char-counter" style={{ color: noteBody.length > 950 ? 'var(--rose-400)' : 'var(--text-dim)' }}>
+              {noteBody.length} / 1000 characters
+            </span>
+          </label>
+          <textarea
+            id="note-input"
+            className="note-textarea"
+            rows="3"
+            placeholder="Type note content to persist in PostgreSQL (e.g., 'Soil moisture reading 42% in Field B')..."
+            value={noteBody}
+            onChange={(e) => setNoteBody(e.target.value)}
+            maxLength={1000}
+            disabled={isSaving}
+          />
+
+          <div className="form-actions">
+            <button
+              type="submit"
+              id="btn-save-note"
+              className="btn-primary"
+              disabled={isSaving || noteBody.trim().length === 0}
+            >
+              {isSaving ? (
+                <>
+                  <Loader2 size={16} className="spinner" />
+                  Saving to PostgreSQL...
+                </>
+              ) : (
+                <>
+                  <Send size={16} />
+                  Save Note
+                </>
+              )}
+            </button>
+          </div>
+        </form>
+
+        {/* Save Status / Error Feedback */}
+        {saveSuccess && (
+          <div className="alert-banner success" id="save-success-msg">
+            <Check size={18} />
+            <span>{saveSuccess}</span>
+          </div>
+        )}
+
+        {saveError && (
+          <div className="alert-banner error" id="save-error-msg">
+            <AlertCircle size={18} />
+            <div>
+              <strong>Failed to Save Note:</strong> {saveError}
+              <div style={{ fontSize: '0.8rem', marginTop: '0.2rem', color: 'var(--rose-400)' }}>
+                Verify that <code>DATABASE_URL</code> is configured in backend environment and migration has been run via <code>npm run migrate</code>.
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Saved Notes List */}
+        <div className="notes-list-header">
+          <h3 className="section-subtitle">
+            <FileText size={18} color="#818cf8" />
+            Persisted Notes ({notes.length})
+          </h3>
+          <span style={{ fontSize: '0.8rem', color: 'var(--text-dim)' }}>
+            Sorted newest first
+          </span>
+        </div>
+
+        {/* Fetch Notes Error */}
+        {fetchNotesError && (
+          <div className="alert-banner error" id="fetch-notes-error">
+            <AlertCircle size={18} />
+            <div>
+              <strong>Database Query Failed:</strong> {fetchNotesError}
+              <div style={{ fontSize: '0.8rem', marginTop: '0.25rem', color: 'var(--rose-400)' }}>
+                Troubleshooting: Ensure <code>DATABASE_URL</code> is set in Replit Secrets (or local <code>.env</code>) and run <code>npm run migrate</code> to create the table.
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Loading Notes Spinner */}
+        {isLoadingNotes && notes.length === 0 && (
+          <div className="state-box state-loading" style={{ padding: '1.5rem', marginTop: '1rem' }}>
+            <Loader2 size={24} className="spinner" />
+            <span style={{ color: 'var(--indigo-400)' }}>Loading notes from PostgreSQL...</span>
+          </div>
+        )}
+
+        {/* Empty Notes State */}
+        {!isLoadingNotes && !fetchNotesError && notes.length === 0 && (
+          <div className="state-box state-idle" id="empty-notes-state" style={{ padding: '2rem 1rem', marginTop: '1rem' }}>
+            <FileText size={32} style={{ color: 'var(--text-dim)', marginBottom: '0.5rem' }} />
+            <p>No notes saved in database yet.</p>
+            <p style={{ fontSize: '0.82rem', color: 'var(--text-dim)', marginTop: '0.25rem' }}>
+              Submit a note using the form above to verify SQL <code>INSERT</code> and persistent retrieval.
+            </p>
+          </div>
+        )}
+
+        {/* Notes Cards */}
+        {notes.length > 0 && (
+          <div className="notes-grid" id="notes-container">
+            {notes.map((note) => (
+              <div key={note.id || Math.random()} className="note-card" id={`note-item-${note.id}`}>
+                <div className="note-card-header">
+                  <span className="note-id-badge">#{note.id}</span>
+                  <span className="note-timestamp">
+                    <Clock size={12} />
+                    {note.created_at ? new Date(note.created_at).toLocaleString() : 'Just now'}
+                  </span>
+                </div>
+                <div className="note-card-body">{note.body}</div>
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
+
       {/* Explainer / Architectural Guide */}
       <section className="explainer-grid">
         <div className="info-card">
           <h3 className="info-title">
             <Terminal size={18} color="#818cf8" />
-            Execution Commands & Ports
+            Database & Runtime Commands
           </h3>
           <ul className="info-list">
             <li>
-              <strong>Frontend Command:</strong> <code className="code-snippet">npm run dev:client</code> (or <code className="code-snippet">cd client && npm run dev</code>)
+              <strong>Execute Migration:</strong> <code className="code-snippet">npm run migrate</code> (creates <code className="code-snippet">notes</code> table if not exists)
             </li>
             <li>
-              <strong>Frontend Port:</strong> <code className="code-snippet">5173</code> (Vite Dev Server)
+              <strong>Start Server:</strong> <code className="code-snippet">npm start</code> (production single-port) or <code className="code-snippet">npm run dev:server</code>
             </li>
             <li>
-              <strong>Backend Command:</strong> <code className="code-snippet">npm run dev:server</code> (or <code className="code-snippet">cd server && npm start</code>)
+              <strong>Build Frontend:</strong> <code className="code-snippet">npm run build</code> (compiles to <code className="code-snippet">client/dist</code>)
             </li>
             <li>
-              <strong>Backend Port:</strong> <code className="code-snippet">3001</code> (Node/Express Server)
+              <strong>Install Dependencies:</strong> <code className="code-snippet">npm run install:all</code> (installs client & server deps)
             </li>
           </ul>
         </div>
@@ -258,13 +501,13 @@ export default function App() {
           </h3>
           <ul className="info-list">
             <li>
-              <code className="code-snippet">client/src/App.jsx</code>: Contains the <strong>"Check backend"</strong> button that invokes <code className="code-snippet">fetch('/api/health')</code> and manages UI states.
+              <code className="code-snippet">server/db.js</code>: Reuses singleton <code className="code-snippet">pg.Pool</code> reading <code className="code-snippet">DATABASE_URL</code>.
             </li>
             <li>
-              <code className="code-snippet">client/vite.config.js</code>: Maps <code className="code-snippet">/api</code> requests to <code className="code-snippet">http://localhost:3001</code>, transparently bridging origins.
+              <code className="code-snippet">server/migrate.js</code>: Non-destructive <code className="code-snippet">CREATE TABLE IF NOT EXISTS notes</code> schema script.
             </li>
             <li>
-              <code className="code-snippet">server/index.js</code>: Express route handler <code className="code-snippet">app.get('/api/health')</code> responding with <code className="code-snippet">{`{"ok": true}`}</code>.
+              <code className="code-snippet">server/index.js</code>: REST routes <code className="code-snippet">POST /api/notes</code> (parameterized INSERT) & <code className="code-snippet">GET /api/notes</code>.
             </li>
           </ul>
         </div>
