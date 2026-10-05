@@ -4,118 +4,165 @@ A production-grade, milestone-driven reference implementation for the **NIAT Hac
 
 ---
 
-## 🚀 Current Milestone: Core Connectivity Checkpoint (Milestone 1)
+## 🎯 Architecture & Operating Modes
 
-- **Frontend**: Single Page Application built with React 18 & Vite, featuring a modern glassmorphic design system and responsive state machine (`idle` | `loading` | `success` | `error`).
-- **Backend**: Express REST API running on port `3001` with JSON middleware, request logging, and structured error boundaries.
-- **Reverse Proxy**: Vite development proxy transparently forwarding `/api/*` requests to Express on `http://localhost:3001`.
-- **Health Contract**: `GET /api/health` responding with `{"ok": true, "status": "healthy", ...}`.
-- **Production Ready**: Verified clean Vite production build bundle.
+This application is designed to operate seamlessly in two distinct modes without code changes:
 
----
+### Mode A: Two-Terminal Concurrent Development (Local)
+- **Frontend (Vite Dev Server)**: Runs on `http://localhost:5173` with Hot Module Replacement (HMR).
+- **Backend (Express API Server)**: Runs on `http://localhost:3001`.
+- **Proxy**: `client/vite.config.js` transparently forwards `/api/*` requests to port `3001`.
 
-## 🛠️ Port Allocation
-
-| Component | Default Port | Description |
-|---|---|---|
-| **Client UI** | `5173` | Vite Dev Server + React Single-Page Application |
-| **Backend API** | `3001` | Express REST API Service |
+### Mode B: Single-Port Production Hosting (Replit / Deployment)
+- **Express Server**: Listens on `process.env.PORT` (defaults locally to `3001`) and binds to host `0.0.0.0`.
+- **Static Assets**: Express serves pre-compiled production assets from `client/dist` (path resolved relative to `server/index.js`).
+- **Unified Routing**: 
+  - `GET /api/health` ➔ Returns HTTP 200 health payload.
+  - Unknown `/api/*` ➔ Returns strict JSON 404 (`{"ok": false, "error": "API route not found"}`).
+  - Non-API routes ➔ Serves `client/dist/index.html` as SPA fallback.
 
 ---
 
 ## 📦 Getting Started
 
 ### Prerequisites
-- **Node.js**: v18.x or v20+ (Node v24 supported)
+- **Node.js**: v18.x or v20+ (Node v24 tested)
 - **npm**: v9+
 
-### 1. Install Dependencies
-Install dependencies for both frontend and backend from the root directory:
+### 1. Dependency Installation
+Install dependencies across both client and server from the root directory:
 ```powershell
 npm run install:all
 ```
-*(Or install separately inside `client/` and `server/` via `npm install`)*
+*Alternatively, install independently in each folder:*
+```powershell
+cd server && npm install
+cd ../client && npm install
+```
 
-### 2. Start the Backend API Server
+---
+
+## 🚀 Running the Application
+
+### Option 1: Two-Terminal Development Workflow (HMR)
+Use this during active feature development.
+
+**Terminal 1 (Backend API):**
 ```powershell
 npm run dev:server
 ```
 Runs Express on `http://localhost:3001`.
 
-### 3. Start the Frontend Dev Server
-In a separate terminal:
+**Terminal 2 (Frontend with Vite Proxy):**
 ```powershell
 npm run dev:client
 ```
-Runs Vite dev server on `http://localhost:5173`.
+Runs Vite on `http://localhost:5173`. Open your browser to `http://localhost:5173`.
 
-### 4. Build for Production
+---
+
+### Option 2: Single-Port Production Mode (Replit Compatible)
+Use this to build and run the unified single-port application.
+
+**Step 1: Build the Frontend**
 ```powershell
-npm run build:client
+npm run build
 ```
-Produces optimized static assets in `client/dist/`.
+Compiles the React application into `client/dist/`.
+
+**Step 2: Start the Express Server**
+```powershell
+npm start
+```
+Starts Express on host `0.0.0.0` and port `3001` (or `process.env.PORT` if defined).  
+Open your browser to `http://localhost:3001`. Both the frontend UI and the `/api` routes are served from this single port.
 
 ---
 
-## 🧪 Testing & Verification
+## 🧪 Verification & Health Checks
 
-1. **Browser Test**:
-   - Open `http://localhost:5173` in your browser.
-   - Click the **"Check backend"** button.
-   - Observe the real-time transition from `loading` spinner to `success` with latency calculation and formatted JSON payload.
-   - Click **"Test 404 Error State"** to verify robust error boundary and troubleshooting advice.
+### 1. Browser Verification
+- **Local Dev**: Open `http://localhost:5173`
+- **Single-Port Production**: Open `http://localhost:3001`
+- Click **"Check backend"** to verify the `GET /api/health` pipeline (`HTTP 200 OK`).
+- Click **"Test 404 Error State"** to verify that unknown `/api` routes yield structured error handling.
 
-2. **Direct Backend Health Check**:
-   ```powershell
-   curl.exe -i http://localhost:3001/api/health
-   ```
-   Expected response:
-   ```json
-   {
-     "ok": true,
-     "status": "healthy",
-     "timestamp": "...",
-     "uptimeSeconds": 42,
-     "service": "niat-backend"
-   }
-   ```
+### 2. Direct Terminal Checks
+- **Health Check Endpoint**:
+  ```powershell
+  curl.exe -i http://localhost:3001/api/health
+  ```
+  Response:
+  ```json
+  HTTP/1.1 200 OK
+  Content-Type: application/json; charset=utf-8
+
+  {"ok":true,"status":"healthy","timestamp":"...","uptimeSeconds":42,"service":"niat-backend"}
+  ```
+
+- **Unknown API Route (404 Fallback)**:
+  ```powershell
+  curl.exe -i http://localhost:3001/api/non-existent-route
+  ```
+  Response:
+  ```json
+  HTTP/1.1 404 Not Found
+  Content-Type: application/json; charset=utf-8
+
+  {"ok":false,"error":"API route not found"}
+  ```
+
+- **Frontend SPA Fallback (HTML)**:
+  ```powershell
+  curl.exe -i http://localhost:3001/
+  ```
+  Response:
+  ```html
+  HTTP/1.1 200 OK
+  Content-Type: text/html; charset=UTF-8
+
+  <!doctype html>...
+  ```
 
 ---
 
-## 📂 Repository Structure
+## 🔒 Environment & Secret Management
+
+- Copy `.env.example` to create local environment files when needed:
+  ```powershell
+  cp .env.example .env
+  ```
+- `.gitignore` is configured to exclude all `.env`, `.env.local`, and secret variants while tracking `.env.example`.
+- All `VITE_*` variables are client-exposed; database connection strings and AI keys are strictly isolated to the server.
+
+---
+
+## 📂 Repository Layout
 
 ```text
 build-to-ship/
-├── .gitignore                    # Ignored artifacts (node_modules, dist, .env)
-├── package.json                  # Root runner scripts (dev:client, dev:server, build:client)
-├── README.md                     # Project overview and setup instructions
-├── PROJECT.md                    # Core problem, users, MVP, and goals
-├── ARCHITECTURE.md               # Detailed system architecture and data flows
-├── ROADMAP.md                    # Multi-phase roadmap (Milestones 1-4)
-├── TASKS.md                      # Granular task tracker
-├── AI_INSTRUCTIONS.md            # LLM pair-programming guidelines
+├── .env.example                  # Documented environment template (PORT=3001)
+├── .gitignore                    # Excludes node_modules, build outputs, and secret .env files
+├── package.json                  # Root scripts: build, start, dev:client, dev:server, install:all
+├── README.md                     # Operational documentation and setup
+├── PROJECT.md                    # Project requirements and MVP definition
+├── ARCHITECTURE.md               # Technical architecture and data flows
+├── ROADMAP.md                    # Phased roadmap (Milestones 1-5)
+├── TASKS.md                      # Detailed task status tracker
+├── AI_INSTRUCTIONS.md            # Guidelines for coding agents
 ├── NIAT_MENTOR_PREPARATION.md    # Comprehensive mentor guidance & cheat-sheets
 ├── NIAT_EVENT_QUICK_REFERENCE.md # Quick event reference sheet
 ├── client/                       # React 18 + Vite frontend
-│   ├── index.html                # Entry HTML with custom fonts
+│   ├── dist/                     # Production build output (gitignored)
+│   ├── index.html                # Entry HTML
 │   ├── package.json              # Client dependencies
-│   ├── vite.config.js            # Vite proxy configuration
+│   ├── vite.config.js            # Reverse proxy configuration
 │   └── src/
-│       ├── main.jsx              # React root entrypoint
-│       ├── App.jsx               # Diagnostic UI & state handler
-│       ├── index.css             # Theme design system & tokens
-│       └── App.css               # Card & state-box styling
+│       ├── main.jsx              # React mount
+│       ├── App.jsx               # Interactive diagnostics UI
+│       ├── index.css             # Theme design tokens
+│       └── App.css               # Component styling
 └── server/                       # Express backend
     ├── package.json              # Server dependencies
-    └── index.js                  # Express API with /api/health
+    └── index.js                  # Express server (serves API and client/dist)
 ```
-
----
-
-## 🗺️ Architectural Planning Documents
-
-- 📘 [PROJECT.md](PROJECT.md): Scope, problem statements, constraints, and MVP definitions.
-- 📐 [ARCHITECTURE.md](ARCHITECTURE.md): Network diagrams, data flows, and security guidelines.
-- 🧭 [ROADMAP.md](ROADMAP.md): Next phases (Auth, PostgreSQL database, Gemini AI advisory).
-- ✅ [TASKS.md](TASKS.md): Step-by-step milestone checklist.
-- 🎓 [NIAT_MENTOR_PREPARATION.md](NIAT_MENTOR_PREPARATION.md): In-depth mentor playbook and technical drills.
