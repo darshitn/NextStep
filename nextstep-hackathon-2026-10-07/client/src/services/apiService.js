@@ -1,62 +1,118 @@
-// Unified Client API Service (Darshit's domain)
-// Integrates with fixture adapter during development, and delegates to Sankirth's
-// live client/src/lib/api.js once delivered.
+// Unified Client API Service
+// Connects client UI to liveApi adapter in client/src/lib/api.js.
+// Strictly uses real Supabase authentication; never runs fixture mode in production.
 
-import { apiFixture, DEMO_ACCOUNTS } from '../fixtures/apiFixture.js';
+import { liveApi } from '../lib/api.js';
 
-// Detect whether we are in fixture mode
-// Rule: In production build, never silently enter fixture mode.
-export const isFixtureMode = true; // Set to false once Sankirth delivers client/src/lib/api.js and client/src/lib/supabase.js
+// Rule: In production build, never silently or explicitly run in fixture mode.
+export const isFixtureMode = false;
 
 if (import.meta.env.PROD && isFixtureMode) {
-  console.warn('[NextStep] Running with fixture mode active. Live API adapter not yet wired.');
+  throw new Error('[NextStep] Fatal: Fixture mode is strictly forbidden in production builds.');
+}
+
+let sessionExpiredListeners = [];
+
+export function onSessionExpired(callback) {
+  sessionExpiredListeners.push(callback);
+  return () => {
+    sessionExpiredListeners = sessionExpiredListeners.filter(cb => cb !== callback);
+  };
+}
+
+function handleApiError(err) {
+  if (err?.status === 401 || err?.code === 'UNAUTHORIZED') {
+    sessionExpiredListeners.forEach(cb => cb(err));
+  }
+  // Re-throw so callers receive the exact error without fallback to fixtures
+  throw err;
 }
 
 export const apiService = {
   isFixtureMode,
-  demoAccounts: DEMO_ACCOUNTS,
+  demoAccounts: [], // Demo accounts removed from live mode
 
   async getCurrentUser() {
-    return apiFixture.getCurrentUser();
+    try {
+      return await liveApi.getCurrentUser();
+    } catch (err) {
+      return handleApiError(err);
+    }
   },
 
   async signIn(email, password) {
-    return apiFixture.signIn(email, password);
+    try {
+      return await liveApi.signIn(email, password);
+    } catch (err) {
+      return handleApiError(err);
+    }
   },
 
   async signOut() {
-    return apiFixture.signOut();
+    return liveApi.signOut();
   },
 
   async getHealth() {
-    return apiFixture.getHealth();
+    try {
+      return await liveApi.getHealth();
+    } catch (err) {
+      return handleApiError(err);
+    }
   },
 
   async getCatalog() {
-    return apiFixture.getCatalog();
+    try {
+      return await liveApi.getCatalog();
+    } catch (err) {
+      return handleApiError(err);
+    }
   },
 
   async getGoal() {
-    return apiFixture.getGoal();
+    try {
+      return await liveApi.getGoal();
+    } catch (err) {
+      return handleApiError(err);
+    }
   },
 
   async createGoal(payload) {
-    return apiFixture.createGoal(payload);
+    try {
+      return await liveApi.createGoal(payload);
+    } catch (err) {
+      return handleApiError(err);
+    }
   },
 
   async completeMission(payload) {
-    return apiFixture.completeMission(payload);
+    try {
+      return await liveApi.completeMission(payload);
+    } catch (err) {
+      return handleApiError(err);
+    }
   },
 
   async previewRecovery(payload) {
-    return apiFixture.previewRecovery(payload);
+    try {
+      return await liveApi.previewRecovery(payload);
+    } catch (err) {
+      return handleApiError(err);
+    }
   },
 
   async applyRecovery(payload) {
-    return apiFixture.applyRecovery(payload);
+    try {
+      return await liveApi.applyRecovery(payload);
+    } catch (err) {
+      return handleApiError(err);
+    }
   },
 
   async getGuidance(payload) {
-    return apiFixture.getGuidance(payload);
+    try {
+      return await liveApi.getGuidance(payload);
+    } catch (err) {
+      return handleApiError(err);
+    }
   }
 };

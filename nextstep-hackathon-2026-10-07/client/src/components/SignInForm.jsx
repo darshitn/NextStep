@@ -7,8 +7,8 @@ export default function SignInForm({ onSignIn, demoAccounts = [], isLoading = fa
 
   const handleSubmit = (e) => {
     e.preventDefault();
-    if (!email) return;
-    onSignIn(email, password || 'password123');
+    if (!email || !password) return;
+    onSignIn(email, password);
   };
 
   const handleSelectDemo = (demo) => {

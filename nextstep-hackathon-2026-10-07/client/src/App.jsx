@@ -7,7 +7,7 @@ import DashboardPage from './pages/DashboardPage.jsx';
 import RecoveryPage from './pages/RecoveryPage.jsx';
 import NotFoundPage from './pages/NotFoundPage.jsx';
 import LoadingState from './components/LoadingState.jsx';
-import { apiService, isFixtureMode } from './services/apiService.js';
+import { apiService, isFixtureMode, onSessionExpired } from './services/apiService.js';
 
 export default function App() {
   const navigate = useNavigate();
@@ -16,6 +16,17 @@ export default function App() {
   const [catalog, setCatalog] = useState(null);
   const [isAuthChecking, setIsAuthChecking] = useState(true);
   const [sessionExpired, setSessionExpired] = useState(false);
+
+  // Subscribe to session expiration events across all API requests
+  useEffect(() => {
+    const unsubscribe = onSessionExpired(() => {
+      setSessionExpired(true);
+      setUser(null);
+      setGoal(null);
+      navigate('/login');
+    });
+    return unsubscribe;
+  }, [navigate]);
 
   // Check existing session on load
   useEffect(() => {

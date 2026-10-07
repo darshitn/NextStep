@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Sparkles, HelpCircle, CheckCircle, ArrowRight, Loader2, X, RefreshCw } from 'lucide-react';
+import { Sparkles, HelpCircle, CheckCircle, ArrowRight, Loader2, X, RefreshCw, AlertCircle } from 'lucide-react';
 
 const CATEGORIES = [
   {
@@ -71,6 +71,28 @@ export default function GuidancePanel({
           </p>
         </div>
       </div>
+
+      {/* Honest AI Error Notice (e.g. AI_NOT_CONFIGURED from backend) */}
+      {error && (
+        <div className="p-3.5 rounded-xl bg-amber-950/40 border border-amber-500/40 text-xs text-amber-200 flex items-start gap-2.5 mb-4 shadow-sm">
+          <AlertCircle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
+          <div className="space-y-1">
+            <div className="flex items-center gap-2">
+              <span className="font-semibold text-amber-300">
+                AI Guidance Notice
+              </span>
+              {typeof error === 'object' && error.code && (
+                <span className="px-1.5 py-0.5 font-mono text-[10px] bg-amber-900/60 text-amber-300 rounded border border-amber-600/40">
+                  {error.code}
+                </span>
+              )}
+            </div>
+            <p className="text-amber-200/90 leading-relaxed">
+              {typeof error === 'string' ? error : error.message || 'AI guidance service is currently unavailable.'}
+            </p>
+          </div>
+        </div>
+      )}
 
       {/* Form section if no guidance yet or regenerating */}
       {!guidanceData && (

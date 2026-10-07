@@ -55,7 +55,10 @@ export default function OnboardingPage({ onGoalUpdated }) {
           console.error('Failed to reload existing goal:', reloadErr);
         }
       }
-      setError(err.message || 'Failed to initialize practice plan.');
+      const fieldDetails = Object.entries(err.fields || {})
+        .map(([field, message]) => `${field}: ${message}`)
+        .join(' ');
+      setError(fieldDetails || err.message || 'Failed to initialize practice plan.');
     } finally {
       setIsSubmitting(false);
     }
