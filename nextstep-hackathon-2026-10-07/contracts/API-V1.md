@@ -128,6 +128,20 @@ The numbers are illustrative; server computes real values. Actual schedule is co
 
 Recompute from the latest state; do not trust a client-provided schedule or finish date. Reject stale version or a preview from a different current local date with 409. Save state atomically, increment version once, return `{"data":{"goal":Goal}}` HTTP 200. In flexible mode this explicitly approved action can extend targetDate to proposedTargetDate. Fixed mode preserves targetDate and the warning. A repeated Apply with an old version returns 409; client reloads and asks for a fresh preview. No automatic retry that could overwrite another tab's work.
 
+## POST /api/goal/guidance — authenticated
+
+```json
+{"expectedVersion":2,"missionId":"m02","category":"too_difficult","feedback":"I do not understand how the index moves."}
+```
+
+HTTP 200:
+
+```json
+{"data":{"guidance":{"baseVersion":2,"missionId":"m02","mode":"guided_practice","explanation":"Use a small example to make each index change visible.","steps":["Write a short example array.","Trace each operation on paper.","Attempt the mission and check its completion criteria."],"checkQuestion":"What changes after the first operation?","source":"gemini"}}}
+```
+
+Authenticated read-only AI endpoint. Server validates that `expectedVersion` matches the current goal version, and that `missionId` is the next eligible incomplete mission. Completed goal returns 422 `NO_PENDING_MISSION`. Categories: `too_difficult`, `need_revision`, `ready_to_continue`. Feedback optional, max 280 chars. AI guidance is ephemeral and does not mutate the saved goal. Returns 502 on malformed AI output, 503 on provider unavailable, 504 on timeout.
+
 ## Client integration obligations
 
 - One `client/src/lib/api.js` adapter adds base URL, access token, JSON handling, and error translation.
