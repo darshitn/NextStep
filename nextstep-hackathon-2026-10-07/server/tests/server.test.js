@@ -474,4 +474,28 @@ describe('NextStep API & Integration Test Suite', () => {
     });
     assert.equal(resBadMission.status, 422);
   });
+
+  test('Goal rename persists, preserves progress and rejects stale or invalid changes', async () => {
+    const headers = { 'Content-Type': 'application/json', Authorization: 'Bearer user-1-token' };
+    const before = (await (await fetch(baseUrl + '/api/goal', {headers})).json()).data.goal;
+    const response = await fetch(baseUrl + '/api/goal', {method:'PATCH', headers, body:JSON.stringify({goalName:'  Prepare for my placement interview  ',expectedVersion:before.version})});
+    assert.equal(response.status,200);
+    const goal=(await response.json()).data.goal;
+    assert.equal(goal.goalName,'Prepare for my placement interview');
+    assert.equal(goal.version,before.version+1);
+    assert.deepEqual(goal.completions,before.completions);
+    assert.deepEqual(goal.schedule,before.schedule);
+    const reloaded=(await (await fetch(baseUrl+'/api/goal',{headers})).json()).data.goal;
+    assert.equal(reloaded.goalName,goal.goalName);
+    for (const name of [' ', 'x'.repeat(81)]) {
+      const bad=await fetch(baseUrl+'/api/goal',{method:'PATCH',headers,body:JSON.stringify({goalName:name,expectedVersion:goal.version})});
+      assert.equal(bad.status,422);
+    }
+    const stale=await fetch(baseUrl+'/api/goal',{method:'PATCH',headers,body:JSON.stringify({goalName:'Stale overwrite',expectedVersion:before.version})});
+    assert.equal(stale.status,409);
+    const anonymous=await fetch(baseUrl+'/api/goal',{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({goalName:'Anonymous',expectedVersion:goal.version})});
+    assert.equal(anonymous.status,401);
+    const preflight=await fetch(baseUrl+'/api/goal',{method:'OPTIONS',headers:{Origin:'http://localhost:5173','Access-Control-Request-Method':'PATCH'}});
+    assert.ok(preflight.headers.get('access-control-allow-methods').includes('PATCH'));
+  });
 });

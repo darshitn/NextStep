@@ -1,4 +1,5 @@
 import React from 'react';
+import { localDay } from '../services/activity.js';
 import { CheckCircle2, ExternalLink, HelpCircle, Sparkles, Clock, Check, Calendar, ArrowRight } from 'lucide-react';
 
 export default function MissionCard({
@@ -35,7 +36,7 @@ export default function MissionCard({
               </h3>
               {isCurrent && (
                 <span className="px-2 py-0.5 text-[10px] font-bold tracking-wider uppercase bg-brand-500/20 text-brand-300 rounded-full border border-brand-500/40">
-                  Today's Mission
+                  {scheduledDate === localDay() ? "Today's mission" : scheduledDate < localDay() ? 'Ready to resume' : 'Start early if you like'}
                 </span>
               )}
               {isCompleted && (

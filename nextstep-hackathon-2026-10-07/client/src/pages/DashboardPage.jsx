@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import ProgressSummary from '../components/ProgressSummary.jsx';
+import PracticeActivity from '../components/PracticeActivity.jsx';
+import { activityByDay } from '../services/activity.js';
 import MissionCard from '../components/MissionCard.jsx';
 import CompletionForm from '../components/CompletionForm.jsx';
 import GuidancePanel from '../components/GuidancePanel.jsx';
@@ -14,6 +16,21 @@ export default function DashboardPage({ goal, onGoalUpdated, catalog, onCatalogL
   const [isLoading, setIsLoading] = useState(!goal || !catalog);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [error, setError] = useState(null);
+  const [savedNotice, setSavedNotice] = useState('');
+  const [editingName, setEditingName] = useState(false);
+  const [draftName, setDraftName] = useState('');
+  const [savingName, setSavingName] = useState(false);
+  const saveName = async (event) => {
+    event.preventDefault();
+    setSavingName(true); setError(null);
+    try {
+      const response = await apiService.renameGoal({ goalName: draftName.trim(), expectedVersion: goal.version });
+      onGoalUpdated(response.data.goal);
+      setEditingName(false); setGuidanceData(null);
+      setSavedNotice('Goal name saved. Your missions and progress are unchanged.');
+    } catch (err) { setError(err.message || 'Could not save goal name.'); }
+    finally { setSavingName(false); }
+  };
 
   // Active mission interactive modals/panels
   const [activeCompletingMission, setActiveCompletingMission] = useState(null);
@@ -97,6 +114,7 @@ export default function DashboardPage({ goal, onGoalUpdated, catalog, onCatalogL
       if (res?.data?.goal) {
         onGoalUpdated(res.data.goal);
         setActiveCompletingMission(null);
+        setSavedNotice(`Saved. ${Object.keys(res.data.goal.completions || {}).length} of ${catalog.missions.length} missions complete. Your activity is updated below.`);
         // Ephemeral guidance invalidated upon completion of mission
         setGuidanceData(null);
         setActiveGuidanceMission(null);
@@ -153,25 +171,33 @@ export default function DashboardPage({ goal, onGoalUpdated, catalog, onCatalogL
 
   return (
     <div className="space-y-6 animate-fade-in">
+      {editingName && <form onSubmit={saveName} className="rounded-xl border border-slate-700 bg-slate-900 p-4 space-y-3">
+        <label htmlFor="rename-goal" className="block text-sm text-white">Your goal name</label>
+        <input id="rename-goal" required maxLength={80} value={draftName} onChange={e => setDraftName(e.target.value)} className="w-full rounded-lg bg-slate-950 border border-slate-600 p-3 text-white" />
+        <p className="text-xs text-slate-400">Naming your goal does not change the DSA Foundations curriculum.</p>
+        <button disabled={savingName || !draftName.trim()} className="px-4 py-2 bg-indigo-600 text-white rounded-lg disabled:opacity-50">{savingName ? 'Saving...' : 'Save goal name'}</button>
+        <button type="button" disabled={savingName} onClick={() => setEditingName(false)} className="ml-3 text-slate-300">Cancel</button>
+      </form>}
       {/* Top action row */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-2 border-b border-slate-800">
         <div>
           <h1 className="text-xl sm:text-2xl font-extrabold text-white tracking-tight">
-            Practice Dashboard
+            {goal.goalName || 'Build my DSA foundations'}
           </h1>
           <p className="text-xs text-slate-400 mt-0.5">
-            Today's manageable mission and persistent placement preparation horizon.
+            Your next step, your week, your progress. Current track: DSA Foundations.
           </p>
         </div>
 
         <div className="flex items-center gap-2.5 self-start sm:self-auto">
-          <button
+          <button onClick={() => { setDraftName(goal.goalName || 'Build my DSA foundations'); setEditingName(true); }} className="px-3 py-1.5 text-xs text-slate-200 rounded-xl border border-slate-700">Name my goal</button>
+          {goal.status !== 'completed' && <button
             onClick={() => navigate('/recovery')}
             className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-surface-100 hover:bg-surface-50 border border-slate-700/60 text-xs font-semibold text-slate-200 transition-all hover:border-brand-500/40"
           >
             <SlidersHorizontal className="w-3.5 h-3.5 text-brand-400" />
-            <span>Recalibrate Schedule</span>
-          </button>
+            <span>Adjust my week</span>
+          </button>}
 
           <button
             onClick={handleRefresh}
@@ -190,6 +216,7 @@ export default function DashboardPage({ goal, onGoalUpdated, catalog, onCatalogL
 
       {/* Progress Summary Card */}
       <ProgressSummary goal={goal} totalMissions={missions.length} />
+      {savedNotice && <p role="status" className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-200">{savedNotice}</p>}
 
       {/* Active Mission Section */}
       {currentMission ? (
@@ -197,11 +224,8 @@ export default function DashboardPage({ goal, onGoalUpdated, catalog, onCatalogL
           <div className="flex items-center justify-between">
             <h2 className="text-sm font-bold uppercase tracking-wider text-slate-200 flex items-center gap-2">
               <Compass className="w-4 h-4 text-brand-400" />
-              <span>Next Manageable Mission</span>
+              <span>Your next step</span>
             </h2>
-            <span className="text-xs text-slate-400 font-mono">
-              Version {goal.version}
-            </span>
           </div>
 
           <MissionCard
@@ -239,22 +263,24 @@ export default function DashboardPage({ goal, onGoalUpdated, catalog, onCatalogL
           <div className="w-12 h-12 rounded-full bg-emerald-500/20 text-emerald-400 flex items-center justify-center mx-auto">
             <CheckCircle2 className="w-6 h-6" />
           </div>
-          <h3 className="text-lg font-bold text-white">All 12 Starter Missions Completed!</h3>
+          <h3 className="text-lg font-bold text-white">DSA starter completed!</h3>
           <p className="text-xs sm:text-sm text-slate-400 max-w-md mx-auto">
-            Congratulations on completing the entire DSA Foundations starter module ({goal.xp} XP). You have built consistent practice momentum.
+            {missions.length} missions across {Object.keys(activityByDay(goal, missions)).length} active days. Review your practice and reflections below. This records self-reported practice, not verified interview readiness.
           </p>
         </div>
       )}
 
+      <PracticeActivity goal={goal} missions={missions} />
+
       {/* Full 12-Mission Curriculum Roadmap */}
-      <div className="space-y-4 pt-4 border-t border-slate-800">
-        <div className="flex items-center justify-between">
+      <details className="space-y-4 pt-4 border-t border-slate-800">
+        <summary className="flex items-center justify-between cursor-pointer rounded-lg focus-visible:outline focus-visible:outline-indigo-300">
           <h2 className="text-sm font-bold uppercase tracking-wider text-slate-200 flex items-center gap-2">
             <ListOrdered className="w-4 h-4 text-indigo-400" />
-            <span>Full 12-Mission Curriculum</span>
+            <span>Your {missions.length}-mission roadmap</span>
           </h2>
-          <span className="text-xs text-slate-500">Curated practice sequence</span>
-        </div>
+          <span className="text-xs text-slate-400">Expand to explore</span>
+        </summary>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
           {missions.map((mission) => {
@@ -277,7 +303,7 @@ export default function DashboardPage({ goal, onGoalUpdated, catalog, onCatalogL
             );
           })}
         </div>
-      </div>
+      </details>
 
       {/* Completion Modal */}
       {activeCompletingMission && (

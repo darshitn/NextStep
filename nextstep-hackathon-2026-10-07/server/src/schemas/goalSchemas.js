@@ -25,8 +25,12 @@ export const availabilitySchema = z.object({
 
 const isoDateRegex = /^\d{4}-\d{2}-\d{2}$/;
 
+export const goalNameSchema = z.string().trim().min(1).max(80);
+export const renameGoalSchema = z.object({ goalName: goalNameSchema, expectedVersion: z.number().int().positive() }).strict();
+
 export const createGoalSchema = z.object({
   creationRequestId: z.string().uuid(),
+  goalName: goalNameSchema.optional(),
   trackId: z.literal('dsa-starter-v1'),
   planStartDate: z.string().regex(isoDateRegex, 'Must be valid YYYY-MM-DD date'),
   targetDate: z.string().regex(isoDateRegex, 'Must be valid YYYY-MM-DD date'),

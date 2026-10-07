@@ -76,6 +76,10 @@ export const apiService = {
     }
   },
 
+  async renameGoal(payload) {
+    try { return await liveApi.renameGoal(payload); } catch (err) { return handleApiError(err); }
+  },
+
   async createGoal(payload) {
     try {
       return await liveApi.createGoal(payload);

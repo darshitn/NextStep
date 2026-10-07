@@ -152,3 +152,6 @@ Authenticated read-only AI endpoint. Server validates that `expectedVersion` mat
 - On 401 show session-expired/sign-in. On 409 reload the goal and invalidate any preview.
 - On network error retain the form, show failure, allow explicit retry/load-current-state.
 - Fixture-only development must carry a visible FIXTURE MODE badge and be disabled for production builds.
+
+## Personal goal name extension (7 October 2026)
+Create accepts optional `goalName` (trimmed 1-80 characters). Existing goals display a fallback name. Authenticated PATCH /api/goal accepts `{goalName, expectedVersion}` and returns `{data:{goal}}`. Saving increments version with compare-and-set; schedule and completions remain unchanged. Names live in state JSONB; no migration. Renaming does not generate a curriculum: DSA Foundations remains the only supported track.

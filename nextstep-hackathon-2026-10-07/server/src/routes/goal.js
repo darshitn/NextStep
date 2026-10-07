@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { catalogData } from './catalog.js';
 import {
   createGoalSchema,
+  renameGoalSchema,
   completeMissionSchema,
   recoveryPreviewSchema,
   recoveryApplySchema,
@@ -43,6 +44,25 @@ router.get('/', async (req, res, next) => {
   } catch (err) {
     next(err);
   }
+});
+
+// PATCH /api/goal - Rename without changing schedule or completion history.
+router.patch('/', async (req, res, next) => {
+  try {
+    const parsed = renameGoalSchema.safeParse(req.body);
+    if (!parsed.success) return res.status(422).json({ error: { code: 'VALIDATION_ERROR', message: 'Enter a goal name of 1 to 80 characters and a valid version.' } });
+    const { data: row, error } = await req.supabase.from('nextstep_goals').select('*').maybeSingle();
+    if (error) return res.status(503).json({ error: { code: 'DATABASE_ERROR', message: 'Could not load your goal. Please retry.' } });
+    if (!row) return res.status(404).json({ error: { code: 'GOAL_NOT_FOUND', message: 'Create your goal first.' } });
+    if (row.version !== parsed.data.expectedVersion) return res.status(409).json({ error: { code: 'VERSION_CONFLICT', message: 'Your goal changed. Refresh and try again.' } });
+    const now = new Date().toISOString();
+    const state = { ...row.state, goalName: parsed.data.goalName, version: row.version + 1, updatedAt: now };
+    const { data: saved, error: saveError } = await req.supabase.from('nextstep_goals')
+      .update({ state, version: state.version, updated_at: now }).eq('id', row.id).eq('version', row.version).select();
+    if (saveError) return res.status(503).json({ error: { code: 'DATABASE_ERROR', message: 'Could not save your goal name. Please retry.' } });
+    if (!saved?.length) return res.status(409).json({ error: { code: 'VERSION_CONFLICT', message: 'Your goal changed. Refresh and try again.' } });
+    return res.json({ data: { goal: deriveGoalStats(state, catalogData) } });
+  } catch (err) { next(err); }
 });
 
 // POST /api/goal - Idempotent goal creation
@@ -102,6 +122,7 @@ router.post('/', async (req, res, next) => {
       version: 1,
       creationRequestId: payload.creationRequestId,
       trackId: payload.trackId,
+      goalName: payload.goalName || 'Build my DSA foundations',
       planStartDate: payload.planStartDate,
       targetDate: payload.targetDate,
       deadlineMode: payload.deadlineMode,

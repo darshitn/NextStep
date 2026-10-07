@@ -116,6 +116,10 @@ export const liveApi = {
     return request('/goal', { method: 'GET' });
   },
 
+  async renameGoal(payload) {
+    return request('/goal', { method: 'PATCH', body: payload });
+  },
+
   async createGoal(payload) {
     return request('/goal', {
       method: 'POST',

@@ -23,6 +23,7 @@ export default function GoalForm({ onSubmit, isLoading = false, error = null }) 
   const today = getTodayStr();
   const defaultTarget = addDaysStr(today, 30);
 
+  const [goalName, setGoalName] = useState('Prepare for my first placement interview');
   const [planStartDate, setPlanStartDate] = useState(today);
   const [targetDate, setTargetDate] = useState(defaultTarget);
   const [deadlineMode, setDeadlineMode] = useState('flexible');
@@ -57,6 +58,7 @@ export default function GoalForm({ onSubmit, isLoading = false, error = null }) 
 
     onSubmit({
       creationRequestId,
+      goalName: goalName.trim(),
       trackId: 'dsa-starter-v1',
       planStartDate,
       targetDate,
@@ -70,15 +72,20 @@ export default function GoalForm({ onSubmit, isLoading = false, error = null }) 
     <div className="max-w-2xl w-full mx-auto space-y-6">
       <div className="text-center space-y-2">
         <h1 className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">
-          Initialize Your DSA Practice Goal
+          A big goal. A doable next step.
         </h1>
         <p className="text-sm text-slate-400">
-          Configure realistic start dates and daily time blocks for the 12-mission DSA Foundations Starter.
+          Name your goal, choose your time, and build a routine you can keep.
         </p>
       </div>
 
       <div className="glass-panel rounded-2xl p-6 sm:p-8 shadow-glass space-y-6">
         <form onSubmit={handleSubmit} className="space-y-6">
+          <div>
+            <label htmlFor="goal-name" className="block text-sm font-semibold text-white mb-2">What are you working toward?</label>
+            <input id="goal-name" required maxLength={80} value={goalName} onChange={e => setGoalName(e.target.value)} pattern=".*\S.*" className="w-full rounded-xl bg-slate-900 border border-slate-600 px-4 py-3 text-white" />
+            <p className="text-xs text-slate-400 mt-2">Your goal name is personal. This MVP provides DSA Foundations missions; other learning tracks are not available yet.</p>
+          </div>
           {/* Selected Track Banner */}
           <div className="p-4 rounded-xl bg-surface-100/90 border border-slate-700/60 flex items-center justify-between">
             <div>

@@ -40,7 +40,7 @@ export default function AppShell({ user, onSignOut, isFixtureMode = true, sessio
                 </span>
               )}
             </div>
-            <p className="text-[11px] text-slate-400 hidden sm:block">DSA Placement Copilot</p>
+            <p className="text-[11px] text-slate-400 hidden sm:block">Your goal, one doable step at a time</p>
           </div>
         </div>
 
@@ -84,7 +84,7 @@ export default function AppShell({ user, onSignOut, isFixtureMode = true, sessio
       {/* Footer */}
       <footer className="border-t border-slate-800/80 glass-panel py-6 px-4 text-center text-xs text-slate-500">
         <div className="max-w-4xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-3">
-          <p>© 2026 NextStep. Curated DSA starter practice for campus placement preparation.</p>
+          <p>© 2026 NextStep. Small steps. Real progress. Current track: DSA Foundations.</p>
           <div className="flex items-center gap-4 text-slate-400">
             <span>Deterministic Scheduler</span>
             <span>•</span>

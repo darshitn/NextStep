@@ -25,7 +25,7 @@ export default function SignInForm({ onSignIn, demoAccounts = [], isLoading = fa
           Welcome to NextStep
         </h1>
         <p className="text-sm text-slate-400">
-          Personalized DSA placement preparation that adapts when your schedule changes.
+          Make time for your goal, one manageable step at a time. Start with our DSA Foundations track.
         </p>
       </div>
 
