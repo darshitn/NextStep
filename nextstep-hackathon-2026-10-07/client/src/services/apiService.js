@@ -48,6 +48,18 @@ export const apiService = {
     }
   },
 
+  async signUp(email, password, metadata) {
+    try {
+      return await liveApi.signUp(email, password, metadata);
+    } catch (err) {
+      return handleApiError(err);
+    }
+  },
+
+  checkAuthFromUrl() {
+    return liveApi.checkAuthFromUrl();
+  },
+
   async signOut() {
     return liveApi.signOut();
   },
@@ -118,5 +130,22 @@ export const apiService = {
     } catch (err) {
       return handleApiError(err);
     }
+  },
+
+  async saveLearningContext(payload) {
+    try {
+      return await liveApi.saveLearningContext(payload);
+    } catch (err) {
+      return handleApiError(err);
+    }
+  },
+
+  async submitLearningCheck(payload) {
+    try {
+      return await liveApi.submitLearningCheck(payload);
+    } catch (err) {
+      return handleApiError(err);
+    }
   }
 };
+

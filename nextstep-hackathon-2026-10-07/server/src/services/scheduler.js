@@ -94,6 +94,7 @@ export function deriveGoalStats(rawGoal, catalog) {
 
   return {
     ...rawGoal,
+    learning: rawGoal.learning || {},
     xp,
     level,
     remainingMinutes,

@@ -155,3 +155,104 @@ Authenticated read-only AI endpoint. Server validates that `expectedVersion` mat
 
 ## Personal goal name extension (7 October 2026)
 Create accepts optional `goalName` (trimmed 1-80 characters). Existing goals display a fallback name. Authenticated PATCH /api/goal accepts `{goalName, expectedVersion}` and returns `{data:{goal}}`. Saving increments version with compare-and-set; schedule and completions remain unchanged. Names live in state JSONB; no migration. Renaming does not generate a curriculum: DSA Foundations remains the only supported track.
+
+## DSA Learning Loop extension (7 October 2026)
+
+### Data model
+Persisted inside `goal.state.learning[missionId]` (empty object default for existing goals):
+```json
+{
+  "missionId": "m02",
+  "category": "too_difficult",
+  "whatTried": "Traced linear search on paper with [4, 1, 8, 3].",
+  "whereStuck": "Confused why worst case is 4 comparisons instead of 3.",
+  "selfReportedStatus": "still_unsure",
+  "dismissed": false,
+  "guidance": {
+    "questionId": "q_m02_trace_search",
+    "questionText": "Trace a linear search for target 8 in [4, 1, 8, 3]. How many comparisons are made, and what is the worst-case number of comparisons if the target is absent?",
+    "mode": "guided_practice",
+    "explanation": "...",
+    "steps": ["..."],
+    "generatedAt": "2026-10-07T12:00:00.000Z"
+  },
+  "assessment": {
+    "questionId": "q_m02_trace_search",
+    "answer": "It takes 3 comparisons to find 8, but if absent it compares with all 4 elements.",
+    "status": "on_track",
+    "explanation": "Spot on. Unsorted search requires checking every element to confirm absence.",
+    "nextStep": "Trace what happens if target is at index 0.",
+    "assessedAt": "2026-10-07T12:05:00.000Z",
+    "source": "gemini"
+  },
+  "updatedAt": "2026-10-07T12:05:00.000Z"
+}
+```
+
+### POST /api/goal/learning/context — authenticated
+Save or edit blocker context for a mission without requiring AI generation.
+```json
+{
+  "expectedVersion": 2,
+  "missionId": "m02",
+  "category": "too_difficult",
+  "whatTried": "Traced linear search by hand.",
+  "whereStuck": "Not sure why comparison count varies.",
+  "selfReportedStatus": "still_unsure",
+  "dismissed": false
+}
+```
+Validation:
+- `expectedVersion`: integer >= 1
+- `missionId`: string, known in track
+- `category`: `too_difficult` | `need_revision` | `ready_to_continue`
+- `whatTried`: optional string <= 280 chars
+- `whereStuck`: optional string <= 280 chars
+- `selfReportedStatus`: optional enum `still_unsure` | `ready_to_continue`
+- `dismissed`: optional boolean
+
+HTTP 200: `{"data":{"goal":Goal}}`. Atomically updates `goal.state.learning[missionId]` and increments `version`. Stale version returns 409 `VERSION_CONFLICT`.
+
+### POST /api/goal/learning/check — authenticated
+Submit student's understanding check answer for AI assessment against the server's reference rubric.
+```json
+{
+  "expectedVersion": 3,
+  "missionId": "m02",
+  "questionId": "q_m02_trace_search",
+  "answer": "3 comparisons for 8, and 4 comparisons when absent.",
+  "selfReportedStatus": "ready_to_continue"
+}
+```
+Validation:
+- `expectedVersion`: integer >= 1
+- `missionId`: known mission in track
+- `questionId`: string, must match server-authoritative question for `missionId`. Mismatched or unsupported returns 422 `INVALID_QUESTION_ID`.
+- `answer`: string, 1 to 1000 characters
+- `selfReportedStatus`: optional enum `still_unsure` | `ready_to_continue`
+
+HTTP 200:
+```json
+{
+  "data": {
+    "goal": Goal,
+    "assessment": {
+      "missionId": "m02",
+      "questionId": "q_m02_trace_search",
+      "status": "on_track",
+      "explanation": "Correctly notes 3 comparisons for index 2 and 4 comparisons across the full array when absent.",
+      "nextStep": "Implement the search function in your practice session.",
+      "source": "gemini"
+    }
+  }
+}
+```
+Assessment statuses: `on_track`, `needs_another_try`, `uncertain`.
+Assessment answers and coaching signals NEVER complete the mission or award XP. Atomically saves into `goal.state.learning[missionId].assessment` and increments `version`. Returns 409 on stale version, 502 on malformed AI output, 503 on provider unavailable, 504 on timeout. Preserves student answer in client on failure.
+
+### Curated check missions
+Three representative missions have server-curated questions and reference rubrics:
+1. `m02`: Linear search comparisons (target 8 vs absent worst case in `[4, 1, 8, 3]`). Question ID: `q_m02_trace_search`.
+2. `m04`: Set-based duplicate detection (trace `[2, 5, 2]`, index detected and contents immediately prior). Question ID: `q_m04_duplicate_set`.
+3. `m06`: Two Sum hash map (target 9 on `[2, 7, 11, 15]`, complement lookup key and insertion order rationale). Question ID: `q_m06_hash_map_twosum`.
+Other missions retain open-ended practice guidance without curated question rubrics.

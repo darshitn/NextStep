@@ -6,3 +6,13 @@
 .ns-dot-plan {border-radius:0!important}
 .ns-heat-cell {max-height:30px}
 .ns-activity-note {margin-top:20px}
+
+@media(max-width:480px){
+  .ns-calendar,.ns-activity{padding:14px 10px}
+  .ns-week{gap:4px}
+  .ns-day{padding:8px 1px;border-radius:8px}
+  .ns-day strong{font-size:14px}
+  .ns-day>span:first-child{font-size:9px}
+  .ns-heat-wrap{margin:16px 0 8px;gap:6px}
+  .ns-heat-grid{gap:4px}
+}

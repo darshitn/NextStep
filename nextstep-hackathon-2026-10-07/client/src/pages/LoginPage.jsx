@@ -1,13 +1,20 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import SignInForm from '../components/SignInForm.jsx';
-import ErrorNotice from '../components/ErrorNotice.jsx';
 import { apiService } from '../services/apiService.js';
 
 export default function LoginPage({ onUserAuthenticated }) {
   const navigate = useNavigate();
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState(null);
+
+  // Check URL on mount for email confirmation errors
+  useEffect(() => {
+    const urlCheck = apiService.checkAuthFromUrl?.();
+    if (urlCheck?.error) {
+      setError(`Email confirmation notice: ${urlCheck.error}`);
+    }
+  }, []);
 
   const handleSignIn = async (email, password) => {
     setIsLoading(true);
@@ -31,11 +38,35 @@ export default function LoginPage({ onUserAuthenticated }) {
     }
   };
 
+  const handleSignUp = async (email, password, { fullName } = {}) => {
+    setIsLoading(true);
+    setError(null);
+    try {
+      const result = await apiService.signUp(email, password, { fullName });
+
+      // Outcome B: Confirmation required, no session returned
+      if (result.confirmationRequired) {
+        return { confirmationRequired: true };
+      }
+
+      // Outcome A: Session returned directly (auto-confirm enabled)
+      onUserAuthenticated(result.user);
+      navigate('/onboarding');
+      return { confirmationRequired: false };
+    } catch (err) {
+      console.error('Sign up error:', err);
+      setError(err.message || 'Failed to create student account.');
+      throw err;
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   return (
     <div className="py-8 sm:py-16 flex flex-col items-center justify-center">
       <SignInForm
         onSignIn={handleSignIn}
-        demoAccounts={apiService.demoAccounts}
+        onSignUp={handleSignUp}
         isLoading={isLoading}
         error={error}
       />

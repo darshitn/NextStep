@@ -97,5 +97,35 @@ export const guidanceSchema = z.object({
   expectedVersion: z.number().int().positive(),
   missionId: z.string().min(1),
   category: z.enum(['too_difficult', 'need_revision', 'ready_to_continue']),
-  feedback: z.string().max(280).nullable().optional()
+  feedback: z.string().max(280).nullable().optional(),
+  whatTried: z.string().max(280).nullable().optional(),
+  whereStuck: z.string().max(280).nullable().optional()
 }).strict();
+
+export const saveLearningContextSchema = z.object({
+  expectedVersion: z.number().int().positive(),
+  missionId: z.string().min(1),
+  category: z.enum(['too_difficult', 'need_revision', 'ready_to_continue']).optional(),
+  whatTried: z.string().max(280).nullable().optional(),
+  whereStuck: z.string().max(280).nullable().optional(),
+  selfReportedStatus: z.enum(['still_unsure', 'ready_to_continue']).optional(),
+  dismissed: z.boolean().optional(),
+  guidance: z.object({
+    questionId: z.string().nullable().optional(),
+    questionText: z.string().max(300).optional(),
+    checkQuestion: z.string().max(300).optional(),
+    mode: z.string().optional(),
+    explanation: z.string().max(500).optional(),
+    steps: z.array(z.string().max(250)).optional(),
+    source: z.string().optional()
+  }).nullable().optional()
+}).strict();
+
+export const submitLearningCheckSchema = z.object({
+  expectedVersion: z.number().int().positive(),
+  missionId: z.string().min(1),
+  questionId: z.string().min(1),
+  answer: z.string().min(1, 'Answer cannot be empty').max(1000, 'Answer cannot exceed 1000 characters'),
+  selfReportedStatus: z.enum(['still_unsure', 'ready_to_continue']).optional()
+}).strict();
+

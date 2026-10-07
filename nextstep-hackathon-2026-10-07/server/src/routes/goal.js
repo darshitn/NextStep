@@ -6,7 +6,9 @@ import {
   completeMissionSchema,
   recoveryPreviewSchema,
   recoveryApplySchema,
-  guidanceSchema
+  guidanceSchema,
+  saveLearningContextSchema,
+  submitLearningCheckSchema
 } from '../schemas/goalSchemas.js';
 import {
   getTodayKolkata,
@@ -14,8 +16,9 @@ import {
   deriveGoalStats
 } from '../services/scheduler.js';
 import { isAiConfigured, getMissingAiConfig } from '../config.js';
-import { generateGeminiGuidance } from '../services/guidance.js';
+import { generateGeminiGuidance, assessUnderstandingAnswer } from '../services/guidance.js';
 import { checkRateLimit } from '../services/rateLimiter.js';
+import { getCuratedCheckForMission } from '../services/curatedChecks.js';
 
 const router = Router();
 
@@ -549,7 +552,7 @@ router.post('/guidance', async (req, res, next) => {
       });
     }
 
-    const { expectedVersion, missionId, category, feedback } = parseResult.data;
+    const { expectedVersion, missionId, category, feedback, whatTried, whereStuck } = parseResult.data;
 
     // 2. Per-user rate limiting (sliding window: 5 requests per 60s)
     const rateLimitKey = req.user?.id || req.ip;
@@ -634,6 +637,8 @@ router.post('/guidance', async (req, res, next) => {
       prereqId => Boolean(goal.completions?.[prereqId])
     );
 
+    const curatedCheck = getCuratedCheckForMission(missionId);
+
     // 7. Generate guidance with bounded timeout
     let guidanceResult;
     try {
@@ -644,7 +649,10 @@ router.post('/guidance', async (req, res, next) => {
           availability: goal.availability,
           remainingMinutes: goal.remainingMinutes,
           category,
-          feedback
+          feedback,
+          whatTried,
+          whereStuck,
+          curatedCheck
         });
       } else {
         guidanceResult = await generateGeminiGuidance({
@@ -654,6 +662,9 @@ router.post('/guidance', async (req, res, next) => {
           remainingMinutes: goal.remainingMinutes,
           category,
           feedback,
+          whatTried,
+          whereStuck,
+          curatedCheck,
           clientOverride: req.app.locals.mockGoogleGenAIClient || null
         });
       }
@@ -717,6 +728,398 @@ router.post('/guidance', async (req, res, next) => {
           explanation: guidanceResult.explanation,
           steps: guidanceResult.steps,
           checkQuestion: guidanceResult.checkQuestion,
+          questionText: guidanceResult.checkQuestion,
+          questionId: curatedCheck ? curatedCheck.questionId : null,
+          source: 'gemini'
+        }
+      }
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// POST /api/goal/learning/context - Save or update blocker context
+router.post('/learning/context', async (req, res, next) => {
+  try {
+    const parseResult = saveLearningContextSchema.safeParse(req.body);
+    if (!parseResult.success) {
+      const fields = {};
+      parseResult.error.issues.forEach(i => {
+        fields[i.path.join('.')] = i.message;
+      });
+      return res.status(422).json({
+        error: {
+          code: 'VALIDATION_ERROR',
+          message: 'Invalid learning context payload.',
+          fields
+        }
+      });
+    }
+
+    const { expectedVersion, missionId, category, whatTried, whereStuck, selfReportedStatus, dismissed, guidance } = parseResult.data;
+
+    const { data: row, error: findError } = await req.supabase
+      .from('nextstep_goals')
+      .select('*')
+      .maybeSingle();
+
+    if (findError) {
+      return res.status(503).json({
+        error: {
+          code: 'DATABASE_ERROR',
+          message: findError.message || 'Database service unavailable.'
+        }
+      });
+    }
+
+    if (!row) {
+      return res.status(404).json({
+        error: {
+          code: 'GOAL_NOT_FOUND',
+          message: 'No active goal found.'
+        }
+      });
+    }
+
+    if (row.version !== expectedVersion) {
+      return res.status(409).json({
+        error: {
+          code: 'VERSION_CONFLICT',
+          message: 'Goal version changed. Refresh to view latest plan.'
+        }
+      });
+    }
+
+    const mission = catalogData.missions.find(m => m.id === missionId);
+    if (!mission) {
+      return res.status(404).json({
+        error: {
+          code: 'MISSION_NOT_FOUND',
+          message: `Mission with ID "${missionId}" does not exist in track.`
+        }
+      });
+    }
+
+    const existingLearning = row.state.learning || {};
+    const currentMissionRecord = existingLearning[missionId] || {};
+    const nowIso = new Date().toISOString();
+
+    let normalizedGuidance = currentMissionRecord.guidance || null;
+    if (guidance !== undefined) {
+      if (guidance === null) {
+        normalizedGuidance = null;
+      } else {
+        const qText = guidance.questionText || guidance.checkQuestion || null;
+        normalizedGuidance = {
+          ...guidance,
+          questionText: qText,
+          checkQuestion: qText
+        };
+      }
+    }
+
+    const updatedMissionRecord = {
+      ...currentMissionRecord,
+      missionId,
+      category: category || currentMissionRecord.category || 'too_difficult',
+      whatTried: whatTried !== undefined ? (whatTried ? whatTried.slice(0, 280) : null) : (currentMissionRecord.whatTried || null),
+      whereStuck: whereStuck !== undefined ? (whereStuck ? whereStuck.slice(0, 280) : null) : (currentMissionRecord.whereStuck || null),
+      selfReportedStatus: selfReportedStatus || currentMissionRecord.selfReportedStatus || 'still_unsure',
+      dismissed: dismissed !== undefined ? dismissed : (currentMissionRecord.dismissed || false),
+      guidance: normalizedGuidance,
+      updatedAt: nowIso
+    };
+
+    const newVersion = row.version + 1;
+    const updatedState = {
+      ...row.state,
+      version: newVersion,
+      learning: {
+        ...existingLearning,
+        [missionId]: updatedMissionRecord
+      },
+      updatedAt: nowIso
+    };
+
+    const { data: updatedRows, error: updateError } = await req.supabase
+      .from('nextstep_goals')
+      .update({
+        version: newVersion,
+        state: updatedState,
+        updated_at: nowIso
+      })
+      .eq('id', row.id)
+      .eq('version', row.version)
+      .select();
+
+    if (updateError) {
+      return res.status(503).json({
+        error: {
+          code: 'DATABASE_ERROR',
+          message: updateError.message || 'Database update failed.'
+        }
+      });
+    }
+
+    if (!updatedRows || updatedRows.length === 0) {
+      return res.status(409).json({
+        error: {
+          code: 'VERSION_CONFLICT',
+          message: 'Goal was modified concurrently. Refresh to view latest plan.'
+        }
+      });
+    }
+
+    return res.status(200).json({
+      data: {
+        goal: deriveGoalStats(updatedState, catalogData),
+        learningRecord: updatedMissionRecord
+      }
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// POST /api/goal/learning/check - Submit student understanding check answer for AI assessment
+router.post('/learning/check', async (req, res, next) => {
+  try {
+    const parseResult = submitLearningCheckSchema.safeParse(req.body);
+    if (!parseResult.success) {
+      const fields = {};
+      parseResult.error.issues.forEach(i => {
+        fields[i.path.join('.')] = i.message;
+      });
+      return res.status(422).json({
+        error: {
+          code: 'VALIDATION_ERROR',
+          message: 'Invalid understanding check submission.',
+          fields
+        }
+      });
+    }
+
+    const { expectedVersion, missionId, questionId, answer, selfReportedStatus } = parseResult.data;
+
+    // Per-user rate limiting (sliding window: 5 requests per 60s)
+    const rateLimitKey = req.user?.id || req.ip;
+    const rateLimit = checkRateLimit(rateLimitKey);
+    if (!rateLimit.allowed) {
+      res.set('Retry-After', String(rateLimit.retryAfterSeconds));
+      return res.status(429).json({
+        error: {
+          code: 'RATE_LIMIT_EXCEEDED',
+          message: `Too many check submissions. Please wait ${rateLimit.retryAfterSeconds}s before trying again.`
+        }
+      });
+    }
+
+    const { data: row, error: findError } = await req.supabase
+      .from('nextstep_goals')
+      .select('*')
+      .maybeSingle();
+
+    if (findError) {
+      return res.status(503).json({
+        error: {
+          code: 'DATABASE_ERROR',
+          message: findError.message || 'Database service unavailable.'
+        }
+      });
+    }
+
+    if (!row) {
+      return res.status(404).json({
+        error: {
+          code: 'GOAL_NOT_FOUND',
+          message: 'No active goal found.'
+        }
+      });
+    }
+
+    if (row.version !== expectedVersion) {
+      return res.status(409).json({
+        error: {
+          code: 'VERSION_CONFLICT',
+          message: 'Goal version changed. Refresh to view latest plan.'
+        }
+      });
+    }
+
+    const mission = catalogData.missions.find(m => m.id === missionId);
+    if (!mission) {
+      return res.status(404).json({
+        error: {
+          code: 'MISSION_NOT_FOUND',
+          message: `Mission with ID "${missionId}" does not exist in track.`
+        }
+      });
+    }
+
+    // Verify curated check question matches
+    const curatedCheck = getCuratedCheckForMission(missionId);
+    if (!curatedCheck || curatedCheck.questionId !== questionId) {
+      return res.status(422).json({
+        error: {
+          code: 'INVALID_QUESTION_ID',
+          message: `Mission "${missionId}" does not have curated check question "${questionId}".`
+        }
+      });
+    }
+
+    // Check provider configuration (unless custom mock is injected)
+    if (!req.app.locals.mockAssessmentService && !isAiConfigured()) {
+      const missing = getMissingAiConfig();
+      return res.status(503).json({
+        error: {
+          code: 'AI_NOT_CONFIGURED',
+          message: `AI guidance is not available yet. Populate ${missing.join(' and ')} in server/.env.`
+        }
+      });
+    }
+
+    let assessmentResult;
+    try {
+      if (req.app.locals.mockAssessmentService) {
+        assessmentResult = await req.app.locals.mockAssessmentService({
+          mission,
+          questionId,
+          questionText: curatedCheck.questionText,
+          rubric: curatedCheck.rubric,
+          answer
+        });
+      } else {
+        assessmentResult = await assessUnderstandingAnswer({
+          mission,
+          questionId,
+          questionText: curatedCheck.questionText,
+          rubric: curatedCheck.rubric,
+          answer,
+          clientOverride: req.app.locals.mockGoogleGenAIClient || null
+        });
+      }
+    } catch (genErr) {
+      if (genErr.code === 'AI_TIMEOUT' || genErr.status === 504) {
+        return res.status(504).json({
+          error: {
+            code: 'AI_TIMEOUT',
+            message: 'AI assessment request timed out. Your saved plan is unchanged.'
+          }
+        });
+      }
+      if (genErr.code === 'INVALID_AI_OUTPUT' || genErr.status === 502) {
+        return res.status(502).json({
+          error: {
+            code: 'INVALID_AI_OUTPUT',
+            message: 'AI service returned an unparseable response. Please try again.'
+          }
+        });
+      }
+      if (genErr.code === 'AI_SERVICE_UNAVAILABLE' || genErr.status === 503) {
+        return res.status(503).json({
+          error: {
+            code: 'AI_SERVICE_UNAVAILABLE',
+            message: 'AI assessment service is temporarily unavailable. Please try again later.'
+          }
+        });
+      }
+      throw genErr;
+    }
+
+    // Concurrency check before mutation
+    const { data: freshRow, error: recheckError } = await req.supabase
+      .from('nextstep_goals')
+      .select('version')
+      .maybeSingle();
+
+    if (recheckError) {
+      const err = new Error(recheckError.message);
+      err.status = 503;
+      err.code = 'DATABASE_ERROR';
+      throw err;
+    }
+
+    if (!freshRow || freshRow.version !== expectedVersion) {
+      return res.status(409).json({
+        error: {
+          code: 'VERSION_CONFLICT',
+          message: 'Goal version changed while assessing answer. Refresh to view latest plan.'
+        }
+      });
+    }
+
+    const existingLearning = row.state.learning || {};
+    const currentMissionRecord = existingLearning[missionId] || {};
+    const nowIso = new Date().toISOString();
+
+    const updatedAssessment = {
+      questionId,
+      answer: String(answer).slice(0, 1000),
+      status: assessmentResult.status,
+      explanation: assessmentResult.explanation,
+      nextStep: assessmentResult.nextStep,
+      assessedAt: nowIso,
+      source: 'gemini'
+    };
+
+    const updatedMissionRecord = {
+      ...currentMissionRecord,
+      missionId,
+      selfReportedStatus: selfReportedStatus || currentMissionRecord.selfReportedStatus || 'still_unsure',
+      assessment: updatedAssessment,
+      updatedAt: nowIso
+    };
+
+    const newVersion = row.version + 1;
+    const updatedState = {
+      ...row.state,
+      version: newVersion,
+      learning: {
+        ...existingLearning,
+        [missionId]: updatedMissionRecord
+      },
+      updatedAt: nowIso
+    };
+
+    const { data: updatedRows, error: updateError } = await req.supabase
+      .from('nextstep_goals')
+      .update({
+        version: newVersion,
+        state: updatedState,
+        updated_at: nowIso
+      })
+      .eq('id', row.id)
+      .eq('version', row.version)
+      .select();
+
+    if (updateError) {
+      return res.status(503).json({
+        error: {
+          code: 'DATABASE_ERROR',
+          message: updateError.message || 'Database update failed.'
+        }
+      });
+    }
+
+    if (!updatedRows || updatedRows.length === 0) {
+      return res.status(409).json({
+        error: {
+          code: 'VERSION_CONFLICT',
+          message: 'Goal was modified concurrently. Refresh to view latest plan.'
+        }
+      });
+    }
+
+    return res.status(200).json({
+      data: {
+        goal: deriveGoalStats(updatedState, catalogData),
+        assessment: {
+          missionId,
+          questionId,
+          status: assessmentResult.status,
+          explanation: assessmentResult.explanation,
+          nextStep: assessmentResult.nextStep,
           source: 'gemini'
         }
       }

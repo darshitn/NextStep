@@ -1,35 +1,300 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
-:root {
- color-scheme: light;
- --page: 246 246 246; --surface: 255 255 255; --soft: 242 242 242; --border: 224 224 224;
- --ink: 23 23 23; --muted: 100 100 100; --accent: 24 24 24; --inverse: 255 255 255;
- --heat1: 180 180 180; --heat2: 100 100 100; --heat3: 30 30 30;
+
+/* -------------------------------------------------------------
+   THREE DISTINCT APPEARANCE STYLES × LIGHT & DARK MODES
+   Frosted Sage (Default), Study Journal, Quiet Focus
+   ------------------------------------------------------------- */
+
+/* 1. Frosted Sage — Light Mode (Default) */
+:root,
+:root[data-style='frosted-sage'] {
+  color-scheme: light;
+  --page: 245 247 245;
+  --surface: 255 255 255;
+  --soft: 238 243 240;
+  --border: 218 227 222;
+  --ink: 24 36 31;
+  --muted: 92 108 101;
+  --accent: 45 106 79;
+  --inverse: 255 255 255;
+  --heat1: 195 218 205;
+  --heat2: 116 172 142;
+  --heat3: 45 106 79;
 }
-:root[data-theme='dark'] {
- color-scheme: dark;
- --page: 12 12 12; --surface: 20 20 20; --soft: 30 30 30; --border: 52 52 52;
- --ink: 242 242 242; --muted: 165 165 165; --accent: 240 240 240; --inverse: 20 20 20;
- --heat1: 90 90 90; --heat2: 160 160 160; --heat3: 235 235 235;
+
+/* 1. Frosted Sage — Dark Mode */
+:root[data-theme='dark'],
+:root[data-theme='dark'][data-style='frosted-sage'] {
+  color-scheme: dark;
+  --page: 16 22 19;
+  --surface: 23 31 27;
+  --soft: 32 44 38;
+  --border: 48 64 56;
+  --ink: 238 245 241;
+  --muted: 152 171 163;
+  --accent: 82 183 136;
+  --inverse: 16 22 19;
+  --heat1: 36 58 46;
+  --heat2: 58 112 84;
+  --heat3: 82 183 136;
 }
-body {margin:0;font-family:Inter,system-ui,sans-serif;background:rgb(var(--page));color:rgb(var(--ink));min-height:100vh;-webkit-font-smoothing:antialiased}
-h1,h2,h3 {letter-spacing:-.025em}
-::selection {background:rgb(var(--accent));color:rgb(var(--inverse))}
-.glass-panel,.glass-panel-interactive {background:rgb(var(--surface));border:1px solid rgb(var(--border));box-shadow:0 2px 6px #00000004}
-.glass-panel-interactive {transition:border-color .15s}
-.glass-panel-interactive:hover {border-color:rgb(var(--muted))}
-.glass-card {background:rgb(var(--soft));border:1px solid rgb(var(--border))}
-.glass-input {background:rgb(var(--surface));border:1px solid rgb(var(--border));color:rgb(var(--ink))}
-:focus-visible {outline:2px solid rgb(var(--ink));outline-offset:3px}
-input::placeholder,textarea::placeholder {color:rgb(var(--muted))}
-header.glass-panel {box-shadow:none}
-footer.glass-panel {background:transparent;box-shadow:none}
-.theme-switch {display:flex;gap:2px;padding:3px;border:1px solid rgb(var(--border));border-radius:9px;background:rgb(var(--soft))}
-.theme-switch button {display:flex;align-items:center;gap:6px;padding:6px 9px;border-radius:6px;font-size:12px;font-weight:500;color:rgb(var(--muted))}
-.theme-switch button[aria-pressed='true'] {background:rgb(var(--surface));color:rgb(var(--ink));box-shadow:0 1px 3px #00000018}
-@media(max-width:540px){.theme-switch span{display:none}.theme-switch button{padding:7px}header.glass-panel{gap:8px}}
-::-webkit-scrollbar {width:7px;height:7px}
-::-webkit-scrollbar-track {background:rgb(var(--page))}
-::-webkit-scrollbar-thumb {background:rgb(var(--border));border-radius:8px}
-@media(prefers-reduced-motion:reduce){*,*::before,*::after{animation-duration:.01ms!important;transition-duration:.01ms!important}}
+
+/* 2. Study Journal — Light Mode (Warm Ivory & Muted Olive) */
+:root[data-style='study-journal'] {
+  color-scheme: light;
+  --page: 248 246 239;
+  --surface: 255 254 250;
+  --soft: 241 238 228;
+  --border: 224 218 204;
+  --ink: 40 36 30;
+  --muted: 116 109 97;
+  --accent: 92 98 56;
+  --inverse: 255 254 250;
+  --heat1: 215 210 190;
+  --heat2: 154 158 112;
+  --heat3: 92 98 56;
+}
+
+/* 2. Study Journal — Dark Mode */
+:root[data-theme='dark'][data-style='study-journal'] {
+  color-scheme: dark;
+  --page: 22 20 18;
+  --surface: 30 27 24;
+  --soft: 41 37 33;
+  --border: 60 55 49;
+  --ink: 245 241 234;
+  --muted: 168 159 146;
+  --accent: 178 186 130;
+  --inverse: 22 20 18;
+  --heat1: 55 50 42;
+  --heat2: 110 114 80;
+  --heat3: 178 186 130;
+}
+
+/* 3. Quiet Focus — Light Mode (Cool Neutral & Restrained Lavender) */
+:root[data-style='quiet-focus'] {
+  color-scheme: light;
+  --page: 246 247 251;
+  --surface: 255 255 255;
+  --soft: 239 242 248;
+  --border: 227 230 240;
+  --ink: 28 31 42;
+  --muted: 110 115 133;
+  --accent: 98 84 184;
+  --inverse: 255 255 255;
+  --heat1: 204 208 230;
+  --heat2: 146 136 210;
+  --heat3: 98 84 184;
+}
+
+/* 3. Quiet Focus — Dark Mode */
+:root[data-theme='dark'][data-style='quiet-focus'] {
+  color-scheme: dark;
+  --page: 16 18 24;
+  --surface: 22 25 34;
+  --soft: 30 35 48;
+  --border: 44 50 68;
+  --ink: 238 240 250;
+  --muted: 148 155 178;
+  --accent: 164 150 248;
+  --inverse: 16 18 24;
+  --heat1: 38 43 62;
+  --heat2: 96 88 158;
+  --heat3: 164 150 248;
+}
+
+/* Base Body Styles */
+body {
+  margin: 0;
+  font-family: Inter, system-ui, -apple-system, sans-serif;
+  background-color: rgb(var(--page));
+  color: rgb(var(--ink));
+  min-height: 100vh;
+  -webkit-font-smoothing: antialiased;
+  transition: background-color 180ms ease, color 180ms ease;
+}
+
+h1, h2, h3 {
+  letter-spacing: -0.025em;
+}
+
+::selection {
+  background: rgb(var(--accent));
+  color: rgb(var(--inverse));
+}
+
+/* Style Customizations */
+
+/* Study Journal: Editorial serif headings, flatter surfaces */
+:root[data-style='study-journal'] h1,
+:root[data-style='study-journal'] h2,
+:root[data-style='study-journal'] h3,
+:root[data-style='study-journal'] .font-heading {
+  font-family: 'Newsreader', 'Playfair Display', Georgia, Cambria, 'Times New Roman', serif;
+  font-weight: 600;
+  letter-spacing: -0.015em;
+}
+
+:root[data-style='study-journal'] .rounded-2xl {
+  border-radius: 12px;
+}
+
+:root[data-style='study-journal'] .rounded-xl {
+  border-radius: 8px;
+}
+
+/* Quiet Focus: Minimal chrome, prominent mission accent */
+:root[data-style='quiet-focus'] .current-mission-card {
+  box-shadow: 0 0 0 2px rgb(var(--accent) / 0.4), 0 4px 12px rgba(0, 0, 0, 0.04);
+}
+
+:root[data-style='quiet-focus'] .glass-panel {
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.02);
+}
+
+/* Panel and Card Primitives */
+.glass-panel,
+.glass-panel-interactive {
+  background-color: rgb(var(--surface));
+  border: 1px solid rgb(var(--border));
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.03);
+}
+
+/* Frosted header with solid opaque fallback */
+header.glass-panel {
+  background-color: rgb(var(--surface));
+  box-shadow: none;
+}
+
+@supports (backdrop-filter: blur(10px)) or (-webkit-backdrop-filter: blur(10px)) {
+  :root[data-style='frosted-sage'] header.glass-panel {
+    background-color: rgba(var(--surface) / 0.88);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+  }
+}
+
+.glass-panel-interactive {
+  transition: border-color 160ms ease, background-color 160ms ease;
+}
+
+.glass-panel-interactive:hover {
+  border-color: rgb(var(--muted));
+}
+
+.glass-card {
+  background-color: rgb(var(--soft));
+  border: 1px solid rgb(var(--border));
+}
+
+.glass-input {
+  background-color: rgb(var(--surface));
+  border: 1px solid rgb(var(--border));
+  color: rgb(var(--ink));
+}
+
+:focus-visible {
+  outline: 2px solid rgb(var(--accent));
+  outline-offset: 2px;
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: rgb(var(--muted));
+}
+
+footer.glass-panel {
+  background: transparent;
+  box-shadow: none;
+}
+
+/* Theme switch controls */
+.theme-switch {
+  display: flex;
+  gap: 2px;
+  padding: 3px;
+  border: 1px solid rgb(var(--border));
+  border-radius: 10px;
+  background-color: rgb(var(--soft));
+}
+
+.theme-switch button {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 8px;
+  border-radius: 7px;
+  font-size: 11px;
+  font-weight: 500;
+  color: rgb(var(--muted));
+  transition: background-color 150ms ease, color 150ms ease;
+}
+
+.theme-switch button[aria-pressed='true'] {
+  background-color: rgb(var(--surface));
+  color: rgb(var(--ink));
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+@media (max-width: 540px) {
+  .theme-switch span {
+    display: none;
+  }
+  .theme-switch button {
+    padding: 6px;
+  }
+}
+
+/* Button Routine Transitions */
+button {
+  transition: background-color 160ms ease, border-color 160ms ease, color 160ms ease, transform 120ms ease;
+}
+
+button:active:not(:disabled) {
+  transform: scale(0.985);
+}
+
+/* Scrollbars */
+::-webkit-scrollbar {
+  width: 7px;
+  height: 7px;
+}
+
+::-webkit-scrollbar-track {
+  background-color: rgb(var(--page));
+}
+
+::-webkit-scrollbar-thumb {
+  background-color: rgb(var(--border));
+  border-radius: 8px;
+}
+
+/* Animation Utilities & Reduced Motion Support */
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-fade-in {
+  animation: fadeIn 200ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+  button:active:not(:disabled) {
+    transform: none !important;
+  }
+}

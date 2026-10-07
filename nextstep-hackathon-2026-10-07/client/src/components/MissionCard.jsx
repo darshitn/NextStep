@@ -1,6 +1,6 @@
 import React from 'react';
 import { localDay } from '../services/activity.js';
-import { CheckCircle2, ExternalLink, HelpCircle, Sparkles, Clock, Check, Calendar, ArrowRight } from 'lucide-react';
+import { CheckCircle2, ExternalLink, Sparkles, Clock, Check, Calendar } from 'lucide-react';
 
 export default function MissionCard({
   mission,
@@ -121,23 +121,25 @@ export default function MissionCard({
       {/* Interactive Actions for Active Mission */}
       {isCurrent && !isCompleted && (
         <div className="mt-5 pt-4 border-t ui-border-border flex flex-col sm:flex-row items-center justify-end gap-3">
-          {onOpenGuidance && (
+          {onComplete && (
             <button
-              onClick={() => onOpenGuidance(mission)}
-              className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl ui-bg-surface hover:ui-bg-soft border ui-border-border text-xs sm:text-sm font-semibold ui-text-ink hover:ui-text-ink transition-all shadow-sm"
+              type="button"
+              onClick={() => onComplete(mission)}
+              className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl ui-bg-surface hover:ui-bg-soft border ui-border-border text-xs sm:text-sm font-semibold ui-text-ink hover:ui-text-ink transition-all shadow-sm order-2 sm:order-1"
             >
-              <Sparkles className="w-4 h-4 ui-text-ink" />
-              <span>Get AI Guidance</span>
+              <CheckCircle2 className="w-4 h-4" />
+              <span>Record completion</span>
             </button>
           )}
 
-          {onComplete && (
+          {onOpenGuidance && (
             <button
-              onClick={() => onComplete(mission)}
-              className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl ui-bg-accent hover:ui-bg-accent text-xs sm:text-sm font-semibold ui-text-inverse transition-all shadow-glow hover:shadow-lg"
+              type="button"
+              onClick={() => onOpenGuidance(mission)}
+              className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl ui-bg-accent hover:opacity-90 text-xs sm:text-sm font-semibold ui-text-inverse transition-all shadow-glow hover:shadow-lg order-1 sm:order-2"
             >
-              <CheckCircle2 className="w-4 h-4" />
-              <span>Record Completion</span>
+              <Sparkles className="w-4 h-4" />
+              <span>Start practising</span>
             </button>
           )}
         </div>

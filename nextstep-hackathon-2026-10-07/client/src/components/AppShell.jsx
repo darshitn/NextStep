@@ -1,5 +1,6 @@
 import React from 'react';
 import ThemeToggle from './ThemeToggle.jsx';
+import AppearanceControl from './AppearanceControl.jsx';
 import { Compass, Sparkles, LogOut, User, ShieldAlert, Cpu } from 'lucide-react';
 
 export default function AppShell({ user, onSignOut, isFixtureMode = true, sessionExpired = false, onRenewSession, children }) {
@@ -46,7 +47,8 @@ export default function AppShell({ user, onSignOut, isFixtureMode = true, sessio
         </div>
 
         {/* Right side status / user */}
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2 sm:gap-3 flex-wrap justify-end">
+          <AppearanceControl />
           <ThemeToggle />
           <div className="hidden md:flex items-center gap-1.5 px-2.5 py-1 rounded-lg ui-bg-surface-a80 border ui-border-border text-xs ui-text-ink">
             <Sparkles className="w-3.5 h-3.5 ui-text-ink" />

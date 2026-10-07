@@ -34,10 +34,10 @@ export default function RecoveryComparison({
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b ui-border-border">
         <div>
           <h2 className="text-xl font-bold ui-text-ink tracking-tight flex items-center gap-2">
-            <span>Schedule Recovery & Calibration</span>
+            <span>Your week changed? Let’s make room.</span>
           </h2>
           <p className="text-xs sm:text-sm ui-text-muted mt-1">
-            Life happened? Recalibrate your daily capacity without losing previously completed missions.
+            Adjust your available time. Your completed practice stays.
           </p>
         </div>
         <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl ui-bg-surface border ui-border-border text-xs ui-text-ink self-start sm:self-auto">

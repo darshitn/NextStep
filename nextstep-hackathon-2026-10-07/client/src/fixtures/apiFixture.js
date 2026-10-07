@@ -7,6 +7,35 @@ import catalogData from './dsa-starter.json' with { type: 'json' };
 const STORAGE_KEY_PREFIX = 'nextstep_fixture_goal_';
 const AUTH_KEY = 'nextstep_fixture_user';
 
+// Safe in-memory storage fallback for Node.js test runner and SSR
+const memoryStore = new Map();
+const safeStorage = {
+  getItem(key) {
+    try {
+      if (typeof localStorage !== 'undefined') return localStorage.getItem(key);
+    } catch {}
+    return memoryStore.get(key) || null;
+  },
+  setItem(key, val) {
+    try {
+      if (typeof localStorage !== 'undefined') {
+        localStorage.setItem(key, val);
+        return;
+      }
+    } catch {}
+    memoryStore.set(key, String(val));
+  },
+  removeItem(key) {
+    try {
+      if (typeof localStorage !== 'undefined') {
+        localStorage.removeItem(key);
+        return;
+      }
+    } catch {}
+    memoryStore.delete(key);
+  }
+};
+
 export const DEMO_ACCOUNTS = [
   {
     email: 'student.ready@nextstep.local',
@@ -167,7 +196,7 @@ function createInitialSeedGoal(stateType, userEmail) {
 // Current User State in Fixture
 let currentUser = null;
 try {
-  const saved = localStorage.getItem(AUTH_KEY);
+  const saved = safeStorage.getItem(AUTH_KEY);
   if (saved) currentUser = JSON.parse(saved);
 } catch (e) {
   // SSR or Storage disabled
@@ -193,21 +222,69 @@ export const apiFixture = {
       email: demo.email,
       name: demo.name
     };
-    localStorage.setItem(AUTH_KEY, JSON.stringify(currentUser));
+    safeStorage.setItem(AUTH_KEY, JSON.stringify(currentUser));
 
     // Check if goal exists in storage; if not and initial state prescribed, initialize
     const storageKey = STORAGE_KEY_PREFIX + currentUser.id;
-    if (!localStorage.getItem(storageKey) && demo.initialState) {
+    if (!safeStorage.getItem(storageKey) && demo.initialState) {
       const seed = createInitialSeedGoal(demo.initialState, currentUser.id);
-      localStorage.setItem(storageKey, JSON.stringify(seed));
+      safeStorage.setItem(storageKey, JSON.stringify(seed));
     }
 
     return { user: currentUser, token: 'fixture-jwt-' + currentUser.id };
   },
 
+  async signUp(email, password = 'password123', { fullName, simulateConfirmation = false } = {}) {
+    if (!email || !email.includes('@')) {
+      const err = new Error('Please enter a valid student email address.');
+      err.status = 400;
+      err.code = 'INVALID_EMAIL';
+      throw err;
+    }
+    if (!password || password.length < 6) {
+      const err = new Error('Password must be at least 6 characters.');
+      err.status = 400;
+      err.code = 'WEAK_PASSWORD';
+      throw err;
+    }
+
+    const cleanEmail = email.trim().toLowerCase();
+    const existing = DEMO_ACCOUNTS.find(a => a.email.toLowerCase() === cleanEmail);
+    if (existing) {
+      const err = new Error('An account with this email already exists. Please sign in instead.');
+      err.status = 400;
+      err.code = 'USER_ALREADY_EXISTS';
+      throw err;
+    }
+
+    const userObj = {
+      id: 'usr_' + btoa(cleanEmail).replace(/=/g, '').slice(0, 12),
+      email: cleanEmail,
+      name: fullName || cleanEmail.split('@')[0]
+    };
+
+    if (simulateConfirmation) {
+      return {
+        user: userObj,
+        token: null,
+        session: null,
+        confirmationRequired: true
+      };
+    }
+
+    currentUser = userObj;
+    safeStorage.setItem(AUTH_KEY, JSON.stringify(currentUser));
+    return {
+      user: currentUser,
+      token: 'fixture-jwt-' + currentUser.id,
+      session: { access_token: 'fixture-jwt-' + currentUser.id, user: currentUser },
+      confirmationRequired: false
+    };
+  },
+
   async signOut() {
     currentUser = null;
-    localStorage.removeItem(AUTH_KEY);
+    safeStorage.removeItem(AUTH_KEY);
     return { ok: true };
   },
 
@@ -233,7 +310,7 @@ export const apiFixture = {
   async getGoal() {
     if (!currentUser) throw { status: 401, code: 'UNAUTHORIZED', message: 'Sign in to access your goal.' };
     const storageKey = STORAGE_KEY_PREFIX + currentUser.id;
-    const raw = localStorage.getItem(storageKey);
+    const raw = safeStorage.getItem(storageKey);
     if (!raw) return { data: { goal: null } };
     const goal = JSON.parse(raw);
     return { data: { goal: deriveGoalStats(goal) } };
@@ -243,7 +320,7 @@ export const apiFixture = {
   async createGoal(body) {
     if (!currentUser) throw { status: 401, code: 'UNAUTHORIZED', message: 'Sign in to create a goal.' };
     const storageKey = STORAGE_KEY_PREFIX + currentUser.id;
-    const existingRaw = localStorage.getItem(storageKey);
+    const existingRaw = safeStorage.getItem(storageKey);
 
     if (existingRaw) {
       const existing = JSON.parse(existingRaw);
@@ -271,7 +348,7 @@ export const apiFixture = {
       updatedAt: new Date().toISOString()
     };
 
-    localStorage.setItem(storageKey, JSON.stringify(newGoal));
+    safeStorage.setItem(storageKey, JSON.stringify(newGoal));
     return { data: { goal: deriveGoalStats(newGoal) } };
   },
 
@@ -279,7 +356,7 @@ export const apiFixture = {
   async completeMission({ missionId, expectedVersion, outcome, reflection }) {
     if (!currentUser) throw { status: 401, code: 'UNAUTHORIZED', message: 'Sign in required.' };
     const storageKey = STORAGE_KEY_PREFIX + currentUser.id;
-    const raw = localStorage.getItem(storageKey);
+    const raw = safeStorage.getItem(storageKey);
     if (!raw) throw { status: 404, code: 'GOAL_NOT_FOUND', message: 'No goal found.' };
 
     const goal = JSON.parse(raw);
@@ -314,7 +391,7 @@ export const apiFixture = {
     goal.version += 1;
     goal.updatedAt = new Date().toISOString();
 
-    localStorage.setItem(storageKey, JSON.stringify(goal));
+    safeStorage.setItem(storageKey, JSON.stringify(goal));
     return { data: { goal: deriveGoalStats(goal), alreadyCompleted: false } };
   },
 
@@ -322,7 +399,7 @@ export const apiFixture = {
   async previewRecovery({ expectedVersion, availability }) {
     if (!currentUser) throw { status: 401, code: 'UNAUTHORIZED', message: 'Sign in required.' };
     const storageKey = STORAGE_KEY_PREFIX + currentUser.id;
-    const raw = localStorage.getItem(storageKey);
+    const raw = safeStorage.getItem(storageKey);
     if (!raw) throw { status: 404, code: 'GOAL_NOT_FOUND', message: 'No goal found.' };
 
     const goal = JSON.parse(raw);
@@ -405,7 +482,7 @@ export const apiFixture = {
     const { data: { preview } } = await this.previewRecovery({ expectedVersion, availability });
 
     const storageKey = STORAGE_KEY_PREFIX + currentUser.id;
-    const raw = localStorage.getItem(storageKey);
+    const raw = safeStorage.getItem(storageKey);
     const goal = JSON.parse(raw);
 
     goal.availability = availability;
@@ -414,7 +491,7 @@ export const apiFixture = {
     goal.version += 1;
     goal.updatedAt = new Date().toISOString();
 
-    localStorage.setItem(storageKey, JSON.stringify(goal));
+    safeStorage.setItem(storageKey, JSON.stringify(goal));
     return { data: { goal: deriveGoalStats(goal) } };
   },
 
@@ -422,7 +499,7 @@ export const apiFixture = {
   async getGuidance({ expectedVersion, missionId, category, feedback }) {
     if (!currentUser) throw { status: 401, code: 'UNAUTHORIZED', message: 'Sign in required.' };
     const storageKey = STORAGE_KEY_PREFIX + currentUser.id;
-    const raw = localStorage.getItem(storageKey);
+    const raw = safeStorage.getItem(storageKey);
     if (!raw) throw { status: 404, code: 'GOAL_NOT_FOUND', message: 'No goal found.' };
 
     const goal = deriveGoalStats(JSON.parse(raw));
@@ -485,9 +562,122 @@ export const apiFixture = {
           explanation: explanation,
           steps: steps,
           checkQuestion: checkQuestion,
+          questionText: checkQuestion,
+          questionId: (missionId === 'm02' ? 'q_m02_trace_search' : (missionId === 'm04' ? 'q_m04_duplicate_set' : (missionId === 'm06' ? 'q_m06_hash_map_twosum' : null))),
           source: 'gemini'
+        }
+      }
+    };
+  },
+
+  async saveLearningContext({ expectedVersion, missionId, category, whatTried, whereStuck, selfReportedStatus, dismissed, guidance }) {
+    await new Promise(r => setTimeout(r, 50));
+    if (!currentUser) throw { status: 401, code: 'UNAUTHORIZED', message: 'Sign in required.' };
+    const storageKey = STORAGE_KEY_PREFIX + currentUser.id;
+    const raw = safeStorage.getItem(storageKey);
+    if (!raw) throw { status: 404, code: 'GOAL_NOT_FOUND', message: 'No active goal found.' };
+
+    const goal = JSON.parse(raw);
+    if (goal.version !== expectedVersion) {
+      const err = new Error('Goal version changed.');
+      err.code = 'VERSION_CONFLICT';
+      err.status = 409;
+      throw err;
+    }
+    const existingLearning = goal.learning || {};
+    const currentRecord = existingLearning[missionId] || {};
+
+    let normalizedGuidance = currentRecord.guidance || null;
+    if (guidance !== undefined) {
+      if (guidance === null) {
+        normalizedGuidance = null;
+      } else {
+        const qText = guidance.questionText || guidance.checkQuestion || undefined;
+        normalizedGuidance = {
+          ...guidance,
+          questionText: qText,
+          checkQuestion: qText
+        };
+      }
+    }
+
+    const updatedRecord = {
+      ...currentRecord,
+      missionId,
+      category: category || currentRecord.category || 'too_difficult',
+      whatTried: whatTried !== undefined ? whatTried : (currentRecord.whatTried || ''),
+      whereStuck: whereStuck !== undefined ? whereStuck : (currentRecord.whereStuck || ''),
+      selfReportedStatus: selfReportedStatus || currentRecord.selfReportedStatus || 'still_unsure',
+      dismissed: dismissed !== undefined ? dismissed : (currentRecord.dismissed || false),
+      guidance: normalizedGuidance,
+      updatedAt: new Date().toISOString()
+    };
+    goal.version += 1;
+    goal.learning = {
+      ...existingLearning,
+      [missionId]: updatedRecord
+    };
+    goal.updatedAt = new Date().toISOString();
+    safeStorage.setItem(storageKey, JSON.stringify(goal));
+
+    return {
+      data: {
+        goal: deriveGoalStats(goal),
+        learningRecord: updatedRecord
+      }
+    };
+  },
+
+  async submitLearningCheck({ expectedVersion, missionId, questionId, answer, selfReportedStatus }) {
+    await new Promise(r => setTimeout(r, 50));
+    if (!currentUser) throw { status: 401, code: 'UNAUTHORIZED', message: 'Sign in required.' };
+    const storageKey = STORAGE_KEY_PREFIX + currentUser.id;
+    const raw = safeStorage.getItem(storageKey);
+    if (!raw) throw { status: 404, code: 'GOAL_NOT_FOUND', message: 'No active goal found.' };
+
+    const goal = JSON.parse(raw);
+    if (goal.version !== expectedVersion) {
+      const err = new Error('Goal version changed.');
+      err.code = 'VERSION_CONFLICT';
+      err.status = 409;
+      throw err;
+    }
+    const existingLearning = goal.learning || {};
+    const currentRecord = existingLearning[missionId] || {};
+    const assessment = {
+      questionId,
+      answer,
+      status: 'on_track',
+      explanation: 'Your explanation shows you understand the core mechanics and boundary behaviour.',
+      nextStep: 'Continue practising the implementation in your session.',
+      assessedAt: new Date().toISOString(),
+      source: 'gemini'
+    };
+    const updatedRecord = {
+      ...currentRecord,
+      missionId,
+      selfReportedStatus: selfReportedStatus || 'ready_to_continue',
+      assessment,
+      updatedAt: new Date().toISOString()
+    };
+    goal.version += 1;
+    goal.learning = {
+      ...existingLearning,
+      [missionId]: updatedRecord
+    };
+    goal.updatedAt = new Date().toISOString();
+    safeStorage.setItem(storageKey, JSON.stringify(goal));
+
+    return {
+      data: {
+        goal: deriveGoalStats(goal),
+        assessment: {
+          missionId,
+          questionId,
+          ...assessment
         }
       }
     };
   }
 };
+

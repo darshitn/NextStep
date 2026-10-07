@@ -98,6 +98,14 @@ export const liveApi = {
     return supabaseAuth.signIn(email, password);
   },
 
+  async signUp(email, password, metadata) {
+    return supabaseAuth.signUp(email, password, metadata);
+  },
+
+  checkAuthFromUrl() {
+    return supabaseAuth.checkAuthFromUrl();
+  },
+
   async signOut() {
     return supabaseAuth.signOut();
   },
@@ -153,5 +161,20 @@ export const liveApi = {
       method: 'POST',
       body: payload
     });
+  },
+
+  async saveLearningContext(payload) {
+    return request('/goal/learning/context', {
+      method: 'POST',
+      body: payload
+    });
+  },
+
+  async submitLearningCheck(payload) {
+    return request('/goal/learning/check', {
+      method: 'POST',
+      body: payload
+    });
   }
 };
+

@@ -2,6 +2,10 @@
 
 # NextStep — initial setup
 
+**Active milestone:** Final UI Polish — Complete. All 3 visual styles (Frosted Sage, Study Journal, Quiet Focus) verified across Light/Dark modes, shared responsive dashboard layout verified on desktop and mobile (375px), student-friendly language updated, and 62 automated tests passing.
+
+**Current implementation status:** Final UI Polish completed and visually verified: (1) Three visual styles (Frosted Sage default, Study Journal with editorial serif, Quiet Focus with lavender accent) working across Light and Dark modes; (2) Shared desktop layout with current mission on left, progress summary on right, compact saved blocker with expandable details, weekly calendar below, activity heatmap, and expandable roadmap; (3) Clean single-column mobile view verified at 375px with zero horizontal overflow; (4) Student-friendly language throughout ("I'm stuck", "Help me revise", "Ready to practise", "Preparing your guidance...", "Practice recorded. One more step forward.", "Your week changed? Let's make room."); (5) 62 automated tests passing (37 server, 25 client) and Vite production build verified.
+
 **Locked theme:** Personalized AI Experiences. **Status:** setup and planning only; the [master prompt](prompts/NEXTSTEP-MASTER-PROMPT.md) now follows Darshit's supplied 23-section document structure. Paste it into Antigravity to start the active developer's scoped implementation.
 
 This is the current starting point. It replaces the older scope, role sequence and prompt instructions where they differ. Existing contracts and SQL remain drafts until the two developers agree to the AI addition and authentication approach.

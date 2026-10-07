@@ -38,7 +38,7 @@ export default function CompletionForm({ mission, onSubmit, onCancel, isSubmitti
             <CheckCircle2 className="w-5 h-5" />
           </div>
           <div>
-            <h3 className="text-lg font-bold ui-text-ink">Record Mission Completion</h3>
+            <h3 className="text-lg font-bold ui-text-ink">Record Practice</h3>
             <p className="text-xs ui-text-muted">
               {mission.id.toUpperCase()}: {mission.title}
             </p>
@@ -144,7 +144,7 @@ export default function CompletionForm({ mission, onSubmit, onCancel, isSubmitti
               className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl ui-bg-accent hover:ui-bg-accent ui-text-inverse font-semibold text-xs sm:text-sm transition-all shadow-glow disabled:opacity-50"
             >
               <CheckCircle2 className="w-4 h-4" />
-              <span>{isSubmitting ? 'Saving...' : 'Record + Earn 20 XP'}</span>
+              <span>{isSubmitting ? 'Recording...' : 'Record practice'}</span>
             </button>
           </div>
         </form>
