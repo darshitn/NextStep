@@ -12,6 +12,9 @@ import {
   calculateSchedule,
   deriveGoalStats
 } from '../services/scheduler.js';
+import { isAiConfigured, getMissingAiConfig } from '../config.js';
+import { generateGeminiGuidance } from '../services/guidance.js';
+import { checkRateLimit } from '../services/rateLimiter.js';
 
 const router = Router();
 
@@ -509,18 +512,38 @@ router.post('/recovery/apply', async (req, res, next) => {
 // POST /api/goal/guidance - AI guidance endpoint (read-only)
 router.post('/guidance', async (req, res, next) => {
   try {
+    // 1. Validate request body
     const parseResult = guidanceSchema.safeParse(req.body);
     if (!parseResult.success) {
+      const fields = {};
+      parseResult.error.issues.forEach(i => {
+        fields[i.path.join('.')] = i.message;
+      });
       return res.status(422).json({
         error: {
           code: 'VALIDATION_ERROR',
-          message: 'Invalid guidance request payload.'
+          message: 'Invalid guidance request payload.',
+          fields
         }
       });
     }
 
     const { expectedVersion, missionId, category, feedback } = parseResult.data;
 
+    // 2. Per-user rate limiting (sliding window: 5 requests per 60s)
+    const rateLimitKey = req.user?.id || req.ip;
+    const rateLimit = checkRateLimit(rateLimitKey);
+    if (!rateLimit.allowed) {
+      res.set('Retry-After', String(rateLimit.retryAfterSeconds));
+      return res.status(429).json({
+        error: {
+          code: 'RATE_LIMIT_EXCEEDED',
+          message: `Too many guidance requests. Please wait ${rateLimit.retryAfterSeconds}s before requesting guidance again.`
+        }
+      });
+    }
+
+    // 3. Load user's goal
     const { data: row, error: findError } = await req.supabase
       .from('nextstep_goals')
       .select('*')
@@ -535,6 +558,7 @@ router.post('/guidance', async (req, res, next) => {
       });
     }
 
+    // 4. Validate goal version
     if (row.version !== expectedVersion) {
       return res.status(409).json({
         error: {
@@ -544,6 +568,7 @@ router.post('/guidance', async (req, res, next) => {
       });
     }
 
+    // 5. Verify mission is next eligible incomplete mission
     const goal = deriveGoalStats(row.state, catalogData);
     if (!goal.nextMissionId) {
       return res.status(422).json({
@@ -563,11 +588,116 @@ router.post('/guidance', async (req, res, next) => {
       });
     }
 
-    // Runtime AI is not integrated yet. Never mislabel canned advice as Gemini.
-    return res.status(503).json({
-      error: {
-        code: 'AI_NOT_CONFIGURED',
-        message: 'AI guidance is not available yet. Your saved plan is unchanged.'
+    // 6. Check provider configuration (unless custom mock is injected for test)
+    if (!req.app.locals.mockGuidanceGenerator && !isAiConfigured()) {
+      const missing = getMissingAiConfig();
+      return res.status(503).json({
+        error: {
+          code: 'AI_NOT_CONFIGURED',
+          message: `AI guidance is not available yet. Populate ${missing.join(' and ')} in server/.env.`
+        }
+      });
+    }
+
+    const mission = catalogData.missions.find(m => m.id === missionId);
+    if (!mission) {
+      return res.status(404).json({
+        error: {
+          code: 'MISSION_NOT_FOUND',
+          message: `Mission with ID "${missionId}" does not exist in track.`
+        }
+      });
+    }
+
+    const completedPrerequisites = (mission.prerequisites || []).filter(
+      prereqId => Boolean(goal.completions?.[prereqId])
+    );
+
+    // 7. Generate guidance with bounded timeout
+    let guidanceResult;
+    try {
+      if (req.app.locals.mockGuidanceGenerator) {
+        guidanceResult = await req.app.locals.mockGuidanceGenerator({
+          mission,
+          completedPrerequisites,
+          availability: goal.availability,
+          remainingMinutes: goal.remainingMinutes,
+          category,
+          feedback
+        });
+      } else {
+        guidanceResult = await generateGeminiGuidance({
+          mission,
+          completedPrerequisites,
+          availability: goal.availability,
+          remainingMinutes: goal.remainingMinutes,
+          category,
+          feedback,
+          clientOverride: req.app.locals.mockGoogleGenAIClient || null
+        });
+      }
+    } catch (genErr) {
+      if (genErr.code === 'AI_TIMEOUT' || genErr.status === 504) {
+        return res.status(504).json({
+          error: {
+            code: 'AI_TIMEOUT',
+            message: 'AI guidance request timed out. Your saved plan is unchanged.'
+          }
+        });
+      }
+      if (genErr.code === 'INVALID_AI_OUTPUT' || genErr.status === 502) {
+        return res.status(502).json({
+          error: {
+            code: 'INVALID_AI_OUTPUT',
+            message: 'AI service returned an unparseable response. Please try again.'
+          }
+        });
+      }
+      if (genErr.code === 'AI_SERVICE_UNAVAILABLE' || genErr.status === 503) {
+        return res.status(503).json({
+          error: {
+            code: 'AI_SERVICE_UNAVAILABLE',
+            message: 'AI guidance provider is temporarily unavailable. Please try again later.'
+          }
+        });
+      }
+      throw genErr;
+    }
+
+    // 8. Concurrency guard: Re-check goal version after AI generation completes
+    const { data: freshRow, error: recheckError } = await req.supabase
+      .from('nextstep_goals')
+      .select('version')
+      .maybeSingle();
+
+    if (recheckError) {
+      const err = new Error(recheckError.message);
+      err.status = 503;
+      err.code = 'DATABASE_ERROR';
+      throw err;
+    }
+
+    if (!freshRow || freshRow.version !== expectedVersion) {
+      return res.status(409).json({
+        error: {
+          code: 'VERSION_CONFLICT',
+          message: 'Goal version changed while generating guidance. Refresh to view latest plan.'
+        }
+      });
+    }
+
+    // 9. Return success envelope - source set to "gemini" only after successful provider response
+    return res.status(200).json({
+      data: {
+        guidance: {
+          baseVersion: expectedVersion,
+          missionId: mission.id,
+          mode: guidanceResult.mode,
+          explanation: guidanceResult.explanation,
+          steps: guidanceResult.steps,
+          checkQuestion: guidanceResult.checkQuestion,
+          source: 'gemini'
+        }
       }
     });
   } catch (err) {

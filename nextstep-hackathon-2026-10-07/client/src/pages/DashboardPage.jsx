@@ -131,7 +131,7 @@ export default function DashboardPage({ goal, onGoalUpdated, catalog, onCatalogL
       }
     } catch (err) {
       console.error('Guidance error:', err);
-      setGuidanceError(err.message || 'Failed to obtain AI practice guidance.');
+      setGuidanceError(err);
     } finally {
       setIsLoadingGuidance(false);
     }

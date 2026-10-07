@@ -2,7 +2,7 @@
 
 # Frozen interface: NextStep API v1
 
-Integration review: runtime Gemini is not implemented yet. After guidance request validation, the current backend returns HTTP 503 with `AI_NOT_CONFIGURED`; it must not present canned advice as Gemini output. The intended successful guidance schema remains the target for the later provider integration.
+Runtime Gemini is implemented through the backend guidance service. Missing AI configuration returns HTTP 503 with `AI_NOT_CONFIGURED`; provider failures never return canned advice labeled as Gemini. Automated tests isolate local credentials and use mocked providers.
 
 **Authority:** Darshit + Sankirth. Freeze at G0. All fields below are camelCase. All routes return JSON, including errors. This specification is planned behaviour, not evidence of an existing endpoint.
 

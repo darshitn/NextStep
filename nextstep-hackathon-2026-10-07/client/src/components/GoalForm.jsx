@@ -39,7 +39,7 @@ export default function GoalForm({ onSubmit, isLoading = false, error = null }) 
 
   // Generate stable creationRequestId for idempotent retry
   const [creationRequestId] = useState(() => {
-    return 'req_' + Math.random().toString(36).substring(2, 12);
+    return crypto.randomUUID();
   });
 
   const handleSubmit = (e) => {
