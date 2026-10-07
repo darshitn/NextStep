@@ -29,7 +29,7 @@ export default function RecoveryComparison({
   const completedCount = Object.keys(goal.completions || {}).length;
 
   return (
-    <div className="glass-panel rounded-2xl p-6 sm:p-8 shadow-glass space-y-6">
+    <div className="glass-panel rounded-2xl p-6 sm:p-8 shadow-glass space-y-6 recovery-comparison">
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b ui-border-border">
         <div>
@@ -59,7 +59,7 @@ export default function RecoveryComparison({
             type="button"
             onClick={handleGeneratePreview}
             disabled={isPreviewing || isApplying}
-            className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl ui-bg-accent hover:ui-bg-accent ui-text-inverse font-semibold text-xs sm:text-sm transition-all shadow-glow disabled:opacity-50"
+            className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl ui-bg-accent hover:ui-bg-accent ui-text-inverse font-semibold text-xs sm:text-sm transition-colors shadow-glow disabled:opacity-50"
           >
             <RefreshCw className={`w-4 h-4 ${isPreviewing ? 'animate-spin' : ''}`} />
             <span>{isPreviewing ? 'Calculating Schedule...' : 'Preview Revised Schedule'}</span>
@@ -97,7 +97,7 @@ export default function RecoveryComparison({
                 </div>
                 <div className="flex justify-between">
                   <span className="ui-text-muted">Pacing Status:</span>
-                  <span className="capitalize font-semibold ui-text-ink">{goal.status}</span>
+                  <span className="capitalize font-semibold ui-text-ink">{goal.status === 'over_capacity' ? 'Beyond target date' : goal.status === 'completed' ? 'Completed' : 'Within target date'}</span>
                 </div>
               </div>
             </div>
@@ -143,12 +143,12 @@ export default function RecoveryComparison({
             <AlertTriangle className="w-4 h-4 ui-text-ink shrink-0 mt-0.5" />
             <div>
               <p className="font-semibold ui-text-ink">
-                Deterministic Allocation Notice
+                What changes when you accept
               </p>
               <p className="ui-text-muted mt-0.5 leading-relaxed">
                 {goal.deadlineMode === 'flexible'
-                  ? 'In flexible mode, accepting this recovery safely adjusts your target deadline to match your revised capacity.'
-                  : 'In fixed mode, your target deadline remains unchanged. If your revised availability requires more time, NextStep marks remaining work as over capacity rather than dropping missions.'}
+                  ? 'Your target date can move to fit the time you have. Completed missions stay saved.'
+                  : 'Your target date stays fixed. If the work needs more time, we show that clearly and keep every mission in your plan.'}
               </p>
             </div>
           </div>
@@ -167,7 +167,7 @@ export default function RecoveryComparison({
               type="button"
               onClick={handleApply}
               disabled={isApplying}
-              className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-6 py-2.5 rounded-xl ui-bg-accent hover:ui-bg-accent ui-text-inverse font-semibold text-xs sm:text-sm transition-all shadow-glow disabled:opacity-50"
+              className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-6 py-2.5 rounded-xl ui-bg-accent hover:ui-bg-accent ui-text-inverse font-semibold text-xs sm:text-sm transition-colors shadow-glow disabled:opacity-50"
             >
               <CheckCircle2 className="w-4 h-4" />
               <span>{isApplying ? 'Applying Plan...' : 'Accept & Apply Revised Plan'}</span>

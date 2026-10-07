@@ -1,10 +1,32 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { CheckCircle2, X, Award, HelpCircle, AlertCircle } from 'lucide-react';
 
-export default function CompletionForm({ mission, onSubmit, onCancel, isSubmitting = false }) {
+export default function CompletionForm({ mission, onSubmit, onCancel, isSubmitting = false, submitError = null }) {
   const [outcome, setOutcome] = useState('independent');
   const [reflection, setReflection] = useState('');
   const [error, setError] = useState(null);
+  const dialogRef = useRef(null);
+  const cancelRef = useRef(onCancel);
+  const submittingRef = useRef(isSubmitting);
+  cancelRef.current = onCancel;
+  submittingRef.current = isSubmitting;
+  useEffect(() => {
+    const previous = document.activeElement;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    const dialog = dialogRef.current;
+    dialog.querySelector('input:checked')?.focus({ preventScroll: true });
+    const keydown = event => {
+      if (event.key === 'Escape' && !submittingRef.current) { event.preventDefault(); cancelRef.current(); }
+      if (event.key !== 'Tab') return;
+      const controls = [...dialog.querySelectorAll('button:not(:disabled), input:not(:disabled), textarea:not(:disabled)')];
+      const first = controls[0], last = controls.at(-1);
+      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); }
+      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
+    };
+    dialog.addEventListener('keydown', keydown);
+    return () => { document.body.style.overflow = previousOverflow; dialog.removeEventListener('keydown', keydown); previous?.focus({ preventScroll: true }); };
+  }, []);
 
   const handleSubmit = (e) => {
     e.preventDefault();
@@ -22,11 +44,12 @@ export default function CompletionForm({ mission, onSubmit, onCancel, isSubmitti
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm animate-fade-in">
-      <div className="glass-panel ui-border-border rounded-2xl max-w-lg w-full p-6 shadow-2xl relative">
+      <div ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby="completion-heading" className="completion-dialog glass-panel ui-border-border rounded-2xl max-w-lg w-full p-6 shadow-2xl relative">
         {/* Close Button */}
         <button
           onClick={onCancel}
           disabled={isSubmitting}
+          aria-label="Close completion form"
           className="absolute top-5 right-5 ui-text-muted hover:ui-text-ink transition-colors"
         >
           <X className="w-5 h-5" />
@@ -38,7 +61,7 @@ export default function CompletionForm({ mission, onSubmit, onCancel, isSubmitti
             <CheckCircle2 className="w-5 h-5" />
           </div>
           <div>
-            <h3 className="text-lg font-bold ui-text-ink">Record Practice</h3>
+            <h3 id="completion-heading" className="text-lg font-bold ui-text-ink">Record practice</h3>
             <p className="text-xs ui-text-muted">
               {mission.id.toUpperCase()}: {mission.title}
             </p>
@@ -53,7 +76,7 @@ export default function CompletionForm({ mission, onSubmit, onCancel, isSubmitti
             </label>
             <div className="grid grid-cols-2 gap-3">
               <label
-                className={`p-3.5 rounded-xl border cursor-pointer transition-all flex flex-col gap-1 ${
+                className={`p-3.5 rounded-xl border cursor-pointer transition-colors flex flex-col gap-1 ${
                   outcome === 'independent'
                     ? 'ui-bg-soft-a20 ui-border-border ui-text-ink shadow-sm'
                     : 'ui-bg-soft-a50 ui-border-border ui-text-ink hover:ui-bg-surface'
@@ -74,7 +97,7 @@ export default function CompletionForm({ mission, onSubmit, onCancel, isSubmitti
               </label>
 
               <label
-                className={`p-3.5 rounded-xl border cursor-pointer transition-all flex flex-col gap-1 ${
+                className={`p-3.5 rounded-xl border cursor-pointer transition-colors flex flex-col gap-1 ${
                   outcome === 'with_hint'
                     ? 'ui-bg-soft-a20 ui-border-border ui-text-ink shadow-sm'
                     : 'ui-bg-soft-a50 ui-border-border ui-text-ink hover:ui-bg-surface'
@@ -99,7 +122,7 @@ export default function CompletionForm({ mission, onSubmit, onCancel, isSubmitti
           {/* Optional Reflection */}
           <div>
             <div className="flex justify-between items-center mb-1.5">
-              <label className="text-xs font-semibold uppercase tracking-wider ui-text-ink">
+              <label htmlFor="completion-reflection" className="text-xs font-semibold ui-text-ink">
                 Self-Reflection (Optional)
               </label>
               <span className={`text-[11px] ${reflection.length > 280 ? 'ui-text-ink font-bold' : 'ui-text-muted'}`}>
@@ -107,6 +130,7 @@ export default function CompletionForm({ mission, onSubmit, onCancel, isSubmitti
               </span>
             </div>
             <textarea
+              id="completion-reflection"
               value={reflection}
               onChange={(e) => setReflection(e.target.value)}
               placeholder="What pattern or edge case did you discover? What remains uncertain?"
@@ -124,8 +148,8 @@ export default function CompletionForm({ mission, onSubmit, onCancel, isSubmitti
             </span>
           </div>
 
-          {error && (
-            <p className="text-xs ui-text-ink font-medium">{error}</p>
+          {(error || submitError) && (
+            <p role="alert" className="status-attention rounded-lg p-3 text-sm font-medium">{error || (typeof submitError === 'string' ? submitError : submitError.message)}</p>
           )}
 
           {/* Actions */}
@@ -141,7 +165,7 @@ export default function CompletionForm({ mission, onSubmit, onCancel, isSubmitti
             <button
               type="submit"
               disabled={isSubmitting}
-              className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl ui-bg-accent hover:ui-bg-accent ui-text-inverse font-semibold text-xs sm:text-sm transition-all shadow-glow disabled:opacity-50"
+              className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl ui-bg-accent hover:ui-bg-accent ui-text-inverse font-semibold text-xs sm:text-sm transition-colors shadow-glow disabled:opacity-50"
             >
               <CheckCircle2 className="w-4 h-4" />
               <span>{isSubmitting ? 'Recording...' : 'Record practice'}</span>

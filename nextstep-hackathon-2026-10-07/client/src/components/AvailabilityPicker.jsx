@@ -35,7 +35,7 @@ export default function AvailabilityPicker({ value, onChange, disabled = false }
   const isZeroValid = totalMinutes > 0;
 
   return (
-    <div className="space-y-4">
+    <div className="availability-picker space-y-4">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-2 border-b ui-border-border">
         <div>
           <label className="text-sm font-semibold ui-text-ink flex items-center gap-1.5">
@@ -43,7 +43,7 @@ export default function AvailabilityPicker({ value, onChange, disabled = false }
             Weekly Study Availability
           </label>
           <p className="text-xs ui-text-muted mt-0.5">
-            Set discrete daily capacity (30m blocks). 0m designates scheduled rest.
+            Choose your time in 30-minute sessions. Select 0 for a rest day.
           </p>
         </div>
         <div className="flex items-center gap-2 self-start sm:self-auto">
@@ -54,13 +54,13 @@ export default function AvailabilityPicker({ value, onChange, disabled = false }
         </div>
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-7 gap-2.5">
+      <div className="availability-days">
         {DAYS.map(({ key, label, full }) => {
           const dayVal = current[key] ?? 0;
           return (
             <div
               key={key}
-              className={`p-3 rounded-xl border transition-all ${
+              className={`p-3 rounded-xl border transition-colors ${
                 dayVal > 0
                   ? 'ui-bg-surface-a90 ui-border-border-a30 shadow-sm'
                   : 'ui-bg-soft-a50 ui-border-border'
@@ -90,12 +90,12 @@ export default function AvailabilityPicker({ value, onChange, disabled = false }
                       key={optVal}
                       disabled={disabled}
                       onClick={() => handleSelect(key, optVal)}
-                      className={`py-1.5 text-[11px] font-medium rounded transition-all ${
+                      className={`py-1.5 text-[11px] font-medium rounded transition-colors ${
                         isSelected
                           ? 'ui-bg-accent ui-text-inverse shadow-sm ring-1 ring-brand-400'
                           : 'ui-bg-soft-a80 ui-text-muted hover:ui-text-ink hover:ui-bg-soft'
                       }`}
-                      title={`${full}: ${optVal} min`}
+                      title={`${full}: ${optVal} min`} aria-label={`${full}: ${optVal} minutes`} aria-pressed={isSelected}
                     >
                       {optVal === 0 ? '0' : `${optVal}`}
                     </button>
