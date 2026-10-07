@@ -1,0 +1,188 @@
+{
+  "trackId": "dsa-starter-v1",
+  "title": "DSA foundations starter",
+  "estimatedMinutes": 360,
+  "notice": "Synthetic pilot catalogue. Durations are estimates; completion is self-reported practice.",
+  "missions": [
+    {
+      "id": "m01",
+      "title": "Map your starting point",
+      "minutes": 30,
+      "prerequisites": [],
+      "resourceUrl": "https://leetcode.com/studyplan/",
+      "resourceLabel": "LeetCode study plans",
+      "why": "Choose one consistent starting point before collecting more resources.",
+      "doneWhen": "Write what you know about arrays and hashing and one question you want to answer.",
+      "steps": [
+        "Spend five minutes noting your current experience.",
+        "Read the starter track sequence.",
+        "Write one specific outcome for this practice block."
+      ]
+    },
+    {
+      "id": "m02",
+      "title": "Trace array lookups",
+      "minutes": 30,
+      "prerequisites": ["m01"],
+      "resourceUrl": null,
+      "resourceLabel": "In-app exercise",
+      "why": "Tracing operations helps connect code to time complexity.",
+      "doneWhen": "Trace a linear search on [4, 1, 8, 3] and explain the worst-case number of comparisons.",
+      "steps": [
+        "Search for 8 by hand.",
+        "Search for a value that is absent.",
+        "Record why the comparison count changes."
+      ]
+    },
+    {
+      "id": "m03",
+      "title": "Attempt Contains Duplicate",
+      "minutes": 30,
+      "prerequisites": ["m02"],
+      "resourceUrl": "https://leetcode.com/problems/contains-duplicate/",
+      "resourceLabel": "Contains Duplicate",
+      "why": "A set can record what has already been seen.",
+      "doneWhen": "Attempt the problem and record independent or with_hint completion.",
+      "steps": [
+        "Read the linked problem.",
+        "Attempt a solution for twenty minutes.",
+        "Record the approach and one edge case."
+      ]
+    },
+    {
+      "id": "m04",
+      "title": "Explain the duplicate check",
+      "minutes": 30,
+      "prerequisites": ["m03"],
+      "resourceUrl": null,
+      "resourceLabel": "In-app reflection",
+      "why": "Explaining an approach exposes gaps a completed checkbox misses.",
+      "doneWhen": "Explain a set-based solution, its space use, and an empty-input case in your own words.",
+      "steps": [
+        "Trace a duplicate appearing at the end.",
+        "Explain time and space estimates.",
+        "Note one remaining uncertainty."
+      ]
+    },
+    {
+      "id": "m05",
+      "title": "Attempt Two Sum",
+      "minutes": 30,
+      "prerequisites": ["m04"],
+      "resourceUrl": "https://leetcode.com/problems/two-sum/",
+      "resourceLabel": "Two Sum",
+      "why": "A lookup table can avoid repeatedly searching for a partner.",
+      "doneWhen": "Attempt the linked problem and record which help you used.",
+      "steps": [
+        "Describe a straightforward approach.",
+        "Try a hash-map approach.",
+        "Record one example with repeated values."
+      ]
+    },
+    {
+      "id": "m06",
+      "title": "Trace a hash-map solution",
+      "minutes": 30,
+      "prerequisites": ["m05"],
+      "resourceUrl": null,
+      "resourceLabel": "In-app exercise",
+      "why": "Seeing each lookup makes the algorithm easier to reconstruct.",
+      "doneWhen": "Explain what the map stores and when it is updated.",
+      "steps": [
+        "Use a small example of your own.",
+        "Write each lookup and insertion.",
+        "Explain why one element should not be reused accidentally."
+      ]
+    },
+    {
+      "id": "m07",
+      "title": "Revisit without your notes",
+      "minutes": 30,
+      "prerequisites": ["m06"],
+      "resourceUrl": "https://leetcode.com/problems/two-sum/",
+      "resourceLabel": "Two Sum revisit",
+      "why": "Revisiting checks recall rather than merely recognising a solution.",
+      "doneWhen": "Attempt the idea again and honestly record whether you needed a hint.",
+      "steps": [
+        "Close previous notes.",
+        "Describe the algorithm before coding.",
+        "Compare with your previous reasoning and note one improvement."
+      ]
+    },
+    {
+      "id": "m08",
+      "title": "Attempt Binary Search",
+      "minutes": 30,
+      "prerequisites": ["m07"],
+      "resourceUrl": "https://leetcode.com/problems/binary-search/",
+      "resourceLabel": "Binary Search",
+      "why": "Sorted data enables a different search strategy.",
+      "doneWhen": "Attempt the problem and record a boundary case.",
+      "steps": [
+        "Identify the sorted-input assumption.",
+        "Trace the interval on a small list.",
+        "Attempt the linked problem."
+      ]
+    },
+    {
+      "id": "m09",
+      "title": "Check binary-search boundaries",
+      "minutes": 30,
+      "prerequisites": ["m08"],
+      "resourceUrl": null,
+      "resourceLabel": "In-app exercise",
+      "why": "Boundary examples help reveal off-by-one errors.",
+      "doneWhen": "Trace first, last, absent, and single-element cases.",
+      "steps": [
+        "Use a sorted list of five values.",
+        "Trace a value below and above the list.",
+        "Explain what terminates the search."
+      ]
+    },
+    {
+      "id": "m10",
+      "title": "Compare search choices",
+      "minutes": 30,
+      "prerequisites": ["m09"],
+      "resourceUrl": null,
+      "resourceLabel": "In-app exercise",
+      "why": "A useful skill is selecting an approach for the input conditions.",
+      "doneWhen": "Explain when linear search, hashing, or binary search fits.",
+      "steps": [
+        "Choose an approach for an unsorted one-time lookup.",
+        "Choose one for repeated lookups.",
+        "State the extra storage or preprocessing tradeoff."
+      ]
+    },
+    {
+      "id": "m11",
+      "title": "Try a transfer exercise",
+      "minutes": 30,
+      "prerequisites": ["m10"],
+      "resourceUrl": null,
+      "resourceLabel": "Original practice exercise",
+      "why": "Applying a pattern to a different prompt is a more useful checkpoint than XP alone.",
+      "doneWhen": "Attempt finding the first repeated value in a sequence; record help used.",
+      "steps": [
+        "Write two example sequences.",
+        "Explain a set-based approach.",
+        "Test a sequence with no repetition."
+      ]
+    },
+    {
+      "id": "m12",
+      "title": "Review the starter checkpoint",
+      "minutes": 30,
+      "prerequisites": ["m11"],
+      "resourceUrl": null,
+      "resourceLabel": "In-app reflection",
+      "why": "A completed starter should end with an honest account of what needs more practice.",
+      "doneWhen": "Record one approach you can explain, one you cannot yet, and your next practice focus.",
+      "steps": [
+        "Review your mission outcomes.",
+        "Repeat one explanation without notes.",
+        "Record a next step without claiming interview readiness."
+      ]
+    }
+  ]
+}

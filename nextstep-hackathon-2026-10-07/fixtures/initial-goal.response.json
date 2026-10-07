@@ -1,0 +1,80 @@
+{
+  "data": {
+    "goal": {
+      "id": "20000000-0000-4000-8000-000000000001",
+      "version": 1,
+      "trackId": "dsa-starter-v1",
+      "planStartDate": "2026-10-07",
+      "targetDate": "2026-10-19",
+      "deadlineMode": "flexible",
+      "timezone": "Asia/Kolkata",
+      "availability": {
+        "mon": 60,
+        "tue": 0,
+        "wed": 60,
+        "thu": 0,
+        "fri": 60,
+        "sat": 0,
+        "sun": 0
+      },
+      "schedule": [
+        {
+          "missionId": "m01",
+          "date": "2026-10-07"
+        },
+        {
+          "missionId": "m02",
+          "date": "2026-10-07"
+        },
+        {
+          "missionId": "m03",
+          "date": "2026-10-09"
+        },
+        {
+          "missionId": "m04",
+          "date": "2026-10-09"
+        },
+        {
+          "missionId": "m05",
+          "date": "2026-10-12"
+        },
+        {
+          "missionId": "m06",
+          "date": "2026-10-12"
+        },
+        {
+          "missionId": "m07",
+          "date": "2026-10-14"
+        },
+        {
+          "missionId": "m08",
+          "date": "2026-10-14"
+        },
+        {
+          "missionId": "m09",
+          "date": "2026-10-16"
+        },
+        {
+          "missionId": "m10",
+          "date": "2026-10-16"
+        },
+        {
+          "missionId": "m11",
+          "date": "2026-10-19"
+        },
+        {
+          "missionId": "m12",
+          "date": "2026-10-19"
+        }
+      ],
+      "completions": {},
+      "estimatedFinishDate": "2026-10-19",
+      "remainingMinutes": 360,
+      "status": "on_track",
+      "xp": 0,
+      "level": 1,
+      "nextMissionId": "m01",
+      "updatedAt": "2026-10-07T03:30:00.000Z"
+    }
+  }
+}

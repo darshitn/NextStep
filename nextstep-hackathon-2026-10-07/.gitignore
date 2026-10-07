@@ -1,7 +1,5 @@
-# Root Git Ignore for BuildToShip / NextStep
 node_modules/
 dist/
-build/
 coverage/
 .env
 .env.*
@@ -14,5 +12,3 @@ test-results/
 playwright-report/
 .local/
 ~$*
-.vscode/
-.idea/

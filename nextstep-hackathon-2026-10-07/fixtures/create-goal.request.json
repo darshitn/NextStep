@@ -1,0 +1,17 @@
+{
+  "creationRequestId": "10000000-0000-4000-8000-000000000001",
+  "trackId": "dsa-starter-v1",
+  "planStartDate": "2026-10-07",
+  "targetDate": "2026-10-19",
+  "deadlineMode": "flexible",
+  "timezone": "Asia/Kolkata",
+  "availability": {
+    "mon": 60,
+    "tue": 0,
+    "wed": 60,
+    "thu": 0,
+    "fri": 60,
+    "sat": 0,
+    "sun": 0
+  }
+}
