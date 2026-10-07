@@ -53,11 +53,11 @@ Agents must not run an unqualified `git add .`, force-push, or auto-merge. If a 
 3. Copy the project URL and **publishable key** from the project's API/connect settings into local environment files/provider settings. The legacy anon key may be used where that is what the project exposes; use the same documented variable name below. Do not choose a service-role/secret key.
 4. Have the S1 agent review `templates/001-nextstep-goals.sql` and copy it to `database/001-nextstep-goals.sql`.
 5. Check that the target project/table is new. Run the reviewed migration in the SQL editor. It creates only `public.nextstep_goals` and policies. It must not drop existing tables or disable RLS.
-6. In Authentication, keep email/password enabled. Create two confirmed demo users using the dashboard's Add/Create User flow; choose passwords privately. Confirm they appear in Auth Users. Do not rely on invitation emails or SMTP during judging.
-7. Keep public signup outside the app's pilot UI. Credentials are entered manually and shared with the team privately, not in source or screenshots.
+6. In Authentication, keep email/password enabled. Two confirmed demo accounts can be pre-created, but public judge registration is now fully supported via the in-app "Create Account" tab.
+7. For public judge/user onboarding configuration, Site URL, allowed redirect URLs, and email template setup, refer to [09-supabase-auth-config.md](09-supabase-auth-config.md).
 8. RLS ownership must be verified using user sessions, not a SQL-editor query as the administrative role. The editor bypasses ordinary user restrictions and cannot prove isolation.
 
-**Pass:** table exists, RLS enabled, two confirmed accounts exist, and the server can fetch an empty goal for an authenticated user. Signup email links, OAuth redirects, and anonymous signup are not required by this plan.
+**Pass:** table exists, RLS enabled, accounts can sign in or register via "Create Account", and the server isolates user goals.
 
 ## 3. Environment files — names must match exactly
 

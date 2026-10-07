@@ -363,3 +363,62 @@ Release Status:
   - Bounded implementation complete. Ready for recording hackathon demo video.
 ```
 
+```text
+Time (IST): 2026-10-07 19:55 IST
+Milestone / READY or WAITING: D9 / PUBLIC USER ONBOARDING & CREATE ACCOUNT READY (COMPLETE)
+Objective:
+  Implement "Create account" using existing Supabase Auth architecture so judges and public users can register directly from the deployed app without manual account creation.
+
+Requirements & Implementation:
+  1. Sign in / Create account views using current theme:
+     - Built accessible tab switcher between "Sign In" and "Create Account" in SignInForm.jsx.
+     - Full Name (optional), Student Email (required), Password (min 6 chars hint), Confirm Password.
+     - Matches Frosted Sage theme, responsive layout, accessible labels.
+  2. Supabase Auth adapter & service integration:
+     - Implemented `signUp` in `client/src/lib/supabase.js`, `client/src/lib/api.js`, `client/src/services/apiService.js`, and fixture fallback in `client/src/fixtures/apiFixture.js`.
+     - Uses native Supabase Auth `POST /auth/v1/signup` with publishable key (`apikey`).
+     - Never uses `service_role` key or stores plain-text passwords in application DB.
+  3. Handled both Supabase outcomes cleanly:
+     - Outcome A (Session returned / auto-confirm): establishes session, saves to storage, emits SIGNED_IN, redirects to /onboarding.
+     - Outcome B (Confirmation required, no session): shows "Check your email" card with instructions; does NOT treat as authenticated session; preserves unconfirmed state until email link clicked.
+  4. Confirmation return flow:
+     - Added `checkAuthFromUrl()` in `supabaseAuth` to parse `#access_token=...&refresh_token=...` from implicit email link redirects.
+     - Saves session, strips token from URL with `window.history.replaceState` to prevent leakage, emits SIGNED_IN, navigates to /onboarding.
+     - Documented exact Site URL, allowed redirect URLs, and email template setup in `docs/09-supabase-auth-config.md`.
+  5. Validation & Error Handling:
+     - Client-side validation: email regex, min 6 chars password length, password confirmation match.
+     - Error mapping: Supabase 400/422 responses cleanly normalized (user already registered, rate limit, invalid credentials).
+     - Submit button disabled while submitting with spinner; prevents duplicate submissions.
+  6. Preserved existing workflows:
+     - Existing login, logout, goal persistence, recovery, and RLS data isolation fully intact.
+     - Second-user isolation verified by server automated test suite.
+
+Files Changed:
+  - client/src/lib/supabase.js (signUp, checkAuthFromUrl, safe Node.js env fallback)
+  - client/src/lib/api.js (signUp, checkAuthFromUrl)
+  - client/src/services/apiService.js (signUp, checkAuthFromUrl)
+  - client/src/fixtures/apiFixture.js (fixture signUp)
+  - client/src/components/SignInForm.jsx (tabs, Create Account form, "Check your email" card)
+  - client/src/pages/LoginPage.jsx (connected handleSignUp, confirmationRequired flow)
+  - client/src/fixtures/auth.test.js (6 unit tests AUTH-01 through AUTH-06)
+  - docs/09-supabase-auth-config.md (created Supabase Site URL, redirect URL, email config runbook)
+  - docs/03-platform-setup.md (updated to link public onboarding runbook)
+  - handoffs/DARSHIT.md (this entry)
+
+Verification Commands & Results:
+  - npm.cmd --prefix server test: PASS (37/37 tests passed across 3 suites, 0 failed, 6.10s)
+  - npm.cmd --prefix client test: PASS (31/31 tests passed across 1 suite, 0 failed, 1.36s)
+  - npm.cmd --prefix client run build: PASS (Vite production build in 19.81s, 0 errors, dist/ generated)
+  - node scripts/validate-kit.mjs: PASS (7/7 planning groups passed)
+  - node scripts/preflight.mjs: PASS (Node 24.21.0, npm 11.19.0, both services listening)
+
+Browser Verification (Live http://localhost:5173/login):
+  - Verified tab switching between "Sign In" and "Create Account".
+  - Verified form fields, typography, placeholders, and icons matching Frosted Sage theme.
+  - Verified client-side password length requirement (min 6 characters).
+  - Verified inline password mismatch error: "Passwords do not match. Please re-enter."
+  - Verified switching back to "Sign In" restores normal sign-in view.
+  - Captured screenshots: login_page_initial, create_account_view, password_mismatch_error, returned_to_sign_in.
+```
+
+
