@@ -74,7 +74,7 @@ export default function PracticeActivity({ goal, missions }) {
         </div>
         <div className="ns-heat-footer"><span>{readableDay(first)} – {readableDay(today)}</span><span className="ns-legend">Missions {['0','1','2','3+'].map((n,i) => <span key={n}><i className={`intensity-${i}`} />{n}</span>)}</span></div>
         <div className="ns-activity-note"><span className="ns-spark">✦</span><p>{activeDays ? 'A day of progress counts, even when the week changes. Select a square to revisit your work.' : 'Complete your first mission to start your activity history.'}</p></div>
-        <p className="ns-footnote">Self-reported completions for this goal · Asia/Kolkata<br />Teal = completed activity · Violet = scheduled work</p>
+        <p className="ns-footnote">Self-reported completions for this goal · Asia/Kolkata<br />Filled dot = completed activity · Square = scheduled work</p>
       </div>
     </section>
   );

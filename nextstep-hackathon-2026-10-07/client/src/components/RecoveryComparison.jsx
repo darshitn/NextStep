@@ -31,17 +31,17 @@ export default function RecoveryComparison({
   return (
     <div className="glass-panel rounded-2xl p-6 sm:p-8 shadow-glass space-y-6">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-800">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b ui-border-border">
         <div>
-          <h2 className="text-xl font-bold text-white tracking-tight flex items-center gap-2">
+          <h2 className="text-xl font-bold ui-text-ink tracking-tight flex items-center gap-2">
             <span>Schedule Recovery & Calibration</span>
           </h2>
-          <p className="text-xs sm:text-sm text-slate-400 mt-1">
+          <p className="text-xs sm:text-sm ui-text-muted mt-1">
             Life happened? Recalibrate your daily capacity without losing previously completed missions.
           </p>
         </div>
-        <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-surface-100 border border-slate-700/60 text-xs text-slate-300 self-start sm:self-auto">
-          <ShieldCheck className="w-4 h-4 text-emerald-400" />
+        <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl ui-bg-surface border ui-border-border text-xs ui-text-ink self-start sm:self-auto">
+          <ShieldCheck className="w-4 h-4 ui-text-ink" />
           <span>{completedCount} completed missions preserved</span>
         </div>
       </div>
@@ -59,7 +59,7 @@ export default function RecoveryComparison({
             type="button"
             onClick={handleGeneratePreview}
             disabled={isPreviewing || isApplying}
-            className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-brand-600 hover:bg-brand-500 text-white font-semibold text-xs sm:text-sm transition-all shadow-glow disabled:opacity-50"
+            className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl ui-bg-accent hover:ui-bg-accent ui-text-inverse font-semibold text-xs sm:text-sm transition-all shadow-glow disabled:opacity-50"
           >
             <RefreshCw className={`w-4 h-4 ${isPreviewing ? 'animate-spin' : ''}`} />
             <span>{isPreviewing ? 'Calculating Schedule...' : 'Preview Revised Schedule'}</span>
@@ -69,67 +69,67 @@ export default function RecoveryComparison({
 
       {/* Side-by-side Preview (if generated) */}
       {previewData && (
-        <div className="pt-4 border-t border-slate-800 space-y-5 animate-fade-in">
+        <div className="pt-4 border-t ui-border-border space-y-5 animate-fade-in">
           <div className="flex items-center justify-between">
-            <h3 className="text-sm font-bold uppercase tracking-wider text-slate-200 flex items-center gap-2">
-              <Calendar className="w-4 h-4 text-indigo-400" />
+            <h3 className="text-sm font-bold uppercase tracking-wider ui-text-ink flex items-center gap-2">
+              <Calendar className="w-4 h-4 ui-text-ink" />
               <span>Before & After Comparison</span>
             </h3>
-            <span className="text-xs text-slate-400">
-              Preview for date: <span className="font-mono text-slate-300">{previewData.previewForDate}</span>
+            <span className="text-xs ui-text-muted">
+              Preview for date: <span className="font-mono ui-text-ink">{previewData.previewForDate}</span>
             </span>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {/* Current Plan Card */}
-            <div className="p-4 rounded-xl bg-surface-200/50 border border-slate-800 space-y-3">
-              <span className="text-xs font-bold uppercase text-slate-400 tracking-wider block">
+            <div className="p-4 rounded-xl ui-bg-soft-a50 border ui-border-border space-y-3">
+              <span className="text-xs font-bold uppercase ui-text-muted tracking-wider block">
                 Current Plan
               </span>
               <div className="space-y-2 text-xs">
                 <div className="flex justify-between">
-                  <span className="text-slate-400">Est. Finish Date:</span>
-                  <span className="font-semibold text-slate-200">{goal.estimatedFinishDate}</span>
+                  <span className="ui-text-muted">Est. Finish Date:</span>
+                  <span className="font-semibold ui-text-ink">{goal.estimatedFinishDate}</span>
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-slate-400">Target Deadline:</span>
-                  <span className="font-semibold text-slate-200">{goal.targetDate}</span>
+                  <span className="ui-text-muted">Target Deadline:</span>
+                  <span className="font-semibold ui-text-ink">{goal.targetDate}</span>
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-slate-400">Pacing Status:</span>
-                  <span className="capitalize font-semibold text-slate-300">{goal.status}</span>
+                  <span className="ui-text-muted">Pacing Status:</span>
+                  <span className="capitalize font-semibold ui-text-ink">{goal.status}</span>
                 </div>
               </div>
             </div>
 
             {/* Proposed Recovery Card */}
-            <div className="p-4 rounded-xl bg-brand-950/20 border border-brand-500/40 space-y-3">
+            <div className="p-4 rounded-xl ui-bg-soft border ui-border-border-a40 space-y-3">
               <div className="flex items-center justify-between">
-                <span className="text-xs font-bold uppercase text-brand-300 tracking-wider">
+                <span className="text-xs font-bold uppercase ui-text-ink tracking-wider">
                   Proposed Recovery
                 </span>
-                <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-brand-500/20 text-brand-300 border border-brand-500/40">
+                <span className="px-2 py-0.5 rounded text-[10px] font-bold ui-bg-soft-a20 ui-text-ink border ui-border-border-a40">
                   {previewData.movedMissionCount} Missions Rescheduled
                 </span>
               </div>
               <div className="space-y-2 text-xs">
                 <div className="flex justify-between">
-                  <span className="text-slate-400">New Est. Finish:</span>
-                  <span className="font-semibold text-brand-200">{previewData.estimatedFinishDate}</span>
+                  <span className="ui-text-muted">New Est. Finish:</span>
+                  <span className="font-semibold ui-text-ink">{previewData.estimatedFinishDate}</span>
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-slate-400">Proposed Target:</span>
-                  <span className="font-semibold text-brand-200">
+                  <span className="ui-text-muted">Proposed Target:</span>
+                  <span className="font-semibold ui-text-ink">
                     {previewData.proposedTargetDate}
                     {goal.deadlineMode === 'flexible' && previewData.proposedTargetDate > goal.targetDate && (
-                      <span className="text-[10px] text-amber-300 ml-1">(Extended)</span>
+                      <span className="text-[10px] ui-text-ink ml-1">(Extended)</span>
                     )}
                   </span>
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-slate-400">New Pacing Status:</span>
+                  <span className="ui-text-muted">New Pacing Status:</span>
                   <span className={`capitalize font-semibold ${
-                    previewData.status === 'on_track' ? 'text-emerald-400' : 'text-amber-400'
+                    previewData.status === 'on_track' ? 'ui-text-ink' : 'ui-text-ink'
                   }`}>
                     {previewData.status.replace('_', ' ')}
                   </span>
@@ -139,13 +139,13 @@ export default function RecoveryComparison({
           </div>
 
           {/* Mode explanation alert */}
-          <div className="p-3.5 rounded-xl bg-surface-100/60 border border-slate-700/60 text-xs text-slate-300 flex items-start gap-2.5">
-            <AlertTriangle className="w-4 h-4 text-brand-400 shrink-0 mt-0.5" />
+          <div className="p-3.5 rounded-xl ui-bg-surface-a60 border ui-border-border text-xs ui-text-ink flex items-start gap-2.5">
+            <AlertTriangle className="w-4 h-4 ui-text-ink shrink-0 mt-0.5" />
             <div>
-              <p className="font-semibold text-slate-200">
+              <p className="font-semibold ui-text-ink">
                 Deterministic Allocation Notice
               </p>
-              <p className="text-slate-400 mt-0.5 leading-relaxed">
+              <p className="ui-text-muted mt-0.5 leading-relaxed">
                 {goal.deadlineMode === 'flexible'
                   ? 'In flexible mode, accepting this recovery safely adjusts your target deadline to match your revised capacity.'
                   : 'In fixed mode, your target deadline remains unchanged. If your revised availability requires more time, NextStep marks remaining work as over capacity rather than dropping missions.'}
@@ -154,12 +154,12 @@ export default function RecoveryComparison({
           </div>
 
           {/* Explicit Apply & Cancel buttons */}
-          <div className="flex flex-col sm:flex-row items-center justify-end gap-3 pt-4 border-t border-slate-800">
+          <div className="flex flex-col sm:flex-row items-center justify-end gap-3 pt-4 border-t ui-border-border">
             <button
               type="button"
               onClick={onCancel}
               disabled={isApplying}
-              className="w-full sm:w-auto px-4 py-2.5 rounded-xl text-xs font-semibold text-slate-400 hover:text-slate-200 hover:bg-surface-100 transition-colors"
+              className="w-full sm:w-auto px-4 py-2.5 rounded-xl text-xs font-semibold ui-text-muted hover:ui-text-ink hover:ui-bg-surface transition-colors"
             >
               Cancel & Keep Current Plan
             </button>
@@ -167,7 +167,7 @@ export default function RecoveryComparison({
               type="button"
               onClick={handleApply}
               disabled={isApplying}
-              className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-6 py-2.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-semibold text-xs sm:text-sm transition-all shadow-glow disabled:opacity-50"
+              className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-6 py-2.5 rounded-xl ui-bg-accent hover:ui-bg-accent ui-text-inverse font-semibold text-xs sm:text-sm transition-all shadow-glow disabled:opacity-50"
             >
               <CheckCircle2 className="w-4 h-4" />
               <span>{isApplying ? 'Applying Plan...' : 'Accept & Apply Revised Plan'}</span>

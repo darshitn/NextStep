@@ -1,86 +1,35 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
-
 :root {
-  color-scheme: dark;
+ color-scheme: light;
+ --page: 246 246 246; --surface: 255 255 255; --soft: 242 242 242; --border: 224 224 224;
+ --ink: 23 23 23; --muted: 100 100 100; --accent: 24 24 24; --inverse: 255 255 255;
+ --heat1: 180 180 180; --heat2: 100 100 100; --heat3: 30 30 30;
 }
-
-body {
-  margin: 0;
-  font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
-  background-color: #0b0f19;
-  background-image: 
-    radial-gradient(at 0% 0%, rgba(99, 102, 241, 0.12) 0px, transparent 50%),
-    radial-gradient(at 100% 100%, rgba(16, 185, 129, 0.08) 0px, transparent 50%);
-  background-attachment: fixed;
-  color: #f1f5f9;
-  min-height: 100vh;
+:root[data-theme='dark'] {
+ color-scheme: dark;
+ --page: 12 12 12; --surface: 20 20 20; --soft: 30 30 30; --border: 52 52 52;
+ --ink: 242 242 242; --muted: 165 165 165; --accent: 240 240 240; --inverse: 20 20 20;
+ --heat1: 90 90 90; --heat2: 160 160 160; --heat3: 235 235 235;
 }
-
-/* Glassmorphism primitives */
-.glass-panel {
-  background: rgba(20, 27, 45, 0.7);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-}
-
-.glass-panel-interactive {
-  background: rgba(20, 27, 45, 0.7);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
-}
-
-.glass-panel-interactive:hover {
-  background: rgba(26, 34, 52, 0.85);
-  border-color: rgba(99, 102, 241, 0.3);
-  transform: translateY(-2px);
-  box-shadow: 0 12px 30px -10px rgba(0, 0, 0, 0.5), 0 0 20px -5px rgba(99, 102, 241, 0.2);
-}
-
-.glass-card {
-  background: rgba(26, 34, 52, 0.6);
-  border: 1px solid rgba(255, 255, 255, 0.06);
-}
-
-.glass-input {
-  background: rgba(15, 21, 36, 0.8);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  color: #f8fafc;
-  transition: border-color 0.15s ease, box-shadow 0.15s ease;
-}
-
-.glass-input:focus {
-  outline: none;
-  border-color: #6366f1;
-  box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.25);
-}
-
-/* Animations */
-@keyframes pulseSubtle {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.6; }
-}
-
-.animate-pulse-subtle {
-  animation: pulseSubtle 3s cubic-bezier(0.4, 0, 0.6, 1) infinite;
-}
-
-/* Custom Scrollbar */
-::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
-}
-::-webkit-scrollbar-track {
-  background: #0b0f19;
-}
-::-webkit-scrollbar-thumb {
-  background: #1e293b;
-  border-radius: 4px;
-}
-::-webkit-scrollbar-thumb:hover {
-  background: #334155;
-}
+body {margin:0;font-family:Inter,system-ui,sans-serif;background:rgb(var(--page));color:rgb(var(--ink));min-height:100vh;-webkit-font-smoothing:antialiased}
+h1,h2,h3 {letter-spacing:-.025em}
+::selection {background:rgb(var(--accent));color:rgb(var(--inverse))}
+.glass-panel,.glass-panel-interactive {background:rgb(var(--surface));border:1px solid rgb(var(--border));box-shadow:0 2px 6px #00000004}
+.glass-panel-interactive {transition:border-color .15s}
+.glass-panel-interactive:hover {border-color:rgb(var(--muted))}
+.glass-card {background:rgb(var(--soft));border:1px solid rgb(var(--border))}
+.glass-input {background:rgb(var(--surface));border:1px solid rgb(var(--border));color:rgb(var(--ink))}
+:focus-visible {outline:2px solid rgb(var(--ink));outline-offset:3px}
+input::placeholder,textarea::placeholder {color:rgb(var(--muted))}
+header.glass-panel {box-shadow:none}
+footer.glass-panel {background:transparent;box-shadow:none}
+.theme-switch {display:flex;gap:2px;padding:3px;border:1px solid rgb(var(--border));border-radius:9px;background:rgb(var(--soft))}
+.theme-switch button {display:flex;align-items:center;gap:6px;padding:6px 9px;border-radius:6px;font-size:12px;font-weight:500;color:rgb(var(--muted))}
+.theme-switch button[aria-pressed='true'] {background:rgb(var(--surface));color:rgb(var(--ink));box-shadow:0 1px 3px #00000018}
+@media(max-width:540px){.theme-switch span{display:none}.theme-switch button{padding:7px}header.glass-panel{gap:8px}}
+::-webkit-scrollbar {width:7px;height:7px}
+::-webkit-scrollbar-track {background:rgb(var(--page))}
+::-webkit-scrollbar-thumb {background:rgb(var(--border));border-radius:8px}
+@media(prefers-reduced-motion:reduce){*,*::before,*::after{animation-duration:.01ms!important;transition-duration:.01ms!important}}

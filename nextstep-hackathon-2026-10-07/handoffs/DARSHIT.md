@@ -102,3 +102,22 @@ Do not replace failed evidence with a success claim; add the later repair result
 - Sanitized provider failure messages. Updated runtime AI contract status.
 - User reported successful local persistence, recovery and second-user checks; these are not independently executed cloud isolation tests.
 - Remaining release checks: real browser guidance, deployed Render/Vercel flow, production environment configuration.
+
+## Theme refresh 2026-10-07
+- Replaced midnight/glass/gradient styling with warm off-white surfaces, white cards, forest-green actions and dark neutral text.
+- Updated theme tokens and component color classes; preserved application logic.
+- npm run build: PASS after retry outside the Windows filesystem sandbox (initial realpath EPERM).
+- Fresh local preview on port 5180: sign-in screen visually checked. Existing port 5173 retained stale Tailwind tokens and needs restart.
+- Dashboard and authenticated flows were not visually verified because the session expired. No deployment or Git publication performed.
+
+## Monochrome theme correction 2026-10-07
+- Shared CSS variables now drive Light/Dark modes, including practice-activity.css calendar/heatmap previously missed.
+- Header theme switch saves preference; index initialization restores it before rendering. Inverse action text remains readable in both modes.
+- Build PASS. Visually checked real AppShell, ProgressSummary and PracticeActivity components with synthetic sample data in a local-only preview, both modes. Not an authenticated end-to-end test.
+- Preview screenshots: .local/theme-light.jpg and .local/theme-dark.jpg. No commit, push or deployment.
+
+## Dark contrast repair 2026-10-07
+- Replaced color utility usages with semantic runtime CSS in theme-utilities.css, removing dependency on stale Tailwind-generated colors. Updated main import and removed fixed body palette classes.
+- Both theme modes visually reviewed using actual MissionCard, GuidancePanel, ProgressSummary, AppShell and PracticeActivity with synthetic data. Verified readable mission instructions, action labels, input and category selection in dark mode; light mode also reviewed.
+- Browser review is component-level, not proof of live API integration. Screenshots: .local/dark-mission-fixed.jpg and .local/dark-guidance-fixed.jpg.
+- Production build passed. No deployment or push.

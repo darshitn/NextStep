@@ -1,46 +1,11 @@
-/** @type {import('tailwindcss').Config} */
+const token = name => `rgb(var(--${name}) / <alpha-value>)`;
+const neutralAccent = {50:token('soft'),100:token('soft'),200:token('border'),300:token('muted'),400:token('muted'),500:token('accent'),600:token('accent'),700:token('ink'),950:token('soft')};
 export default {
-  content: [
-    "./index.html",
-    "./src/**/*.{js,ts,jsx,tsx}",
-  ],
-  darkMode: 'class',
-  theme: {
-    extend: {
-      colors: {
-        background: '#0B0F19',
-        surface: {
-          50: '#1A2234',
-          100: '#141B2D',
-          200: '#0F1524',
-          300: '#0B0F19',
-        },
-        brand: {
-          50: '#EEF2FF',
-          100: '#E0E7FF',
-          400: '#818CF8',
-          500: '#6366F1',
-          600: '#4F46E5',
-          700: '#4338CA',
-        },
-        emerald: {
-          400: '#34D399',
-          500: '#10B981',
-          600: '#059669',
-        },
-        amber: {
-          400: '#FBBF24',
-          500: '#F59E0B',
-        }
-      },
-      fontFamily: {
-        sans: ['Inter', 'system-ui', '-apple-system', 'sans-serif'],
-      },
-      boxShadow: {
-        glass: '0 8px 32px 0 rgba(0, 0, 0, 0.37)',
-        glow: '0 0 20px -5px rgba(99, 102, 241, 0.4)',
-      }
-    },
-  },
-  plugins: [],
-}
+ content:['./index.html','./src/**/*.{js,ts,jsx,tsx}'],
+ theme:{extend:{colors:{
+ background:token('page'),white:token('surface'),'on-accent':token('inverse'),
+ surface:{50:token('soft'),100:token('surface'),200:token('soft'),300:token('border')},
+ brand:neutralAccent,emerald:neutralAccent,indigo:neutralAccent,purple:neutralAccent,blue:neutralAccent,amber:neutralAccent,rose:neutralAccent,
+ slate:{100:token('soft'),200:token('border'),300:token('border'),400:token('muted'),500:token('muted'),600:token('muted'),700:token('ink'),800:token('ink'),900:token('ink'),950:token('ink')}
+ },fontFamily:{sans:['Inter','system-ui','sans-serif']},boxShadow:{glass:'0 2px 8px #00000006',glow:'none'}}},plugins:[]
+};

@@ -71,10 +71,10 @@ export default function GoalForm({ onSubmit, isLoading = false, error = null }) 
   return (
     <div className="max-w-2xl w-full mx-auto space-y-6">
       <div className="text-center space-y-2">
-        <h1 className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">
+        <h1 className="text-2xl sm:text-3xl font-extrabold ui-text-ink tracking-tight">
           A big goal. A doable next step.
         </h1>
-        <p className="text-sm text-slate-400">
+        <p className="text-sm ui-text-muted">
           Name your goal, choose your time, and build a routine you can keep.
         </p>
       </div>
@@ -82,18 +82,18 @@ export default function GoalForm({ onSubmit, isLoading = false, error = null }) 
       <div className="glass-panel rounded-2xl p-6 sm:p-8 shadow-glass space-y-6">
         <form onSubmit={handleSubmit} className="space-y-6">
           <div>
-            <label htmlFor="goal-name" className="block text-sm font-semibold text-white mb-2">What are you working toward?</label>
-            <input id="goal-name" required maxLength={80} value={goalName} onChange={e => setGoalName(e.target.value)} pattern=".*\S.*" className="w-full rounded-xl bg-slate-900 border border-slate-600 px-4 py-3 text-white" />
-            <p className="text-xs text-slate-400 mt-2">Your goal name is personal. This MVP provides DSA Foundations missions; other learning tracks are not available yet.</p>
+            <label htmlFor="goal-name" className="block text-sm font-semibold ui-text-ink mb-2">What are you working toward?</label>
+            <input id="goal-name" required maxLength={80} value={goalName} onChange={e => setGoalName(e.target.value)} pattern=".*\S.*" className="w-full rounded-xl ui-bg-surface border ui-border-border px-4 py-3 ui-text-ink" />
+            <p className="text-xs ui-text-muted mt-2">Your goal name is personal. This MVP provides DSA Foundations missions; other learning tracks are not available yet.</p>
           </div>
           {/* Selected Track Banner */}
-          <div className="p-4 rounded-xl bg-surface-100/90 border border-slate-700/60 flex items-center justify-between">
+          <div className="p-4 rounded-xl ui-bg-surface-a90 border ui-border-border flex items-center justify-between">
             <div>
-              <span className="text-[10px] font-bold uppercase tracking-wider text-brand-400">Selected Track</span>
-              <h3 className="font-bold text-sm text-white">DSA Foundations Starter (v1)</h3>
-              <p className="text-xs text-slate-400 mt-0.5">12 structured 30-minute missions (6 hours total)</p>
+              <span className="text-[10px] font-bold uppercase tracking-wider ui-text-ink">Selected Track</span>
+              <h3 className="font-bold text-sm ui-text-ink">DSA Foundations Starter (v1)</h3>
+              <p className="text-xs ui-text-muted mt-0.5">12 structured 30-minute missions (6 hours total)</p>
             </div>
-            <span className="px-2.5 py-1 text-xs font-semibold bg-brand-500/20 text-brand-300 rounded-lg border border-brand-500/30">
+            <span className="px-2.5 py-1 text-xs font-semibold ui-bg-soft-a20 ui-text-ink rounded-lg border ui-border-border-a30">
               360 mins
             </span>
           </div>
@@ -101,8 +101,8 @@ export default function GoalForm({ onSubmit, isLoading = false, error = null }) 
           {/* Date range grid */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
-              <label className="text-xs font-semibold uppercase tracking-wider text-slate-300 block mb-1.5 flex items-center gap-1.5">
-                <Calendar className="w-3.5 h-3.5 text-brand-400" />
+              <label className="text-xs font-semibold uppercase tracking-wider ui-text-ink block mb-1.5 flex items-center gap-1.5">
+                <Calendar className="w-3.5 h-3.5 ui-text-ink" />
                 Plan Start Date
               </label>
               <input
@@ -110,13 +110,13 @@ export default function GoalForm({ onSubmit, isLoading = false, error = null }) 
                 required
                 value={planStartDate}
                 onChange={(e) => setPlanStartDate(e.target.value)}
-                className="w-full glass-input rounded-xl px-3.5 py-2.5 text-sm text-slate-200"
+                className="w-full glass-input rounded-xl px-3.5 py-2.5 text-sm ui-text-ink"
               />
             </div>
 
             <div>
-              <label className="text-xs font-semibold uppercase tracking-wider text-slate-300 block mb-1.5 flex items-center gap-1.5">
-                <Target className="w-3.5 h-3.5 text-emerald-400" />
+              <label className="text-xs font-semibold uppercase tracking-wider ui-text-ink block mb-1.5 flex items-center gap-1.5">
+                <Target className="w-3.5 h-3.5 ui-text-ink" />
                 Target Deadline
               </label>
               <input
@@ -125,22 +125,22 @@ export default function GoalForm({ onSubmit, isLoading = false, error = null }) 
                 min={planStartDate}
                 value={targetDate}
                 onChange={(e) => setTargetDate(e.target.value)}
-                className="w-full glass-input rounded-xl px-3.5 py-2.5 text-sm text-slate-200"
+                className="w-full glass-input rounded-xl px-3.5 py-2.5 text-sm ui-text-ink"
               />
             </div>
           </div>
 
           {/* Deadline Mode Selector */}
           <div>
-            <label className="text-xs font-semibold uppercase tracking-wider text-slate-300 block mb-2">
+            <label className="text-xs font-semibold uppercase tracking-wider ui-text-ink block mb-2">
               Deadline Pacing Mode
             </label>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <label
                 className={`p-3.5 rounded-xl border cursor-pointer transition-all flex flex-col gap-1 ${
                   deadlineMode === 'flexible'
-                    ? 'bg-brand-500/20 border-brand-500 text-white shadow-sm ring-1 ring-brand-500/40'
-                    : 'bg-surface-200/50 border-slate-800 text-slate-300 hover:bg-surface-100'
+                    ? 'ui-bg-soft-a20 ui-border-border ui-text-ink shadow-sm ring-1 ring-brand-500/40'
+                    : 'ui-bg-soft-a50 ui-border-border ui-text-ink hover:ui-bg-surface'
                 }`}
               >
                 <div className="flex items-center justify-between">
@@ -154,7 +154,7 @@ export default function GoalForm({ onSubmit, isLoading = false, error = null }) 
                     className="accent-brand-500"
                   />
                 </div>
-                <span className="text-[11px] text-slate-400 leading-tight">
+                <span className="text-[11px] ui-text-muted leading-tight">
                   Automatically extends target date when schedule recoveries occur.
                 </span>
               </label>
@@ -162,8 +162,8 @@ export default function GoalForm({ onSubmit, isLoading = false, error = null }) 
               <label
                 className={`p-3.5 rounded-xl border cursor-pointer transition-all flex flex-col gap-1 ${
                   deadlineMode === 'fixed'
-                    ? 'bg-brand-500/20 border-brand-500 text-white shadow-sm ring-1 ring-brand-500/40'
-                    : 'bg-surface-200/50 border-slate-800 text-slate-300 hover:bg-surface-100'
+                    ? 'ui-bg-soft-a20 ui-border-border ui-text-ink shadow-sm ring-1 ring-brand-500/40'
+                    : 'ui-bg-soft-a50 ui-border-border ui-text-ink hover:ui-bg-surface'
                 }`}
               >
                 <div className="flex items-center justify-between">
@@ -177,7 +177,7 @@ export default function GoalForm({ onSubmit, isLoading = false, error = null }) 
                     className="accent-brand-500"
                   />
                 </div>
-                <span className="text-[11px] text-slate-400 leading-tight">
+                <span className="text-[11px] ui-text-muted leading-tight">
                   Strict calendar deadline; flags overflow workload if behind schedule.
                 </span>
               </label>
@@ -192,13 +192,13 @@ export default function GoalForm({ onSubmit, isLoading = false, error = null }) 
           />
 
           {(validationError || error) && (
-            <p className="text-xs text-rose-400 font-medium">{validationError || error}</p>
+            <p className="text-xs ui-text-ink font-medium">{validationError || error}</p>
           )}
 
           <button
             type="submit"
             disabled={isLoading}
-            className="w-full inline-flex items-center justify-center gap-2 px-6 py-3.5 rounded-xl bg-gradient-to-r from-brand-600 to-indigo-600 hover:from-brand-500 hover:to-indigo-500 text-white font-semibold text-sm transition-all shadow-glow hover:shadow-lg disabled:opacity-50"
+            className="w-full inline-flex items-center justify-center gap-2 px-6 py-3.5 rounded-xl ui-bg-accent hover:ui-bg-accent ui-text-inverse font-semibold text-sm transition-all shadow-glow hover:shadow-lg disabled:opacity-50"
           >
             <CheckCircle2 className="w-4 h-4" />
             <span>{isLoading ? 'Creating Deterministic Plan...' : 'Generate Practice Plan'}</span>

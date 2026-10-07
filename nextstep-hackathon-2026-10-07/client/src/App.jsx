@@ -65,7 +65,7 @@ export default function App() {
 
   if (isAuthChecking) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-background">
+      <div className="min-h-screen flex items-center justify-center ui-bg-page">
         <LoadingState message="Connecting to NextStep..." />
       </div>
     );

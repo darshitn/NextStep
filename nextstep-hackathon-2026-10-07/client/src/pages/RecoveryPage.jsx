@@ -71,7 +71,7 @@ export default function RecoveryPage({ goal, onGoalUpdated }) {
     <div className="space-y-4 max-w-4xl mx-auto py-2 animate-fade-in">
       <button
         onClick={() => navigate('/dashboard')}
-        className="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-400 hover:text-slate-200 transition-colors"
+        className="inline-flex items-center gap-1.5 text-xs font-semibold ui-text-muted hover:ui-text-ink transition-colors"
       >
         <ArrowLeft className="w-4 h-4" />
         <span>Return to Dashboard</span>

@@ -36,19 +36,19 @@ export default function AvailabilityPicker({ value, onChange, disabled = false }
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-2 border-b border-slate-800">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-2 border-b ui-border-border">
         <div>
-          <label className="text-sm font-semibold text-slate-200 flex items-center gap-1.5">
-            <Calendar className="w-4 h-4 text-brand-400" />
+          <label className="text-sm font-semibold ui-text-ink flex items-center gap-1.5">
+            <Calendar className="w-4 h-4 ui-text-ink" />
             Weekly Study Availability
           </label>
-          <p className="text-xs text-slate-400 mt-0.5">
+          <p className="text-xs ui-text-muted mt-0.5">
             Set discrete daily capacity (30m blocks). 0m designates scheduled rest.
           </p>
         </div>
         <div className="flex items-center gap-2 self-start sm:self-auto">
-          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-surface-100 border border-slate-700/60 text-xs font-medium text-slate-300">
-            <Clock className="w-3.5 h-3.5 text-indigo-400" />
+          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg ui-bg-surface border ui-border-border text-xs font-medium ui-text-ink">
+            <Clock className="w-3.5 h-3.5 ui-text-ink" />
             {totalHours} hrs / wk ({weeklyMissions} missions)
           </span>
         </div>
@@ -62,19 +62,19 @@ export default function AvailabilityPicker({ value, onChange, disabled = false }
               key={key}
               className={`p-3 rounded-xl border transition-all ${
                 dayVal > 0
-                  ? 'bg-surface-100/90 border-brand-500/30 shadow-sm'
-                  : 'bg-surface-200/50 border-slate-800/80'
+                  ? 'ui-bg-surface-a90 ui-border-border-a30 shadow-sm'
+                  : 'ui-bg-soft-a50 ui-border-border'
               }`}
             >
               <div className="flex items-center justify-between mb-2">
-                <span className="font-semibold text-xs tracking-wider uppercase text-slate-300">
+                <span className="font-semibold text-xs tracking-wider uppercase ui-text-ink">
                   {label}
                 </span>
                 <span
                   className={`text-[10px] font-medium px-1.5 py-0.5 rounded ${
                     dayVal > 0
-                      ? 'bg-brand-500/20 text-brand-300'
-                      : 'bg-slate-800 text-slate-500'
+                      ? 'ui-bg-soft-a20 ui-text-ink'
+                      : 'ui-bg-soft ui-text-muted'
                   }`}
                 >
                   {dayVal === 0 ? 'Rest' : `${dayVal}m`}
@@ -92,8 +92,8 @@ export default function AvailabilityPicker({ value, onChange, disabled = false }
                       onClick={() => handleSelect(key, optVal)}
                       className={`py-1.5 text-[11px] font-medium rounded transition-all ${
                         isSelected
-                          ? 'bg-brand-600 text-white shadow-sm ring-1 ring-brand-400'
-                          : 'bg-surface-300/80 text-slate-400 hover:text-slate-200 hover:bg-surface-50'
+                          ? 'ui-bg-accent ui-text-inverse shadow-sm ring-1 ring-brand-400'
+                          : 'ui-bg-soft-a80 ui-text-muted hover:ui-text-ink hover:ui-bg-soft'
                       }`}
                       title={`${full}: ${optVal} min`}
                     >
@@ -108,7 +108,7 @@ export default function AvailabilityPicker({ value, onChange, disabled = false }
       </div>
 
       {!isZeroValid && (
-        <p className="text-xs text-rose-400 font-medium">
+        <p className="text-xs ui-text-ink font-medium">
           * At least one day must have at least 30 minutes of study capacity.
         </p>
       )}
