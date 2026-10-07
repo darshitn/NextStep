@@ -563,52 +563,11 @@ router.post('/guidance', async (req, res, next) => {
       });
     }
 
-    const mission = catalogData.missions.find(m => m.id === missionId);
-
-    // AI guidance generator
-    let mode = 'standard_practice';
-    let explanation = `You are ready to continue with "${mission.title}". Focus on writing clean code and validating boundary cases.`;
-    let steps = [
-      'Implement the solution within a 20-minute timed sprint.',
-      'Test with edge inputs (empty array, single element, negative numbers).',
-      'Record your outcome and any observations in the reflection box.'
-    ];
-    let checkQuestion = 'What is the worst-case time complexity of your implemented approach?';
-
-    if (category === 'too_difficult') {
-      mode = 'guided_practice';
-      explanation = `Because you reported difficulty with "${mission.title}" (${feedback ? `"${feedback}"` : 'concept block'}), we will isolate the core pattern with an explicit miniature example before tackling code.`;
-      steps = [
-        'Write down a tiny 3-element test input on physical paper.',
-        'Trace the algorithm step-by-step without writing full code, observing pointer/index changes.',
-        'Identify the exact condition where the operation terminates.',
-        'Revisit the problem description and solve only for your tiny example.'
-      ];
-      checkQuestion = 'In your mini example, what exact value changes during the first pass?';
-    } else if (category === 'need_revision') {
-      mode = 'revision_first';
-      const prereq = mission.prerequisites[0];
-      const prereqMission = prereq ? catalogData.missions.find(m => m.id === prereq) : null;
-      explanation = `To reinforce your foundation before continuing, spend the first 10 minutes recalling ${prereqMission ? prereqMission.title : 'prerequisite concepts'}, then complete the core exercise in the remaining 20 minutes.`;
-      steps = [
-        'Spend 5 minutes recalling the core lookup or pointer mechanism without checking previous notes.',
-        'Write down the time and space complexity tradeoffs for this pattern.',
-        'Apply this recalled mechanism to the current mission requirements.'
-      ];
-      checkQuestion = 'Why is this approach preferred over brute-force comparison?';
-    }
-
-    return res.status(200).json({
-      data: {
-        guidance: {
-          baseVersion: expectedVersion,
-          missionId: missionId,
-          mode,
-          explanation,
-          steps,
-          checkQuestion,
-          source: 'gemini'
-        }
+    // Runtime AI is not integrated yet. Never mislabel canned advice as Gemini.
+    return res.status(503).json({
+      error: {
+        code: 'AI_NOT_CONFIGURED',
+        message: 'AI guidance is not available yet. Your saved plan is unchanged.'
       }
     });
   } catch (err) {

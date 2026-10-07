@@ -439,7 +439,7 @@ describe('NextStep API & Integration Test Suite', () => {
     assert.deepEqual(appliedGoal.availability, newAvailability);
   });
 
-  test('Guidance endpoint validates version, mission, and returns structured advice', async () => {
+  test('Guidance endpoint rejects unavailable AI without fabricated provider output', async () => {
     // Current nextMissionId for User 1 is 'm02', version 3
     const resGuidance = await fetch(`${baseUrl}/api/goal/guidance`, {
       method: 'POST',
@@ -454,13 +454,10 @@ describe('NextStep API & Integration Test Suite', () => {
         feedback: 'Need help with pointer arithmetic.'
       })
     });
-    assert.equal(resGuidance.status, 200);
+    assert.equal(resGuidance.status, 503);
     const body = await resGuidance.json();
-    assert.ok(body.data.guidance);
-    assert.equal(body.data.guidance.missionId, 'm02');
-    assert.equal(body.data.guidance.mode, 'guided_practice');
-    assert.ok(body.data.guidance.steps.length >= 2);
-    assert.ok(body.data.guidance.checkQuestion);
+    assert.equal(body.error.code, 'AI_NOT_CONFIGURED');
+    assert.equal(body.data, undefined);
 
     // Mismatched mission returns 422 INVALID_MISSION
     const resBadMission = await fetch(`${baseUrl}/api/goal/guidance`, {
