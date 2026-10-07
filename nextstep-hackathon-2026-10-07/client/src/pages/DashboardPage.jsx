@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import ProgressSummary from '../components/ProgressSummary.jsx';
 import PracticeActivity from '../components/PracticeActivity.jsx';
@@ -38,6 +38,19 @@ export default function DashboardPage({ goal, onGoalUpdated, catalog, onCatalogL
   const [isSubmittingCompletion, setIsSubmittingCompletion] = useState(false);
 
   const [activeGuidanceMission, setActiveGuidanceMission] = useState(null);
+  const practiceRef = useRef(null);
+  const practiceTriggerRef = useRef(null);
+
+  const openPractice = mission => {
+    practiceTriggerRef.current = document.activeElement;
+    const open = () => {
+      setActiveGuidanceMission(mission);
+      if (guidanceData && guidanceData.missionId !== mission.id) setGuidanceData(null);
+      if (activeGuidanceMission?.id === mission.id) practiceRef.current?.focusHeading();
+    };
+    if (activeGuidanceMission && activeGuidanceMission.id !== mission.id) practiceRef.current?.requestLeave(open);
+    else open();
+  };
   const [guidanceData, setGuidanceData] = useState(null);
   const [isLoadingGuidance, setIsLoadingGuidance] = useState(false);
   const [guidanceError, setGuidanceError] = useState(null);
@@ -193,7 +206,7 @@ export default function DashboardPage({ goal, onGoalUpdated, catalog, onCatalogL
       const res = await apiService.saveLearningContext(payload);
       if (res?.data?.goal) {
         onGoalUpdated(res.data.goal);
-        setSavedNotice('Practice notes saved. Persisted across reloads.');
+        setSavedNotice('Practice notes saved. You can return to them later.');
         setTimeout(() => setSavedNotice(''), 4000);
       }
       return res?.data;
@@ -358,7 +371,7 @@ export default function DashboardPage({ goal, onGoalUpdated, catalog, onCatalogL
   });
 
   return (
-    <div className="space-y-6 animate-fade-in">
+    <div className="dashboard-layout">
       {editingName && <form onSubmit={saveName} className="rounded-xl border ui-border-border ui-bg-surface p-4 space-y-3">
         <label htmlFor="rename-goal" className="block text-sm ui-text-ink">Your goal name</label>
         <input id="rename-goal" required maxLength={80} value={draftName} onChange={e => setDraftName(e.target.value)} className="w-full rounded-lg ui-bg-surface border ui-border-border p-3 ui-text-ink" />
@@ -367,13 +380,13 @@ export default function DashboardPage({ goal, onGoalUpdated, catalog, onCatalogL
         <button type="button" disabled={savingName} onClick={() => setEditingName(false)} className="ml-3 ui-text-ink">Cancel</button>
       </form>}
       {/* Top action row */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-2 border-b ui-border-border">
+      <div className="goal-heading">
         <div>
           <h1 className="text-xl sm:text-2xl font-extrabold ui-text-ink tracking-tight">
             {goal.goalName || 'Build my DSA foundations'}
           </h1>
-          <p className="text-xs ui-text-muted mt-0.5">
-            Your next step, your week, your progress. Current track: DSA Foundations.
+          <p className="text-sm ui-text-muted mt-1">
+            DSA Foundations · A manageable next step, at your pace.
           </p>
         </div>
 
@@ -381,7 +394,7 @@ export default function DashboardPage({ goal, onGoalUpdated, catalog, onCatalogL
           <button onClick={() => { setDraftName(goal.goalName || 'Build my DSA foundations'); setEditingName(true); }} className="px-3 py-1.5 text-xs ui-text-ink rounded-xl border ui-border-border">Name my goal</button>
           {goal.status !== 'completed' && <button
             onClick={() => navigate('/recovery')}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl ui-bg-surface hover:ui-bg-soft border ui-border-border text-xs font-semibold ui-text-ink transition-all hover:ui-border-border-a40"
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl ui-bg-surface hover:ui-bg-soft border ui-border-border text-xs font-semibold ui-text-ink transition-colors hover:ui-border-border-a40"
           >
             <SlidersHorizontal className="w-3.5 h-3.5 ui-text-ink" />
             <span>Adjust my week</span>
@@ -390,7 +403,7 @@ export default function DashboardPage({ goal, onGoalUpdated, catalog, onCatalogL
           <button
             onClick={handleRefresh}
             disabled={isRefreshing}
-            className="p-2 rounded-xl ui-bg-surface hover:ui-bg-soft border ui-border-border ui-text-ink hover:ui-text-ink transition-all disabled:opacity-50"
+            className="p-2 rounded-xl ui-bg-surface hover:ui-bg-soft border ui-border-border ui-text-ink hover:ui-text-ink transition-colors disabled:opacity-50"
             title="Refresh saved goal"
           >
             <RefreshCw className={`w-3.5 h-3.5 ${isRefreshing ? 'animate-spin' : ''}`} />
@@ -402,97 +415,39 @@ export default function DashboardPage({ goal, onGoalUpdated, catalog, onCatalogL
         <ErrorNotice error={error} onDismiss={() => setError(null)} onRetry={handleRefresh} />
       )}
 
-      {savedNotice && <p role="status" className="rounded-xl border ui-border-border-a30 ui-bg-soft-a10 px-4 py-3 text-sm ui-text-ink">{savedNotice}</p>}
+      {savedNotice && <p role="status" className="saved-notice status-success">{savedNotice}</p>}
 
-      {/* Main Row: Current mission on the left, progress summary on the right */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-        {/* Left Column: Compact Resume Card, Current Mission, Practice Guidance */}
-        <div className="lg:col-span-7 xl:col-span-8 space-y-4">
-          {/* Compact Resume Practice Card close to current mission */}
-          {resumeContext && (
-            <ResumePracticeCard
-              resumeContext={resumeContext}
-              onResume={() => {
-                setActiveGuidanceMission(resumeContext.mission);
-                if (guidanceData && guidanceData.missionId !== resumeContext.mission?.id) {
-                  setGuidanceData(null);
-                }
-              }}
-              onDismiss={handleDismissResumeCard}
-              onToggleStatus={handleToggleSelfReportedStatus}
-              onAdjustTime={() => navigate('/recovery')}
-              isSaving={isSavingLearningContext}
-            />
-          )}
+      <ProgressSummary goal={goal} totalMissions={missions.length} />
 
-          {/* Active Mission Section */}
-          {currentMission ? (
-            <div className="space-y-3 current-mission-container">
-              <div className="flex items-center justify-between">
-                <h2 className="text-xs font-bold uppercase tracking-wider ui-text-ink flex items-center gap-1.5">
-                  <Compass className="w-4 h-4 ui-text-ink" />
-                  <span>Current mission</span>
-                </h2>
-              </div>
+      {currentMission ? <MissionCard
+        mission={currentMission} isCurrent scheduledDate={scheduleMap[currentMission.id]}
+        onComplete={() => setActiveCompletingMission(currentMission)}
+        onOpenGuidance={() => openPractice(currentMission)}
+        practiceLabel={goal.learning?.[currentMission.id] || activeGuidanceMission?.id === currentMission.id ? 'Continue practising' : 'Start practising'}
+        savedContextContent={resumeContext && <ResumePracticeCard
+          resumeContext={resumeContext} onResume={() => openPractice(resumeContext.mission)}
+          onDismiss={handleDismissResumeCard} onToggleStatus={handleToggleSelfReportedStatus}
+          isSaving={isSavingLearningContext} />}
+      /> : <section className="mission-card completed-track">
+        <CheckCircle2 size={32} /><h2>DSA starter completed!</h2>
+        <p>{missions.length} missions across {Object.keys(activityByDay(goal, missions)).length} active days. Your reflections and practice history are below.</p>
+        {resumeContext && <ResumePracticeCard resumeContext={resumeContext}
+          onResume={() => openPractice(resumeContext.mission)} onDismiss={handleDismissResumeCard}
+          onToggleStatus={handleToggleSelfReportedStatus} isSaving={isSavingLearningContext} />}
+      </section>}
 
-              <div className="current-mission-card">
-                <MissionCard
-                  mission={currentMission}
-                  isCurrent={true}
-                  isCompleted={false}
-                  scheduledDate={scheduleMap[currentMission.id]}
-                  onComplete={() => setActiveCompletingMission(currentMission)}
-                  onOpenGuidance={() => {
-                    setActiveGuidanceMission(currentMission);
-                    if (guidanceData && guidanceData.missionId !== currentMission.id) {
-                      setGuidanceData(null);
-                    }
-                  }}
-                />
-              </div>
-            </div>
-          ) : (
-            <div className="glass-panel ui-border-border rounded-2xl p-8 text-center space-y-3">
-              <div className="w-12 h-12 rounded-full ui-bg-soft ui-text-ink flex items-center justify-center mx-auto">
-                <CheckCircle2 className="w-6 h-6" />
-              </div>
-              <h3 className="text-lg font-bold ui-text-ink">DSA starter completed!</h3>
-              <p className="text-xs sm:text-sm ui-text-muted max-w-md mx-auto">
-                {missions.length} missions completed across {Object.keys(activityByDay(goal, missions)).length} active days. Review your practice reflections and activity below.
-              </p>
-            </div>
-          )}
-
-          {/* AI Guidance Drawer / Panel in context with mission */}
-          {activeGuidanceMission && (
-            <div className="pt-2">
-              <GuidancePanel
-                mission={activeGuidanceMission}
-                guidanceData={guidanceData}
-                savedContext={goal?.learning?.[activeGuidanceMission.id] || null}
-                onRequestGuidance={handleRequestGuidance}
-                onSaveContext={handleSaveLearningContext}
-                onSubmitCheck={handleSubmitLearningCheck}
-                onClose={() => {
-                  setActiveGuidanceMission(null);
-                  setGuidanceError(null);
-                  setLearningError(null);
-                }}
-                isLoading={isLoadingGuidance}
-                isSavingContext={isSavingLearningContext}
-                isSubmittingCheck={isSubmittingLearningCheck}
-                error={guidanceError}
-                assessmentError={learningError}
-              />
-            </div>
-          )}
-        </div>
-
-        {/* Right Column: Progress Summary */}
-        <div className="lg:col-span-5 xl:col-span-4 space-y-4">
-          <ProgressSummary goal={goal} totalMissions={missions.length} />
-        </div>
-      </div>
+      {activeGuidanceMission && <GuidancePanel
+        ref={practiceRef} mission={activeGuidanceMission} guidanceData={guidanceData}
+        savedContext={goal.learning?.[activeGuidanceMission.id] || null}
+        onRequestGuidance={handleRequestGuidance} onSaveContext={handleSaveLearningContext}
+        onSubmitCheck={handleSubmitLearningCheck}
+        onClose={() => {
+          setActiveGuidanceMission(null); setGuidanceError(null); setLearningError(null);
+          practiceTriggerRef.current?.focus({ preventScroll: true });
+        }}
+        isLoading={isLoadingGuidance} isSavingContext={isSavingLearningContext}
+        isSubmittingCheck={isSubmittingLearningCheck} error={guidanceError} assessmentError={learningError}
+      />}
 
       {/* Weekly Calendar & Practice Activity below main row */}
       <div className="pt-4 border-t ui-border-border">
@@ -500,9 +455,9 @@ export default function DashboardPage({ goal, onGoalUpdated, catalog, onCatalogL
       </div>
 
       {/* Full 12-Mission Curriculum Roadmap */}
-      <details className="space-y-4 pt-4 border-t ui-border-border">
+      <details className="roadmap">
         <summary className="flex items-center justify-between cursor-pointer rounded-lg py-1 focus-visible:outline focus-visible:outline-indigo-300">
-          <h2 className="text-xs font-bold uppercase tracking-wider ui-text-ink flex items-center gap-2">
+          <h2 className="text-base font-semibold ui-text-ink flex items-center gap-2">
             <ListOrdered className="w-4 h-4 ui-text-ink" />
             <span>Curriculum roadmap ({missions.length} missions)</span>
           </h2>
@@ -524,8 +479,6 @@ export default function DashboardPage({ goal, onGoalUpdated, catalog, onCatalogL
                 isCompleted={isCompleted}
                 completionData={completionData}
                 scheduledDate={scheduledDate}
-                onComplete={isCurrent ? () => setActiveCompletingMission(mission) : null}
-                onOpenGuidance={isCurrent ? () => setActiveGuidanceMission(mission) : null}
               />
             );
           })}
@@ -539,6 +492,7 @@ export default function DashboardPage({ goal, onGoalUpdated, catalog, onCatalogL
           onSubmit={handleCompleteMission}
           onCancel={() => setActiveCompletingMission(null)}
           isSubmitting={isSubmittingCompletion}
+          submitError={error}
         />
       )}
     </div>

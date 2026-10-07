@@ -363,3 +363,15 @@ Release Status:
   - Bounded implementation complete. Ready for recording hackathon demo video.
 ```
 
+## Final dashboard layout correction — 2026-10-07
+
+- Milestone: FINAL LAYOUT REPAIR / READY for branch review. This replaces the previous layout-polish checkpoint's composition with the requested full-width dashboard and workspace.
+- Baseline: `origin/codex/ui-handoff`, `3d1ac3411430d8235e5c1e63d5f00fb9ac4e3dd8`; correction branch `codex/dashboard-layout`. Existing untracked `AUDIT-REPORT-2026-10-07.md` preserved and excluded.
+- Changed: client shell/appearance, dashboard composition, progress/mission/saved-context presentation, practice workspace, calendar/activity CSS, availability/recovery presentation and completion dialog accessibility/error display. Added `layout.css`, a pure calendar presentation helper with two unit tests, a browser regression script and screenshot evidence. API/auth adapters, server/database/contracts, scheduling, AI logic and trace correctness engine unchanged; no dependencies added.
+- Commands: client `npm.cmd test` PASS 33/33; client `npm.cmd run build` PASS (13.94s); `git diff --check` PASS. Backend tests not rerun: no shared/server files changed.
+- Browser: installed Chrome through Playwright; before-edit dashboard/practice inspected. Final 1440px and 390px matrix covers all three styles in both modes, plus 320px overflow checks in all six appearances. Verified computed text contrast, appearance/draft/scroll persistence, sticky-header focus offset, trace wrong/correct/alternate array, guidance/check success and failure, saved-context controls/mission ownership, close/switch draft protection, calendar/activity keyboard controls, completion failure/retry, reduced motion and explicit recovery preview/apply. Zero browser JavaScript exceptions.
+- Evidence: [verification report](../docs/FINAL-LAYOUT-VERIFICATION.md), 24 final screenshots plus two baseline screenshots and complete browser result JSON under `docs/layout-evidence`.
+- Boundary: all browser accounts, progress mutations and AI feedback were local synthetic fixtures with a visible badge and blocked external requests. Production adapters were not modified. Live Supabase auth/signup, Gemini, remote persistence and deployed behavior were not reverified.
+- Blocker: none found for the bounded layout correction. This is not evidence of a live integration release.
+- Next exact action: review `codex/dashboard-layout` and its screenshot matrix. No further feature phase; no main merge or deployment performed. Commit/push are explicitly authorized by the current user request.
+

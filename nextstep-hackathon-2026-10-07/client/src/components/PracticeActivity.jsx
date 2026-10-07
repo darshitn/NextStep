@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { ChevronLeft, ChevronRight, CalendarDays, Check, ArrowUpRight } from 'lucide-react';
 import { activityByDay, dayPlan, localDay, mondayOf, readableDay, shiftDay } from '../services/activity.js';
+import { calendarDayRows } from '../services/calendarPresentation.js';
 import './practice-activity.css';
 
 export default function PracticeActivity({ goal, missions }) {
@@ -18,6 +19,7 @@ export default function PracticeActivity({ goal, missions }) {
   const weekDates = Array.from({ length: 7 }, (_, i) => shiftDay(week, i));
   const planned = dayPlan(goal, missions, selected);
   const completed = activity[selected] || [];
+  const { scheduled } = calendarDayRows(goal, missions, selected);
   const pending = planned.filter(m => !goal.completions?.[m.id]);
   const activeDays = Object.keys(activity).filter(day => day <= today).length;
   const choose = day => { setSelected(day); setWeek(mondayOf(day)); };
@@ -34,7 +36,7 @@ export default function PracticeActivity({ goal, missions }) {
     <section className="ns-practice" aria-label="Practice calendar and activity">
       <div className="ns-calendar">
         <div className="ns-section-heading">
-          <div><span className="ns-eyebrow">MAKE ROOM FOR PROGRESS</span><h2><CalendarDays size={18} /> Your week</h2></div>
+          <div><h2><CalendarDays size={18} /> Your week</h2></div>
           <div className="ns-calendar-controls">
             <button aria-label="Previous week" onClick={() => setWeek(shiftDay(week, -7))}><ChevronLeft size={17} /></button>
             <button onClick={() => { setWeek(mondayOf(today)); setSelected(today); }}>Today</button>
@@ -55,12 +57,15 @@ export default function PracticeActivity({ goal, missions }) {
         <div className="ns-day-details" aria-live="polite">
           <div className="ns-detail-title"><h3>{selected === today ? 'Today' : readableDay(selected, { weekday: 'short' })}</h3><span>{pending.length ? `${pending.reduce((sum, m) => sum + m.minutes, 0)} min planned` : 'No pending sessions'}</span></div>
           {!planned.length && !completed.length && <p className="ns-empty">{selected < goal.planStartDate ? 'Your plan has not started on this date.' : 'No session planned. Space to rest is part of the plan.'}</p>}
-          {planned.map(m => <div key={m.id} className="ns-task"><span className={`ns-task-icon ${goal.completions?.[m.id] ? 'done' : ''}`}>{goal.completions?.[m.id] ? <Check size={14} /> : <ArrowUpRight size={14} />}</span><div><strong>{m.title}</strong><small>{goal.completions?.[m.id] ? `Completed ${readableDay(localDay(goal.completions[m.id].completedAt))}` : selected < today ? 'Needs rescheduling' : m.id === goal.nextMissionId ? 'Next eligible mission · open above' : 'Upcoming · complete earlier missions first'}</small></div></div>)}
-          {completed.length > 0 && <div className="ns-completion-log"><span className="ns-eyebrow">ACTUALLY COMPLETED THIS DAY</span>{completed.map(m => <div key={m.id}><strong>{m.title}</strong>{m.completion.reflection && <p>{m.completion.reflection}</p>}</div>)}</div>}
+          {scheduled.length > 0 && <div className="ns-scheduled-list"><h4 className="section-label">Scheduled for this day</h4>{scheduled.map(m => <div key={m.id} className="ns-task"><span className="ns-task-icon"><ArrowUpRight size={16} /></span><div><strong>{m.title}</strong><small>{m.completedOn ? `Completed on ${readableDay(m.completedOn)} · planned here` : selected < today ? 'Plan can be adjusted to your week' : m.id === goal.nextMissionId ? 'Next eligible mission · open above' : 'Upcoming · complete earlier missions first'}</small></div></div>)}</div>}
+          {completed.length > 0 && <div className="ns-completion-log"><h4 className="section-label">Completed on this day</h4>{completed.map(m => {
+            const original = (goal.schedule || []).find(entry => entry.missionId === m.id)?.date;
+            return <div key={m.id} className="ns-task"><span className="ns-task-icon done"><Check size={16} /></span><div><strong>{m.title}</strong>{original && original !== selected && <small>Originally scheduled for {readableDay(original)}</small>}{m.completion.reflection && <p>{m.completion.reflection}</p>}</div></div>;
+          })}</div>}
         </div>
       </div>
       <div className="ns-activity">
-        <div className="ns-section-heading"><div><span className="ns-eyebrow">SMALL STEPS ADD UP</span><h2>Practice activity</h2></div><span className="ns-active-count"><strong>{activeDays}</strong> active {activeDays === 1 ? 'day' : 'days'}</span></div>
+        <div className="ns-section-heading"><h2>Practice activity</h2><span className="ns-active-count"><strong>{activeDays}</strong> active {activeDays === 1 ? 'day' : 'days'}</span></div>
         <p className="ns-muted">Your last 8 weeks. Every filled square is completed practice.</p>
         <div className="ns-heat-wrap">
           <div className="ns-heat-labels" aria-hidden="true">{['M','T','W','T','F','S','S'].map((s, i) => <span key={i}>{s}</span>)}</div>
@@ -73,8 +78,8 @@ export default function PracticeActivity({ goal, missions }) {
           </div>
         </div>
         <div className="ns-heat-footer"><span>{readableDay(first)} – {readableDay(today)}</span><span className="ns-legend">Missions {['0','1','2','3+'].map((n,i) => <span key={n}><i className={`intensity-${i}`} />{n}</span>)}</span></div>
-        <div className="ns-activity-note"><span className="ns-spark">✦</span><p>{activeDays ? 'A day of progress counts, even when the week changes. Select a square to revisit your work.' : 'Complete your first mission to start your activity history.'}</p></div>
-        <p className="ns-footnote">Self-reported completions for this goal · Asia/Kolkata<br />Filled dot = completed activity · Square = scheduled work</p>
+        <p className="ns-activity-note">{activeDays ? 'Every day of practice counts. Select a square to revisit your work.' : 'Your first completed mission starts your activity history.'}</p>
+        <p className="ns-footnote">Calendar: filled dot = completed · square = scheduled</p>
       </div>
     </section>
   );

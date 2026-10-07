@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, forwardRef, useImperativeHandle } from 'react';
 import {
   Sparkles,
   HelpCircle,
@@ -35,7 +35,7 @@ const CATEGORIES = [
 
 const CURATED_MISSION_IDS = ['m02', 'm04', 'm06'];
 
-export default function GuidancePanel({
+const GuidancePanel = forwardRef(function GuidancePanel({
   mission,
   guidanceData = null,
   savedContext = null,
@@ -48,7 +48,7 @@ export default function GuidancePanel({
   isSubmittingCheck = false,
   error = null,
   assessmentError = null
-}) {
+}, ref) {
   const isCuratedMission = CURATED_MISSION_IDS.includes(mission.id);
 
   // Active mission tracking
@@ -57,6 +57,7 @@ export default function GuidancePanel({
   // Accessibility & scroll refs
   const panelHeadingRef = useRef(null);
   const checkQuestionRef = useRef(null);
+  const pendingLeaveRef = useRef(null);
 
   // Blocker fields
   const [selectedCategory, setSelectedCategory] = useState(
@@ -81,21 +82,26 @@ export default function GuidancePanel({
     (whereStuck.trim() !== (savedContext?.whereStuck || '').trim()) ||
     (selectedCategory !== (savedContext?.category || 'too_difficult'));
 
+  const focusHeading = () => {
+    const heading = panelHeadingRef.current;
+    if (!heading) return;
+    heading.focus({ preventScroll: true });
+    heading.scrollIntoView({ block: 'start', behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
+  };
+  const requestLeave = action => {
+    pendingLeaveRef.current = action;
+    if (hasUnsavedBlocker) setShowCloseConfirm(true);
+    else action?.();
+  };
+  useImperativeHandle(ref, () => ({ requestLeave, focusHeading }));
+
   // Scroll to heading when opened / mission changes (respecting reduced motion)
-  useEffect(() => {
-    if (panelHeadingRef.current) {
-      const prefersReducedMotion = typeof window !== 'undefined' && window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-      panelHeadingRef.current.scrollIntoView({
-        behavior: prefersReducedMotion ? 'auto' : 'smooth',
-        block: 'start'
-      });
-      panelHeadingRef.current.focus?.();
-    }
-  }, [mission.id]);
+  useEffect(() => { focusHeading(); }, [mission.id]);
 
   const handleScrollToCheck = () => {
     if (checkQuestionRef.current) {
       const prefersReducedMotion = typeof window !== 'undefined' && window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+      checkQuestionRef.current.focus({ preventScroll: true });
       checkQuestionRef.current.scrollIntoView({
         behavior: prefersReducedMotion ? 'auto' : 'smooth',
         block: 'start'
@@ -104,19 +110,13 @@ export default function GuidancePanel({
   };
 
   // Safe close handling
-  const handleAttemptClose = () => {
-    if (hasUnsavedBlocker) {
-      setShowCloseConfirm(true);
-    } else {
-      if (onClose) onClose();
-    }
-  };
+  const handleAttemptClose = () => requestLeave(onClose);
 
   const handleSaveAndClose = async () => {
     const success = await handleExplicitSave();
     if (success) {
       setShowCloseConfirm(false);
-      if (onClose) onClose();
+      pendingLeaveRef.current?.();
     }
   };
 
@@ -125,7 +125,7 @@ export default function GuidancePanel({
     setWhereStuck(savedContext?.whereStuck || '');
     setSelectedCategory(savedContext?.category || 'too_difficult');
     setShowCloseConfirm(false);
-    if (onClose) onClose();
+    pendingLeaveRef.current?.();
   };
 
   // Mission switching: cleanly reset state to the new mission's savedContext (do not leak prior mission drafts)
@@ -166,7 +166,7 @@ export default function GuidancePanel({
         selfReportedStatus,
         guidance: guidanceData || savedContext?.guidance || null
       });
-      setSavedSuccessNotice('Practice notes saved. Persisted across reloads.');
+      setSavedSuccessNotice('Practice notes saved. You can return to them later.');
       setTimeout(() => setSavedSuccessNotice(''), 4000);
       return true;
     } catch {
@@ -247,9 +247,9 @@ export default function GuidancePanel({
   };
 
   const assessmentBadges = {
-    on_track: { label: 'On Track', color: 'bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 border-emerald-500/40' },
-    needs_another_try: { label: 'Needs Another Try', color: 'bg-amber-500/20 text-amber-700 dark:text-amber-300 border-amber-500/40' },
-    uncertain: { label: 'Uncertain / Clarify', color: 'bg-slate-500/20 text-slate-700 dark:text-slate-300 border-slate-500/40' }
+    on_track: { label: 'On Track', color: 'status-success' },
+    needs_another_try: { label: 'Needs Another Try', color: 'status-attention' },
+    uncertain: { label: 'Uncertain / Clarify', color: 'status-neutral' }
   };
 
   const curatedCheckQuestion = isCuratedMission && mission.id === 'm02'
@@ -268,7 +268,7 @@ export default function GuidancePanel({
     null;
 
   return (
-    <div className="glass-panel border ui-border-border rounded-2xl p-5 sm:p-6 my-4 shadow-glass animate-fade-in relative">
+    <div className="practice-workspace" aria-label="Practice workspace">
       {/* Close button with draft protection */}
       {onClose && (
         <button
@@ -281,14 +281,14 @@ export default function GuidancePanel({
       )}
 
       {/* Header */}
-      <div ref={panelHeadingRef} tabIndex={-1} className="flex items-center gap-2.5 mb-4 focus:outline-none">
+      <div ref={panelHeadingRef} tabIndex={-1} className="practice-heading">
         <div className="w-8 h-8 rounded-xl ui-bg-accent flex items-center justify-center ui-text-inverse shadow-glow">
           <Sparkles className="w-4 h-4" />
         </div>
         <div>
           <div className="flex items-center gap-2">
             <h3 className="font-bold text-base sm:text-lg ui-text-ink">
-              Personalized AI Mission Guidance
+              Practice workspace
             </h3>
             {isCuratedMission && (
               <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold ui-bg-soft ui-text-ink border ui-border-border">
@@ -297,19 +297,19 @@ export default function GuidancePanel({
             )}
           </div>
           <p className="text-xs ui-text-muted">
-            Adapting approach for <span className="ui-text-ink font-semibold">{mission.title}</span> (30m session)
+            <span className="ui-text-ink font-semibold">{mission.title}</span> · 30-minute session
           </p>
         </div>
       </div>
 
       {/* Unsaved draft protection alert dialog */}
       {showCloseConfirm && (
-        <div className="p-4 rounded-xl bg-amber-500/10 border border-amber-500/30 text-xs text-amber-900 dark:text-amber-100 space-y-2 mb-4 animate-fade-in" role="alert">
+        <div className="p-4 rounded-xl status-attention text-sm space-y-2 mb-4 animate-fade-in" role="alert">
           <div className="flex items-center gap-2 font-bold">
             <AlertCircle className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0" />
             <span>You have unsaved blocker notes</span>
           </div>
-          <p className="text-[11px] leading-relaxed opacity-90">
+          <p className="text-[11px] leading-relaxed">
             Closing now without saving will discard your typed changes.
           </p>
           <div className="flex flex-wrap items-center gap-2 pt-1">
@@ -385,167 +385,17 @@ export default function GuidancePanel({
 
       {/* Save Success Notice */}
       {savedSuccessNotice && (
-        <div role="status" aria-live="polite" className="p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-xs text-emerald-800 dark:text-emerald-200 flex items-center gap-2 mb-4 animate-fade-in">
+        <div role="status" aria-live="polite" className="p-3 rounded-xl status-success text-sm flex items-center gap-2 mb-4 animate-fade-in">
           <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
           <span>{savedSuccessNotice}</span>
         </div>
       )}
 
-      {/* --- Section A: Explain My Blocker Form --- */}
-      <div className="space-y-4 pb-4 border-b ui-border-border">
-        <div>
-          <label id="difficulty-category-label" className="text-xs font-semibold uppercase tracking-wider ui-text-ink block mb-2">
-            Select Difficulty Category
-          </label>
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5" role="group" aria-labelledby="difficulty-category-label">
-            {CATEGORIES.map((cat) => (
-              <button
-                type="button"
-                key={cat.id}
-                onClick={() => setSelectedCategory(cat.id)}
-                aria-pressed={selectedCategory === cat.id}
-                className={`p-3 rounded-xl border text-left transition-all ${
-                  selectedCategory === cat.id
-                    ? 'ui-bg-soft border-2 ui-border-border ui-text-ink shadow-sm'
-                    : 'ui-bg-surface border ui-border-border ui-text-muted hover:ui-text-ink'
-                }`}
-              >
-                <span className="font-semibold text-xs block mb-0.5">{cat.label}</span>
-                <span className="text-[10px] ui-text-muted block leading-tight">{cat.description}</span>
-              </button>
-            ))}
-          </div>
-        </div>
-
-        {/* Two Bounded Blocker Fields */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          <div>
-            <div className="flex justify-between items-center mb-1">
-              <label htmlFor="blocker-what-tried" className="text-xs font-semibold uppercase tracking-wider ui-text-ink">
-                1. What have you tried?
-              </label>
-              <span className={`text-[10px] ${whatTried.length > 280 ? 'text-rose-500 font-bold' : 'ui-text-muted'}`}>
-                {whatTried.length}/280
-              </span>
-            </div>
-            <textarea
-              id="blocker-what-tried"
-              value={whatTried}
-              onChange={(e) => setWhatTried(e.target.value)}
-              placeholder="e.g. 'I traced the loop with 3 items on paper...'"
-              maxLength={280}
-              rows={2}
-              className="w-full rounded-xl p-3 text-xs ui-text-ink ui-bg-surface border ui-border-border focus:outline-none focus:ring-1 focus:ring-slate-400"
-            />
-          </div>
-
-          <div>
-            <div className="flex justify-between items-center mb-1">
-              <label htmlFor="blocker-where-stuck" className="text-xs font-semibold uppercase tracking-wider ui-text-ink">
-                2. Where are you stuck?
-              </label>
-              <span className={`text-[10px] ${whereStuck.length > 280 ? 'text-rose-500 font-bold' : 'ui-text-muted'}`}>
-                {whereStuck.length}/280
-              </span>
-            </div>
-            <textarea
-              id="blocker-where-stuck"
-              value={whereStuck}
-              onChange={(e) => setWhereStuck(e.target.value)}
-              placeholder="e.g. 'I do not understand why the count increases when absent...'"
-              maxLength={280}
-              rows={2}
-              className="w-full rounded-xl p-3 text-xs ui-text-ink ui-bg-surface border ui-border-border focus:outline-none focus:ring-1 focus:ring-slate-400"
-            />
-          </div>
-        </div>
-
-        {/* Blocker Action Row */}
-        <div className="flex flex-wrap items-center justify-between gap-2.5 pt-1">
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={handleExplicitSave}
-              disabled={isSavingContext || isSubmittingCheck || isLoading}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border ui-border-border ui-bg-surface hover:ui-bg-soft text-xs ui-text-ink font-semibold transition-colors disabled:opacity-50"
-            >
-              <Save className="w-3.5 h-3.5" />
-              <span>{isSavingContext ? 'Saving...' : 'Save my notes'}</span>
-            </button>
-            <span className="text-[10px] ui-text-muted">
-              {savedContext?.updatedAt ? `Saved ${new Date(savedContext.updatedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}` : 'Notes preserved across reloads'}
-            </span>
-          </div>
-
-          <button
-            type="button"
-            onClick={handleGenerateGuidance}
-            disabled={isLoading || isSavingContext || isSubmittingCheck}
-            className="inline-flex items-center gap-2 px-5 py-2 rounded-xl ui-bg-accent hover:opacity-90 ui-text-inverse font-semibold text-xs sm:text-sm transition-all shadow-glow disabled:opacity-50"
-          >
-            {isLoading ? (
-              <>
-                <Loader2 className="w-4 h-4 animate-spin" />
-                <span>Preparing your guidance…</span>
-              </>
-            ) : (
-              <>
-                <Sparkles className="w-4 h-4" />
-                <span>Help me get unstuck</span>
-              </>
-            )}
-          </button>
-        </div>
-      </div>
-
+      <div className="practice-columns">
+        <div className="practice-main">
       {/* --- Interactive Step-by-Step Duplicate Trace for Mission M04 --- */}
       {mission.id === 'm04' && (
         <DuplicateTrace onProceedToCheck={handleScrollToCheck} />
-      )}
-
-      {/* --- Section B: Render Guidance Steps --- */}
-      {guidanceData && (
-        <div className="space-y-4 pt-4 animate-fade-in">
-          {/* Mode Pill & Source */}
-          <div className="flex items-center justify-between pb-2 border-b ui-border-border">
-            <div className="flex items-center gap-2">
-              <span className="text-xs font-semibold ui-text-muted uppercase tracking-wider">Approach Mode:</span>
-              <span className={`px-2.5 py-0.5 rounded-full text-xs font-semibold ${modeBadges[guidanceData.mode]?.color || modeBadges.standard_practice.color}`}>
-                {modeBadges[guidanceData.mode]?.label || guidanceData.mode}
-              </span>
-            </div>
-            <span className="text-[10px] font-mono px-2 py-0.5 rounded ui-bg-soft ui-text-muted border ui-border-border">
-              Source: {guidanceData.source || 'gemini'}
-            </span>
-          </div>
-
-          {/* Explanation */}
-          <div className="ui-bg-soft rounded-xl p-3.5 border ui-border-border">
-            <p className="text-xs font-semibold ui-text-ink uppercase tracking-wider mb-1">
-              Personalized Approach
-            </p>
-            <p className="text-xs sm:text-sm ui-text-ink leading-relaxed">
-              {guidanceData.explanation}
-            </p>
-          </div>
-
-          {/* Micro-steps */}
-          <div>
-            <p className="text-xs font-semibold ui-text-ink uppercase tracking-wider mb-2">
-              Concrete 30-Minute Micro-Steps
-            </p>
-            <div className="space-y-2">
-              {guidanceData.steps.map((step, idx) => (
-                <div key={idx} className="flex items-start gap-2.5 p-2.5 rounded-lg ui-bg-surface border ui-border-border text-xs">
-                  <span className="w-5 h-5 rounded-full ui-bg-soft ui-text-ink flex items-center justify-center font-bold shrink-0 text-[10px]">
-                    {idx + 1}
-                  </span>
-                  <span className="ui-text-ink leading-relaxed pt-0.5">{step}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
       )}
 
       {/* --- Section C: Check My Understanding (Curated AI Assessment & Self-Report) --- */}
@@ -558,8 +408,8 @@ export default function GuidancePanel({
                 <span>Quick Check For Understanding</span>
               </div>
               {isCuratedMission && (
-                <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-indigo-500/10 text-indigo-700 dark:text-indigo-300 border border-indigo-500/30">
-                  Curated Rubric Assessment
+                <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full status-badge status-accent">
+                  Reasoning check
                 </span>
               )}
             </div>
@@ -612,7 +462,7 @@ export default function GuidancePanel({
                       <span>Refine Answer & Try Again</span>
                     </button>
                     <span className="text-[10px] ui-text-muted italic">
-                      Coaching signals only; does not award XP or complete mission.
+                      Feedback helps you practise; it does not complete the mission.
                     </span>
                   </div>
                 </div>
@@ -620,7 +470,7 @@ export default function GuidancePanel({
                 <form onSubmit={handleSubmitCheck} className="space-y-2">
                   <div className="flex justify-between items-center">
                     <label htmlFor="curated-check-answer" className="text-xs font-semibold uppercase tracking-wider ui-text-ink">
-                      Your Reasoning (1 to 1000 characters)
+                      Explain your reasoning
                     </label>
                     <span className={`text-[10px] ${answer.length > 1000 ? 'text-rose-500 font-bold' : 'ui-text-muted'}`}>
                       {answer.length}/1000
@@ -639,12 +489,12 @@ export default function GuidancePanel({
 
                   <div className="flex items-center justify-between pt-1">
                     <p className="text-[10px] ui-text-muted italic">
-                      Assessed against curated server reference rubric. Never completes mission or alters schedule.
+                      Coaching feedback only. Your mission stays open until you record completion.
                     </p>
                     <button
                       type="submit"
                       disabled={isSubmittingCheck || isSavingContext || isLoading || !answer.trim()}
-                      className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl ui-bg-accent hover:opacity-90 ui-text-inverse font-semibold text-xs transition-all shadow-sm disabled:opacity-50"
+                      className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl ui-bg-accent hover:opacity-90 ui-text-inverse font-semibold text-xs transition-colors shadow-sm disabled:opacity-50"
                     >
                       {isSubmittingCheck ? (
                         <>
@@ -664,7 +514,7 @@ export default function GuidancePanel({
             </div>
           ) : (
             <p className="text-[11px] ui-text-muted italic">
-              Self-reflection question for this mission. Curated rubric assessment is enabled for missions m02, m04, and m06.
+              Use this question to reflect on your approach before recording completion.
             </p>
           )}
 
@@ -701,15 +551,173 @@ export default function GuidancePanel({
         </div>
       )}
 
+          {!displayedQuestion && mission.id !== 'm04' && <p className="practice-intro">Work through the steps in your mission. Use the notes alongside to capture what you tried and get guidance.</p>}
+        </div>
+        <div className="practice-support"><h4 className="support-heading">Guidance &amp; your notes</h4>
+      {/* --- Section A: Explain My Blocker Form --- */}
+      <div className="blocker-form space-y-4 pb-4 border-b ui-border-border">
+        <div>
+          <label id="difficulty-category-label" className="text-xs font-semibold uppercase tracking-wider ui-text-ink block mb-2">
+            How can we help?
+          </label>
+          <div className="blocker-categories" role="group" aria-labelledby="difficulty-category-label">
+            {CATEGORIES.map((cat) => (
+              <button
+                type="button"
+                key={cat.id}
+                onClick={() => setSelectedCategory(cat.id)}
+                aria-pressed={selectedCategory === cat.id}
+                className={`p-3 rounded-xl border text-left transition-colors ${
+                  selectedCategory === cat.id
+                    ? 'ui-bg-soft border-2 ui-border-border ui-text-ink shadow-sm'
+                    : 'ui-bg-surface border ui-border-border ui-text-muted hover:ui-text-ink'
+                }`}
+              >
+                <span className="font-semibold text-xs block mb-0.5">{cat.label}</span>
+                <span className="text-[10px] ui-text-muted block leading-tight">{cat.description}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Two Bounded Blocker Fields */}
+        <div className="blocker-fields">
+          <div>
+            <div className="flex justify-between items-center mb-1">
+              <label htmlFor="blocker-what-tried" className="text-xs font-semibold uppercase tracking-wider ui-text-ink">
+                1. What have you tried?
+              </label>
+              <span className={`text-[10px] ${whatTried.length > 280 ? 'text-rose-500 font-bold' : 'ui-text-muted'}`}>
+                {whatTried.length}/280
+              </span>
+            </div>
+            <textarea
+              id="blocker-what-tried"
+              value={whatTried}
+              onChange={(e) => setWhatTried(e.target.value)}
+              placeholder="e.g. 'I traced the loop with 3 items on paper...'"
+              maxLength={280}
+              rows={2}
+              className="w-full rounded-xl p-3 text-xs ui-text-ink ui-bg-surface border ui-border-border focus:outline-none focus:ring-1 focus:ring-slate-400"
+            />
+          </div>
+
+          <div>
+            <div className="flex justify-between items-center mb-1">
+              <label htmlFor="blocker-where-stuck" className="text-xs font-semibold uppercase tracking-wider ui-text-ink">
+                2. Where are you stuck?
+              </label>
+              <span className={`text-[10px] ${whereStuck.length > 280 ? 'text-rose-500 font-bold' : 'ui-text-muted'}`}>
+                {whereStuck.length}/280
+              </span>
+            </div>
+            <textarea
+              id="blocker-where-stuck"
+              value={whereStuck}
+              onChange={(e) => setWhereStuck(e.target.value)}
+              placeholder="e.g. 'I do not understand why the count increases when absent...'"
+              maxLength={280}
+              rows={2}
+              className="w-full rounded-xl p-3 text-xs ui-text-ink ui-bg-surface border ui-border-border focus:outline-none focus:ring-1 focus:ring-slate-400"
+            />
+          </div>
+        </div>
+
+        {/* Blocker Action Row */}
+        <div className="blocker-actions flex flex-wrap items-center justify-between gap-2.5 pt-1">
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={handleExplicitSave}
+              disabled={isSavingContext || isSubmittingCheck || isLoading}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border ui-border-border ui-bg-surface hover:ui-bg-soft text-xs ui-text-ink font-semibold transition-colors disabled:opacity-50"
+            >
+              <Save className="w-3.5 h-3.5" />
+              <span>{isSavingContext ? 'Saving...' : 'Save my notes'}</span>
+            </button>
+            <span className="text-[10px] ui-text-muted">
+              {savedContext?.updatedAt ? `Saved ${new Date(savedContext.updatedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}` : 'Save notes to return to them later'}
+            </span>
+          </div>
+
+          <button
+            type="button"
+            onClick={handleGenerateGuidance}
+            disabled={isLoading || isSavingContext || isSubmittingCheck}
+            className="inline-flex items-center gap-2 px-5 py-2 rounded-xl ui-bg-accent hover:opacity-90 ui-text-inverse font-semibold text-xs sm:text-sm transition-colors shadow-glow disabled:opacity-50"
+          >
+            {isLoading ? (
+              <>
+                <Loader2 className="w-4 h-4 animate-spin" />
+                <span>Preparing your guidance…</span>
+              </>
+            ) : (
+              <>
+                <Sparkles className="w-4 h-4" />
+                <span>Help me get unstuck</span>
+              </>
+            )}
+          </button>
+        </div>
+      </div>
+
+      {/* --- Section B: Render Guidance Steps --- */}
+      {guidanceData && (
+        <div className="space-y-4 pt-4 animate-fade-in">
+          {/* Mode Pill & Source */}
+          <div className="flex items-center justify-between pb-2 border-b ui-border-border">
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-semibold ui-text-muted uppercase tracking-wider">Approach Mode:</span>
+              <span className={`px-2.5 py-0.5 rounded-full text-xs font-semibold ${modeBadges[guidanceData.mode]?.color || modeBadges.standard_practice.color}`}>
+                {modeBadges[guidanceData.mode]?.label || guidanceData.mode}
+              </span>
+            </div>
+            <span className="text-[10px] font-mono px-2 py-0.5 rounded ui-bg-soft ui-text-muted border ui-border-border">
+              Source: {guidanceData.source || 'gemini'}
+            </span>
+          </div>
+
+          {/* Explanation */}
+          <div className="ui-bg-soft rounded-xl p-3.5 border ui-border-border">
+            <p className="text-xs font-semibold ui-text-ink uppercase tracking-wider mb-1">
+              Personalized Approach
+            </p>
+            <p className="text-xs sm:text-sm ui-text-ink leading-relaxed">
+              {guidanceData.explanation}
+            </p>
+          </div>
+
+          {/* Micro-steps */}
+          <div>
+            <p className="text-xs font-semibold ui-text-ink uppercase tracking-wider mb-2">
+              Your practice steps
+            </p>
+            <div className="space-y-2">
+              {guidanceData.steps.map((step, idx) => (
+                <div key={idx} className="flex items-start gap-2.5 p-2.5 rounded-lg ui-bg-surface border ui-border-border text-xs">
+                  <span className="w-5 h-5 rounded-full ui-bg-soft ui-text-ink flex items-center justify-center font-bold shrink-0 text-[10px]">
+                    {idx + 1}
+                  </span>
+                  <span className="ui-text-ink leading-relaxed pt-0.5">{step}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+        </div>
+      </div>
       {/* Action Footer */}
       <div className="flex justify-between items-center pt-4 border-t ui-border-border mt-4 text-xs">
         <button
-          onClick={onClose}
+          onClick={handleAttemptClose}
           className="px-4 py-1.5 rounded-lg ui-bg-surface hover:ui-bg-soft ui-text-ink text-xs font-medium border ui-border-border transition-colors"
         >
-          Done & Close Panel
+          Close practice
         </button>
       </div>
     </div>
   );
-}
+});
+export default GuidancePanel;

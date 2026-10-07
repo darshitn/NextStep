@@ -1,112 +1,65 @@
-import React, { useState, useEffect } from 'react';
-import { Sparkles, BookOpen, Target, Check } from 'lucide-react';
+import React, { useEffect, useId, useRef, useState } from 'react';
+import { Palette, Sparkles, BookOpen, Target, Check, ChevronDown } from 'lucide-react';
 import { STYLES, getSavedStyle, applyStyle } from '../services/appearanceEngine.js';
+import ThemeToggle from './ThemeToggle.jsx';
 
-const STYLE_ICONS = {
-  'frosted-sage': Sparkles,
-  'study-journal': BookOpen,
-  'quiet-focus': Target
-};
-
+const ICONS = { 'frosted-sage': Sparkles, 'study-journal': BookOpen, 'quiet-focus': Target };
 export default function AppearanceControl() {
-  const [style, setStyle] = useState(() => {
-    if (typeof document !== 'undefined' && document.documentElement.dataset.style) {
-      const current = document.documentElement.dataset.style;
-      if (STYLES.some(s => s.id === current)) return current;
-    }
-    return getSavedStyle();
-  });
-
+  const [style, setStyle] = useState(() => document.documentElement.dataset.style || getSavedStyle());
   const [isOpen, setIsOpen] = useState(false);
-
-  useEffect(() => {
-    applyStyle(style);
-  }, [style]);
-
-  const handleSelect = (newStyle) => {
-    const updated = applyStyle(newStyle);
-    setStyle(updated);
-    setIsOpen(false);
+  const rootRef = useRef(null);
+  const triggerRef = useRef(null);
+  const scrollRef = useRef({ left: 0, top: 0 });
+  const id = useId();
+  const restoreScroll = () => requestAnimationFrame(() => window.scrollTo({ ...scrollRef.current, behavior: 'instant' }));
+  const chooseStyle = next => {
+    setStyle(applyStyle(next));
+    // Font metrics can change in Study Journal. Keep the user's viewport stable.
+    restoreScroll();
   };
-
-  const currentOption = STYLES.find(s => s.id === style) || STYLES[0];
-  const CurrentIcon = STYLE_ICONS[currentOption.id] || Sparkles;
-
-  return (
-    <div className="relative inline-block text-left" role="region" aria-label="Appearance style selector">
-      {/* Segmented bar for desktop (md+), compact dropdown on smaller screens */}
-      <div className="hidden lg:inline-flex items-center gap-1 p-1 rounded-xl ui-bg-soft border ui-border-border" role="radiogroup" aria-label="Visual style">
-        {STYLES.map((opt) => {
-          const isSelected = style === opt.id;
-          const Icon = STYLE_ICONS[opt.id] || Sparkles;
-          return (
-            <button
-              key={opt.id}
-              type="button"
-              role="radio"
-              aria-checked={isSelected}
-              onClick={() => handleSelect(opt.id)}
-              className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium transition-all ${
-                isSelected
-                  ? 'ui-bg-surface ui-text-ink shadow-sm border ui-border-border font-semibold'
-                  : 'ui-text-muted hover:ui-text-ink hover:ui-bg-surface-a80'
-              }`}
-              title={`${opt.label} — ${opt.hint}`}
-            >
-              <Icon className="w-3.5 h-3.5 shrink-0" />
-              <span>{opt.label}</span>
-            </button>
-          );
+  useEffect(() => { applyStyle(style); }, [style]);
+  useEffect(() => {
+    if (!isOpen) return;
+    rootRef.current.querySelector('input:checked')?.focus({ preventScroll: true });
+    const outside = event => { if (!rootRef.current?.contains(event.target)) setIsOpen(false); };
+    const escape = event => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        setIsOpen(false);
+        triggerRef.current?.focus({ preventScroll: true });
+        restoreScroll();
+      }
+    };
+    document.addEventListener('pointerdown', outside);
+    const root = rootRef.current;
+    root.addEventListener('keydown', escape);
+    return () => { document.removeEventListener('pointerdown', outside); root.removeEventListener('keydown', escape); };
+  }, [isOpen]);
+  return <div ref={rootRef} className="appearance-control" onBlur={event => {
+    if (event.relatedTarget && !event.currentTarget.contains(event.relatedTarget)) setIsOpen(false);
+  }}>
+    <button ref={triggerRef} type="button" className="appearance-trigger" aria-expanded={isOpen}
+      aria-controls={id} onClick={() => {
+        if (!isOpen) scrollRef.current = { left: window.scrollX, top: window.scrollY };
+        else restoreScroll();
+        setIsOpen(value => !value);
+      }}>
+      <Palette size={17} /><span>Appearance</span><ChevronDown size={14} />
+    </button>
+    {isOpen && <div id={id} className="appearance-popover" aria-label="Appearance preferences">
+      <fieldset><legend>Visual style</legend>
+        {STYLES.map(option => {
+          const Icon = ICONS[option.id];
+          return <label key={option.id} className="appearance-option">
+            <input type="radio" name={`style-${id}`} value={option.id} checked={style === option.id}
+              onChange={() => chooseStyle(option.id)} />
+            <Icon size={18} aria-hidden="true" />
+            <span><strong>{option.label}</strong><small>{option.hint}</small></span>
+            {style === option.id && <Check size={16} aria-hidden="true" />}
+          </label>;
         })}
-      </div>
-
-      {/* Mobile & tablet compact dropdown button */}
-      <div className="lg:hidden relative">
-        <button
-          type="button"
-          onClick={() => setIsOpen(!isOpen)}
-          aria-expanded={isOpen}
-          aria-haspopup="listbox"
-          aria-label={`Visual style: ${currentOption.label}`}
-          className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl ui-bg-soft border ui-border-border text-xs font-medium ui-text-ink hover:ui-bg-surface transition-colors"
-        >
-          <CurrentIcon className="w-3.5 h-3.5 ui-text-ink" />
-          <span className="truncate max-w-[85px]">{currentOption.label}</span>
-        </button>
-
-        {isOpen && (
-          <div
-            role="listbox"
-            aria-label="Select appearance style"
-            className="absolute left-0 mt-1.5 w-44 rounded-xl ui-bg-surface border ui-border-border shadow-lg p-1.5 z-50 animate-fade-in"
-          >
-            {STYLES.map((opt) => {
-              const isSelected = style === opt.id;
-              const Icon = STYLE_ICONS[opt.id] || Sparkles;
-              return (
-                <button
-                  key={opt.id}
-                  type="button"
-                  role="option"
-                  aria-selected={isSelected}
-                  onClick={() => handleSelect(opt.id)}
-                  className={`w-full flex items-center justify-between px-2.5 py-2 rounded-lg text-xs transition-colors ${
-                    isSelected
-                      ? 'ui-bg-soft font-semibold ui-text-ink'
-                      : 'ui-text-muted hover:ui-text-ink hover:ui-bg-soft-a50'
-                  }`}
-                >
-                  <div className="flex items-center gap-2">
-                    <Icon className="w-3.5 h-3.5" />
-                    <span>{opt.label}</span>
-                  </div>
-                  {isSelected && <Check className="w-3.5 h-3.5 ui-text-ink" />}
-                </button>
-              );
-            })}
-          </div>
-        )}
-      </div>
-    </div>
-  );
+      </fieldset>
+      <div className="appearance-mode"><span>Color mode</span><ThemeToggle onChoose={restoreScroll} /></div>
+    </div>}
+  </div>;
 }

@@ -44,7 +44,7 @@ export default function DuplicateTrace({ onProceedToCheck }) {
   return (
     <div
       aria-label="Interactive Duplicate Check Trace"
-      className="rounded-2xl border ui-border-border ui-bg-surface p-4 sm:p-5 my-4 space-y-4 shadow-sm animate-fade-in"
+      className="duplicate-trace space-y-4"
     >
       {/* Exercise Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b ui-border-border">
@@ -54,9 +54,9 @@ export default function DuplicateTrace({ onProceedToCheck }) {
           </div>
           <div>
             <h4 className="text-xs sm:text-sm font-bold ui-text-ink flex items-center gap-1.5">
-              <span>Interactive Step-by-Step Duplicate Trace</span>
+              <span>Trace the duplicate check</span>
               <span className="text-[10px] px-2 py-0.5 rounded-full ui-bg-soft ui-text-ink font-semibold border ui-border-border">
-                Mission M04 Practice
+                M04
               </span>
             </h4>
             <p className="text-[11px] ui-text-muted">
@@ -70,7 +70,7 @@ export default function DuplicateTrace({ onProceedToCheck }) {
           <button
             type="button"
             onClick={() => handleToggleArray('primary')}
-            className={`px-2.5 py-1 rounded-lg text-xs font-semibold border transition-all ${
+            className={`px-2.5 py-1 rounded-lg text-xs font-semibold border transition-colors ${
               selectedArrayType === 'primary'
                 ? 'ui-bg-soft border-2 ui-border-border ui-text-ink'
                 : 'ui-bg-surface border ui-border-border ui-text-muted hover:ui-text-ink'
@@ -82,7 +82,7 @@ export default function DuplicateTrace({ onProceedToCheck }) {
           <button
             type="button"
             onClick={() => handleToggleArray('alternate')}
-            className={`px-2.5 py-1 rounded-lg text-xs font-semibold border transition-all ${
+            className={`px-2.5 py-1 rounded-lg text-xs font-semibold border transition-colors ${
               selectedArrayType === 'alternate'
                 ? 'ui-bg-soft border-2 ui-border-border ui-text-ink'
                 : 'ui-bg-surface border ui-border-border ui-text-muted hover:ui-text-ink'
@@ -117,18 +117,18 @@ export default function DuplicateTrace({ onProceedToCheck }) {
             return (
               <div
                 key={idx}
-                className={`relative flex flex-col items-center justify-center min-w-[56px] h-16 rounded-xl border font-mono font-bold transition-all ${
+                className={`relative flex flex-col items-center justify-center min-w-[56px] h-16 rounded-xl border font-mono font-bold transition-colors ${
                   isDuplicate
-                    ? 'border-2 border-emerald-500 bg-emerald-500/10 text-emerald-800 dark:text-emerald-200 scale-105 shadow-sm'
+                    ? 'border-2 border-emerald-500 bg-emerald-500/10 status-success-text scale-105 shadow-sm'
                     : isInspecting
                     ? 'border-2 ui-border-border ui-bg-soft text-base ui-text-ink ring-2 ring-slate-400/30 scale-105 shadow-sm'
                     : isProcessed
-                    ? 'border ui-border-border ui-bg-surface-a80 text-xs ui-text-muted opacity-80'
-                    : 'border ui-border-border ui-bg-surface text-xs ui-text-muted opacity-60'
+                    ? 'border ui-border-border ui-bg-surface-a80 text-xs ui-text-muted'
+                    : 'border ui-border-border ui-bg-surface text-xs ui-text-muted'
                 }`}
               >
                 <span className="text-sm sm:text-base">{val}</span>
-                <span className="text-[10px] font-sans font-normal opacity-75">
+                <span className="text-[10px] font-sans font-normal">
                   i = {idx}
                 </span>
 
@@ -182,7 +182,7 @@ export default function DuplicateTrace({ onProceedToCheck }) {
               <button
                 type="button"
                 onClick={() => handlePredict(false)}
-                className="w-full text-left p-3 rounded-xl border ui-border-border ui-bg-surface hover:ui-bg-soft transition-all text-xs group focus-visible:ring-2 focus-visible:ring-slate-400"
+                className="w-full text-left p-3 rounded-xl border ui-border-border ui-bg-surface hover:ui-bg-soft transition-colors text-xs group focus-visible:ring-2 focus-visible:ring-slate-400"
               >
                 <span className="font-bold ui-text-ink block mb-0.5">
                   No, not seen yet
@@ -195,7 +195,7 @@ export default function DuplicateTrace({ onProceedToCheck }) {
               <button
                 type="button"
                 onClick={() => handlePredict(true)}
-                className="w-full text-left p-3 rounded-xl border ui-border-border ui-bg-surface hover:ui-bg-soft transition-all text-xs group focus-visible:ring-2 focus-visible:ring-slate-400"
+                className="w-full text-left p-3 rounded-xl border ui-border-border ui-bg-surface hover:ui-bg-soft transition-colors text-xs group focus-visible:ring-2 focus-visible:ring-slate-400"
               >
                 <span className="font-bold ui-text-ink block mb-0.5">
                   Yes, already seen
@@ -209,15 +209,15 @@ export default function DuplicateTrace({ onProceedToCheck }) {
         </div>
       ) : (
         /* Completed Duplicate Detected Banner */
-        <div className="rounded-xl bg-emerald-500/10 border border-emerald-500/30 p-4 space-y-2.5 animate-fade-in text-xs">
+        <div className="rounded-xl status-success p-4 space-y-2.5 animate-fade-in text-xs">
           <div className="flex items-center gap-2">
-            <CheckCircle2 className="w-5 h-5 text-emerald-600 dark:text-emerald-400 shrink-0" />
-            <h5 className="font-bold text-sm text-emerald-900 dark:text-emerald-100">
+            <CheckCircle2 className="w-5 h-5 status-success-text shrink-0" />
+            <h5 className="font-bold text-sm status-success-text">
               Duplicate Found at Index {traceState.duplicateIndex}!
             </h5>
           </div>
 
-          <p className="text-emerald-800 dark:text-emerald-200 leading-relaxed">
+          <p className="status-success-text leading-relaxed">
             At index {traceState.duplicateIndex}, the value is <strong className="font-mono">{traceState.duplicateValue}</strong>.
             Immediately before this step, the set already held <strong className="font-mono">{`{ ${traceState.seenSet.join(', ')} }`}</strong>.
             Because <strong className="font-mono">{`set.has(${traceState.duplicateValue})`}</strong> returned true, the algorithm stops and identifies the duplicate!
@@ -228,14 +228,14 @@ export default function DuplicateTrace({ onProceedToCheck }) {
               <button
                 type="button"
                 onClick={() => handleToggleArray(selectedArrayType === 'primary' ? 'alternate' : 'primary')}
-                className="px-3 py-1.5 rounded-lg border border-emerald-500/40 bg-white/50 dark:bg-black/20 text-emerald-900 dark:text-emerald-100 font-semibold hover:bg-emerald-500/10 transition-colors"
+                className="px-3 py-1.5 rounded-lg border border-emerald-500/40 bg-white/50 dark:bg-black/20 status-success-text font-semibold hover:bg-emerald-500/10 transition-colors"
               >
                 {selectedArrayType === 'primary' ? 'Try alternate array [4, 1, 4]' : 'Switch back to [2, 5, 2]'}
               </button>
               <button
                 type="button"
                 onClick={handleReset}
-                className="px-3 py-1.5 rounded-lg border border-emerald-500/40 text-emerald-900 dark:text-emerald-100 font-semibold hover:bg-emerald-500/10 transition-colors"
+                className="px-3 py-1.5 rounded-lg border border-emerald-500/40 status-success-text font-semibold hover:bg-emerald-500/10 transition-colors"
               >
                 Restart trace
               </button>
@@ -245,9 +245,9 @@ export default function DuplicateTrace({ onProceedToCheck }) {
               <button
                 type="button"
                 onClick={onProceedToCheck}
-                className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl ui-bg-accent ui-text-inverse font-semibold hover:opacity-90 shadow-sm transition-all"
+                className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl ui-bg-accent ui-text-inverse font-semibold hover:opacity-90 shadow-sm transition-colors"
               >
-                <span>Proceed to Curated Reasoning Check</span>
+                <span>Check your reasoning</span>
                 <ArrowRight className="w-3.5 h-3.5" />
               </button>
             )}
@@ -262,18 +262,18 @@ export default function DuplicateTrace({ onProceedToCheck }) {
           aria-live="polite"
           className={`p-3 rounded-xl border text-xs leading-relaxed flex items-start gap-2 animate-fade-in ${
             traceState.lastFeedback.type === 'correct'
-              ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-800 dark:text-emerald-200'
-              : 'bg-amber-500/10 border-amber-500/30 text-amber-800 dark:text-amber-200'
+              ? 'status-success'
+              : 'status-attention'
           }`}
         >
           {traceState.lastFeedback.type === 'correct' ? (
-            <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
+            <CheckCircle2 className="w-4 h-4 status-success-text shrink-0 mt-0.5" />
           ) : (
-            <AlertCircle className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+            <AlertCircle className="w-4 h-4 status-attention-text shrink-0 mt-0.5" />
           )}
           <div className="space-y-0.5">
             <span className="font-semibold block">{traceState.lastFeedback.message}</span>
-            <span className="block opacity-90">{traceState.lastFeedback.explanation}</span>
+            <span className="block">{traceState.lastFeedback.explanation}</span>
           </div>
         </div>
       )}
@@ -281,7 +281,7 @@ export default function DuplicateTrace({ onProceedToCheck }) {
       {/* Key Architectural Reminder */}
       <div className="pt-2 border-t ui-border-border flex items-center justify-between text-[11px] ui-text-muted italic">
         <span>Why check before insert? Inserting before checking makes set.has(x) always true.</span>
-        <span>Transient practice state; does not modify XP or schedule.</span>
+        <span>Practice only · Progress stays unchanged</span>
       </div>
     </div>
   );

@@ -1,0 +1,544 @@
+{
+  "environment": "LOCAL FIXTURE; no real auth, AI or database calls",
+  "results": [
+    {
+      "name": "compact Appearance keyboard navigation and Escape focus return",
+      "result": "PASS"
+    },
+    {
+      "name": "12 style/mode/viewport combinations: layout, colors, square activity cells, drafts, focus and scroll",
+      "result": "PASS"
+    },
+    {
+      "name": "M04 wrong prediction does not advance; correct trace and alternate array work",
+      "result": "PASS"
+    },
+    {
+      "name": "appearance changes preserve exercise, answer and notes drafts",
+      "result": "PASS"
+    },
+    {
+      "name": "failed guidance and reasoning checks display errors and retain input",
+      "result": "PASS"
+    },
+    {
+      "name": "fixture guidance and reasoning feedback render without changing completed work",
+      "result": "PASS"
+    },
+    {
+      "name": "both close controls protect unsaved notes; failed save retains them",
+      "result": "PASS"
+    },
+    {
+      "name": "saved context readiness, earlier ownership, resume, dismiss and mission-switch protection",
+      "result": "PASS"
+    },
+    {
+      "name": "calendar navigation, date selection and activity keyboard navigation",
+      "result": "PASS"
+    },
+    {
+      "name": "expanded roadmap across all six appearances",
+      "result": "PASS"
+    },
+    {
+      "name": "320px overflow, reduced motion and completion dialog keyboard handling",
+      "result": "PASS"
+    },
+    {
+      "name": "completion failure retains reflection; confirmed fixture completion updates progress",
+      "result": "PASS"
+    },
+    {
+      "name": "recovery preview retains completed work and requires explicit apply",
+      "result": "PASS"
+    },
+    {
+      "name": "appearance and fixture progress survive reload",
+      "result": "PASS"
+    }
+  ],
+  "matrix": [
+    {
+      "style": "frosted-sage",
+      "mode": "light",
+      "width": 1440,
+      "contrast": [
+        {
+          "text": "Your progress",
+          "ratio": 5.54
+        },
+        {
+          "text": "Within target date",
+          "ratio": 7.01
+        },
+        {
+          "text": "Your next step · M04",
+          "ratio": 5.54
+        },
+        {
+          "text": "You can start early",
+          "ratio": 14.27
+        },
+        {
+          "text": "Scheduled for Fri, 9 Oct 2026",
+          "ratio": 5.54
+        },
+        {
+          "text": "Reasoning check",
+          "ratio": 14.27
+        },
+        {
+          "text": "Scheduled for this day",
+          "ratio": 5.54
+        },
+        {
+          "text": "Completed on this day",
+          "ratio": 5.54
+        }
+      ],
+      "result": "PASS"
+    },
+    {
+      "style": "frosted-sage",
+      "mode": "dark",
+      "width": 1440,
+      "contrast": [
+        {
+          "text": "Your progress",
+          "ratio": 6.96
+        },
+        {
+          "text": "Within target date",
+          "ratio": 9.61
+        },
+        {
+          "text": "Your next step · M04",
+          "ratio": 6.96
+        },
+        {
+          "text": "You can start early",
+          "ratio": 13.08
+        },
+        {
+          "text": "Scheduled for Fri, 9 Oct 2026",
+          "ratio": 6.96
+        },
+        {
+          "text": "Reasoning check",
+          "ratio": 13.08
+        },
+        {
+          "text": "Scheduled for this day",
+          "ratio": 6.96
+        },
+        {
+          "text": "Completed on this day",
+          "ratio": 6.96
+        }
+      ],
+      "result": "PASS"
+    },
+    {
+      "style": "study-journal",
+      "mode": "light",
+      "width": 1440,
+      "contrast": [
+        {
+          "text": "Your progress",
+          "ratio": 6.35
+        },
+        {
+          "text": "Within target date",
+          "ratio": 7.01
+        },
+        {
+          "text": "Your next step · M04",
+          "ratio": 6.35
+        },
+        {
+          "text": "You can start early",
+          "ratio": 13.29
+        },
+        {
+          "text": "Scheduled for Fri, 9 Oct 2026",
+          "ratio": 6.35
+        },
+        {
+          "text": "Reasoning check",
+          "ratio": 13.29
+        },
+        {
+          "text": "Scheduled for this day",
+          "ratio": 6.35
+        },
+        {
+          "text": "Completed on this day",
+          "ratio": 6.35
+        }
+      ],
+      "result": "PASS"
+    },
+    {
+      "style": "study-journal",
+      "mode": "dark",
+      "width": 1440,
+      "contrast": [
+        {
+          "text": "Your progress",
+          "ratio": 6.56
+        },
+        {
+          "text": "Within target date",
+          "ratio": 9.61
+        },
+        {
+          "text": "Your next step · M04",
+          "ratio": 6.56
+        },
+        {
+          "text": "You can start early",
+          "ratio": 13.51
+        },
+        {
+          "text": "Scheduled for Fri, 9 Oct 2026",
+          "ratio": 6.56
+        },
+        {
+          "text": "Reasoning check",
+          "ratio": 13.51
+        },
+        {
+          "text": "Scheduled for this day",
+          "ratio": 6.56
+        },
+        {
+          "text": "Completed on this day",
+          "ratio": 6.56
+        }
+      ],
+      "result": "PASS"
+    },
+    {
+      "style": "quiet-focus",
+      "mode": "light",
+      "width": 1440,
+      "contrast": [
+        {
+          "text": "Your progress",
+          "ratio": 6.17
+        },
+        {
+          "text": "Within target date",
+          "ratio": 7.01
+        },
+        {
+          "text": "Your next step · M04",
+          "ratio": 6.17
+        },
+        {
+          "text": "You can start early",
+          "ratio": 14.64
+        },
+        {
+          "text": "Scheduled for Fri, 9 Oct 2026",
+          "ratio": 6.17
+        },
+        {
+          "text": "Reasoning check",
+          "ratio": 14.64
+        },
+        {
+          "text": "Scheduled for this day",
+          "ratio": 6.17
+        },
+        {
+          "text": "Completed on this day",
+          "ratio": 6.17
+        }
+      ],
+      "result": "PASS"
+    },
+    {
+      "style": "quiet-focus",
+      "mode": "dark",
+      "width": 1440,
+      "contrast": [
+        {
+          "text": "Your progress",
+          "ratio": 6.35
+        },
+        {
+          "text": "Within target date",
+          "ratio": 9.61
+        },
+        {
+          "text": "Your next step · M04",
+          "ratio": 6.35
+        },
+        {
+          "text": "You can start early",
+          "ratio": 13.81
+        },
+        {
+          "text": "Scheduled for Fri, 9 Oct 2026",
+          "ratio": 6.35
+        },
+        {
+          "text": "Reasoning check",
+          "ratio": 13.81
+        },
+        {
+          "text": "Scheduled for this day",
+          "ratio": 6.35
+        },
+        {
+          "text": "Completed on this day",
+          "ratio": 6.35
+        }
+      ],
+      "result": "PASS"
+    },
+    {
+      "style": "frosted-sage",
+      "mode": "light",
+      "width": 390,
+      "contrast": [
+        {
+          "text": "Your progress",
+          "ratio": 5.54
+        },
+        {
+          "text": "Within target date",
+          "ratio": 7.01
+        },
+        {
+          "text": "Your next step · M04",
+          "ratio": 5.54
+        },
+        {
+          "text": "You can start early",
+          "ratio": 14.27
+        },
+        {
+          "text": "Scheduled for Fri, 9 Oct 2026",
+          "ratio": 5.54
+        },
+        {
+          "text": "Reasoning check",
+          "ratio": 14.27
+        },
+        {
+          "text": "Scheduled for this day",
+          "ratio": 5.54
+        },
+        {
+          "text": "Completed on this day",
+          "ratio": 5.54
+        }
+      ],
+      "result": "PASS"
+    },
+    {
+      "style": "frosted-sage",
+      "mode": "dark",
+      "width": 390,
+      "contrast": [
+        {
+          "text": "Your progress",
+          "ratio": 6.96
+        },
+        {
+          "text": "Within target date",
+          "ratio": 9.61
+        },
+        {
+          "text": "Your next step · M04",
+          "ratio": 6.96
+        },
+        {
+          "text": "You can start early",
+          "ratio": 13.08
+        },
+        {
+          "text": "Scheduled for Fri, 9 Oct 2026",
+          "ratio": 6.96
+        },
+        {
+          "text": "Reasoning check",
+          "ratio": 13.08
+        },
+        {
+          "text": "Scheduled for this day",
+          "ratio": 6.96
+        },
+        {
+          "text": "Completed on this day",
+          "ratio": 6.96
+        }
+      ],
+      "result": "PASS"
+    },
+    {
+      "style": "study-journal",
+      "mode": "light",
+      "width": 390,
+      "contrast": [
+        {
+          "text": "Your progress",
+          "ratio": 6.35
+        },
+        {
+          "text": "Within target date",
+          "ratio": 7.01
+        },
+        {
+          "text": "Your next step · M04",
+          "ratio": 6.35
+        },
+        {
+          "text": "You can start early",
+          "ratio": 13.29
+        },
+        {
+          "text": "Scheduled for Fri, 9 Oct 2026",
+          "ratio": 6.35
+        },
+        {
+          "text": "Reasoning check",
+          "ratio": 13.29
+        },
+        {
+          "text": "Scheduled for this day",
+          "ratio": 6.35
+        },
+        {
+          "text": "Completed on this day",
+          "ratio": 6.35
+        }
+      ],
+      "result": "PASS"
+    },
+    {
+      "style": "study-journal",
+      "mode": "dark",
+      "width": 390,
+      "contrast": [
+        {
+          "text": "Your progress",
+          "ratio": 6.56
+        },
+        {
+          "text": "Within target date",
+          "ratio": 9.61
+        },
+        {
+          "text": "Your next step · M04",
+          "ratio": 6.56
+        },
+        {
+          "text": "You can start early",
+          "ratio": 13.51
+        },
+        {
+          "text": "Scheduled for Fri, 9 Oct 2026",
+          "ratio": 6.56
+        },
+        {
+          "text": "Reasoning check",
+          "ratio": 13.51
+        },
+        {
+          "text": "Scheduled for this day",
+          "ratio": 6.56
+        },
+        {
+          "text": "Completed on this day",
+          "ratio": 6.56
+        }
+      ],
+      "result": "PASS"
+    },
+    {
+      "style": "quiet-focus",
+      "mode": "light",
+      "width": 390,
+      "contrast": [
+        {
+          "text": "Your progress",
+          "ratio": 6.17
+        },
+        {
+          "text": "Within target date",
+          "ratio": 7.01
+        },
+        {
+          "text": "Your next step · M04",
+          "ratio": 6.17
+        },
+        {
+          "text": "You can start early",
+          "ratio": 14.64
+        },
+        {
+          "text": "Scheduled for Fri, 9 Oct 2026",
+          "ratio": 6.17
+        },
+        {
+          "text": "Reasoning check",
+          "ratio": 14.64
+        },
+        {
+          "text": "Scheduled for this day",
+          "ratio": 6.17
+        },
+        {
+          "text": "Completed on this day",
+          "ratio": 6.17
+        }
+      ],
+      "result": "PASS"
+    },
+    {
+      "style": "quiet-focus",
+      "mode": "dark",
+      "width": 390,
+      "contrast": [
+        {
+          "text": "Your progress",
+          "ratio": 6.35
+        },
+        {
+          "text": "Within target date",
+          "ratio": 9.61
+        },
+        {
+          "text": "Your next step · M04",
+          "ratio": 6.35
+        },
+        {
+          "text": "You can start early",
+          "ratio": 13.81
+        },
+        {
+          "text": "Scheduled for Fri, 9 Oct 2026",
+          "ratio": 6.35
+        },
+        {
+          "text": "Reasoning check",
+          "ratio": 13.81
+        },
+        {
+          "text": "Scheduled for this day",
+          "ratio": 6.35
+        },
+        {
+          "text": "Completed on this day",
+          "ratio": 6.35
+        }
+      ],
+      "result": "PASS"
+    }
+  ],
+  "pageErrors": []
+}

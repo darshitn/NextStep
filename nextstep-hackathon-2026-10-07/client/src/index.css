@@ -49,7 +49,7 @@
   --soft: 241 238 228;
   --border: 224 218 204;
   --ink: 40 36 30;
-  --muted: 116 109 97;
+  --muted: 101 94 83;
   --accent: 92 98 56;
   --inverse: 255 254 250;
   --heat1: 215 210 190;
@@ -81,7 +81,7 @@
   --soft: 239 242 248;
   --border: 227 230 240;
   --ink: 28 31 42;
-  --muted: 110 115 133;
+  --muted: 91 97 115;
   --accent: 98 84 184;
   --inverse: 255 255 255;
   --heat1: 204 208 230;
@@ -130,7 +130,6 @@ h1, h2, h3 {
 /* Study Journal: Editorial serif headings, flatter surfaces */
 :root[data-style='study-journal'] h1,
 :root[data-style='study-journal'] h2,
-:root[data-style='study-journal'] h3,
 :root[data-style='study-journal'] .font-heading {
   font-family: 'Newsreader', 'Playfair Display', Georgia, Cambria, 'Times New Roman', serif;
   font-weight: 600;
