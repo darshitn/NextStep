@@ -2,6 +2,19 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { supabaseAuth } from '../lib/supabase.js';
 
+test('shared confirmation email quota is not described as repeated user signup attempts', async () => {
+  const originalFetch = global.fetch;
+  global.fetch = async () => ({ ok: false, status: 429,
+    json: async () => ({ code: 'over_email_send_rate_limit', msg: 'email rate limit exceeded' }) });
+  try {
+    await assert.rejects(() => supabaseAuth.signUp('synthetic@college.edu', 'synthetic-pass'), err => {
+      assert.equal(err.code, 'EMAIL_RATE_LIMITED');
+      assert.match(err.message, /limited for this project/);
+      return true;
+    });
+  } finally { global.fetch = originalFetch; }
+});
+
 test('AUTH-01: Client-side validation rejects invalid email on signup', async () => {
   await assert.rejects(
     () => supabaseAuth.signUp('not-an-email', 'validpass123'),

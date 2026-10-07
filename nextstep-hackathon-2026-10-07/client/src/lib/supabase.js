@@ -12,8 +12,9 @@ const STORAGE_KEY = 'nextstep_supabase_session';
 function getEnvConfig() {
   const metaEnv = typeof import.meta !== 'undefined' ? import.meta.env : null;
   const procEnv = typeof process !== 'undefined' ? process.env : null;
-  const url = metaEnv?.VITE_SUPABASE_URL || procEnv?.VITE_SUPABASE_URL || 'https://supabase.local';
-  const key = metaEnv?.VITE_SUPABASE_PUBLISHABLE_KEY || procEnv?.VITE_SUPABASE_PUBLISHABLE_KEY || 'test-anon-key';
+  const automatedTest = Boolean(procEnv?.NODE_TEST_CONTEXT);
+  const url = metaEnv?.VITE_SUPABASE_URL || procEnv?.VITE_SUPABASE_URL || (automatedTest ? 'https://supabase.local' : '');
+  const key = metaEnv?.VITE_SUPABASE_PUBLISHABLE_KEY || procEnv?.VITE_SUPABASE_PUBLISHABLE_KEY || (automatedTest ? 'test-anon-key' : '');
   return { url, key };
 }
 
@@ -279,7 +280,10 @@ export const supabaseAuth = {
       const msg = data.error_description || data.msg || data.message || 'Failed to create account.';
       const err = new Error(msg);
       err.status = response.status;
-      if (response.status === 429 || msg.toLowerCase().includes('rate limit')) {
+      if (data.code === 'over_email_send_rate_limit' || msg.toLowerCase().includes('email rate limit')) {
+        err.code = 'EMAIL_RATE_LIMITED';
+        err.message = 'Confirmation emails are temporarily limited for this project. Please try again later or contact the team.';
+      } else if (response.status === 429 || msg.toLowerCase().includes('rate limit')) {
         err.code = 'RATE_LIMITED';
         err.message = 'Too many signup attempts. Please wait a moment and try again.';
       } else if (msg.toLowerCase().includes('already registered') || msg.toLowerCase().includes('already exists')) {
