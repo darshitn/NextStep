@@ -1,0 +1,132 @@
+{
+  "checkedAt": "2026-10-08T04:36:19.265Z",
+  "matrix": [
+    {
+      "width": 1440,
+      "scrollWidth": 1434,
+      "style": "frosted-sage",
+      "mode": "light",
+      "steps": 3
+    },
+    {
+      "width": 1440,
+      "scrollWidth": 1434,
+      "style": "frosted-sage",
+      "mode": "dark",
+      "steps": 3
+    },
+    {
+      "width": 1440,
+      "scrollWidth": 1434,
+      "style": "study-journal",
+      "mode": "light",
+      "steps": 3
+    },
+    {
+      "width": 1440,
+      "scrollWidth": 1434,
+      "style": "study-journal",
+      "mode": "dark",
+      "steps": 3
+    },
+    {
+      "width": 1440,
+      "scrollWidth": 1434,
+      "style": "quiet-focus",
+      "mode": "light",
+      "steps": 3
+    },
+    {
+      "width": 1440,
+      "scrollWidth": 1434,
+      "style": "quiet-focus",
+      "mode": "dark",
+      "steps": 3
+    },
+    {
+      "width": 390,
+      "scrollWidth": 384,
+      "style": "frosted-sage",
+      "mode": "light",
+      "steps": 3
+    },
+    {
+      "width": 390,
+      "scrollWidth": 384,
+      "style": "frosted-sage",
+      "mode": "dark",
+      "steps": 3
+    },
+    {
+      "width": 390,
+      "scrollWidth": 384,
+      "style": "study-journal",
+      "mode": "light",
+      "steps": 3
+    },
+    {
+      "width": 390,
+      "scrollWidth": 384,
+      "style": "study-journal",
+      "mode": "dark",
+      "steps": 3
+    },
+    {
+      "width": 390,
+      "scrollWidth": 384,
+      "style": "quiet-focus",
+      "mode": "light",
+      "steps": 3
+    },
+    {
+      "width": 390,
+      "scrollWidth": 384,
+      "style": "quiet-focus",
+      "mode": "dark",
+      "steps": 3
+    },
+    {
+      "width": 320,
+      "scrollWidth": 314,
+      "style": "frosted-sage",
+      "mode": "light",
+      "steps": 3
+    },
+    {
+      "width": 320,
+      "scrollWidth": 314,
+      "style": "frosted-sage",
+      "mode": "dark",
+      "steps": 3
+    },
+    {
+      "width": 320,
+      "scrollWidth": 314,
+      "style": "study-journal",
+      "mode": "light",
+      "steps": 3
+    },
+    {
+      "width": 320,
+      "scrollWidth": 314,
+      "style": "study-journal",
+      "mode": "dark",
+      "steps": 3
+    },
+    {
+      "width": 320,
+      "scrollWidth": 314,
+      "style": "quiet-focus",
+      "mode": "light",
+      "steps": 3
+    },
+    {
+      "width": 320,
+      "scrollWidth": 314,
+      "style": "quiet-focus",
+      "mode": "dark",
+      "steps": 3
+    }
+  ],
+  "errors": []
+}

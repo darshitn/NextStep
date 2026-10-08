@@ -29,7 +29,11 @@ Inspected the signed-in deployed dashboard before editing. The synthetic demo ac
 
 ## Deployment evidence
 
-Pending the authorized GitHub publish and provider rebuild at this commit. A successful local build is not proof of a deployed release. Final live verification will be appended after the hosting integrations finish.
+Implementation commit `bbab876e8175b667c5b0fa1ca78b5215401995d4` was pushed to `codex/final-production-audit` and fast-forwarded to `main`. Both remote refs were verified.
+
+Vercel reported a successful deployment for that commit. The submitted URL serves the new `/assets/index-65MiunQH.js` bundle and the new mission instructions were observed in the signed-in workspace. Post-deploy checks at approximately 04:36 UTC on 8 October passed all 18 width/style/mode combinations (1440, 390 and 320px), with no horizontal overflow or JavaScript exceptions. Existing notes reloaded and the synthetic demo account retained 0/12 completions. Public login and protected-route redirects worked; health/catalog returned 200 and unsigned goal access returned 401. A real Gemini guidance request returned HTTP 200 with source `gemini`, without changing progress.
+
+**Render backend correction remains unverified.** Health returned 200 but did not include the new revision header, so the live Gemini success must not be attributed to the new backend changes. The user chose to perform the Render deployment manually. Deploy the latest `main` commit on the existing `nextstep-j78x` service, wait for Live, then test health and signed-in AI guidance again. No hosting credentials or environment values were changed.
 
 ## Remaining limits
 
@@ -37,3 +41,10 @@ Pending the authorized GitHub publish and provider rebuild at this commit. A suc
 - Live curated assessment/completion writes were not exercised on this zero-progress account because the user requested its progress remain unchanged. Local tests cover these paths.
 - AI feedback is coaching, not a proof of mastery. Completion is self-reported. No measured learning-gain or winning probability is claimed.
 - A twelve-mission DSA starter is the current product scope. No new feature phase or migration was added.
+
+## Evidence files
+
+- [Local browser results](final-audit-evidence/results.json)
+- [Live appearance matrix](final-audit-evidence/live-matrix.json)
+- [Local desktop workspace](final-audit-evidence/final-practice-brief-1440.png)
+- [Local mobile workspace](final-audit-evidence/final-practice-brief-390.png)

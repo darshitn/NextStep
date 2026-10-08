@@ -18,7 +18,7 @@
 3. Runtime Node; Build Command `npm ci`; Start Command `npm start`.
 4. Health Check Path `/api/health`.
 5. Use a supported Node 24 LTS runtime in both providers. The final audit used Node 24.19.0; do not assume a particular local patch version is available on the provider. Server reads Render's PORT and binds 0.0.0.0.
-6. Add server variables: SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, AI_API_KEY, AI_PROVIDER=gemini, AI_MODEL=gemini-2.5-flash, NODE_ENV=production, and ALLOWED_ORIGINS containing the actual frontend origin (plus localhost only when needed for local verification). Do not paste server/.env into the repository.
+6. Add server variables: SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, AI_API_KEY, AI_MODEL=gemini-2.5-flash, NODE_ENV=production, and ALLOWED_ORIGINS containing the actual frontend origin (plus localhost only when needed for local verification). Do not paste server/.env into the repository.
 7. Deploy and inspect logs. Copy the exact HTTPS service origin into the team handoff.
 8. Open `/api/health` and `/api/catalog`. Health is not a DB test.
 
