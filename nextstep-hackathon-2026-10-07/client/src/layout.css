@@ -205,3 +205,9 @@ body { font-size: 16px; line-height: 1.6; }
 .completion-dialog .uppercase { text-transform: none; letter-spacing: normal; }
 .completion-dialog button { min-height: 40px; }
 @media(max-width:360px) { .completion-dialog label.cursor-pointer { padding: 10px; } }
+.practice-brief { padding: 1.1rem; border: 1px solid rgb(var(--border)); border-radius: 1rem; background: rgb(var(--surface)); }
+.practice-step-list { list-style: none; padding: 0; margin: 1rem 0; display: grid; gap: .9rem; }
+.practice-step-list li { display: flex; align-items: flex-start; gap: .7rem; font-size: .9rem; line-height: 1.6; }
+.practice-step-list li > span { flex: 0 0 1.65rem; height: 1.65rem; border: 1px solid currentColor; border-radius: 50%; text-align: center; font-weight: 700; font-size: .8rem; }
+.practice-step-list p { margin: 0; }
+.practice-resource { display: inline-block; margin-top: .85rem; text-decoration: underline; text-underline-offset: .2em; font-size: .9rem; font-weight: 600; }

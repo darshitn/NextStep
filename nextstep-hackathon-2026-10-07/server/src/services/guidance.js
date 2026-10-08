@@ -2,6 +2,51 @@ import { GoogleGenAI } from '@google/genai';
 import { z } from 'zod';
 import { config, isAiConfigured, getMissingAiConfig } from '../config.js';
 
+// One shared deadline, at most one retry of invalid model output, and no invented
+// fallback advice. Every successful response still passes the strict Zod schema.
+async function requestValidatedOutput({ ai, promptText, systemInstruction, responseSchema, schema, temperature, timeoutMs }) {
+  const controller = new AbortController();
+  let timer;
+  const timeout = new Promise((_, reject) => {
+    timer = setTimeout(() => {
+      const err = Object.assign(new Error('AI request timed out.'), { code: 'AI_TIMEOUT', status: 504 });
+      reject(err);
+      controller.abort();
+    }, timeoutMs);
+  });
+  const invalid = () => Object.assign(new Error('AI output did not match the required response format.'), { code: 'INVALID_AI_OUTPUT', status: 502 });
+  try {
+    for (let attempt = 0; attempt < 2; attempt++) {
+      let result;
+      try {
+        result = await Promise.race([ai.models.generateContent({
+          model: config.AI_MODEL || 'gemini-2.5-flash',
+          contents: [{ role: 'user', parts: [{ text: promptText }] }],
+          config: {
+            systemInstruction: systemInstruction + (attempt ? '\nThe last response was invalid. Return a concise JSON object only, respecting every field length and array limit.' : ''),
+            responseMimeType: 'application/json', responseSchema, temperature,
+            abortSignal: controller.signal
+          }
+        }), timeout]);
+      } catch (err) {
+        if (err.code === 'AI_TIMEOUT' || controller.signal.aborted) throw Object.assign(new Error('AI request timed out.'), { code: 'AI_TIMEOUT', status: 504 });
+        throw Object.assign(new Error('AI service is unavailable. Please try again later.'), { code: 'AI_SERVICE_UNAVAILABLE', status: 503 });
+      }
+      try {
+        const raw = typeof result?.text === 'function' ? result.text() : result?.text ?? result?.candidates?.[0]?.content?.parts?.filter(p => !p.thought).map(p => p.text || '').join('');
+        if (typeof raw !== 'string' || raw.length > 16000) throw invalid();
+        // Accept only a whole JSON response or one whole JSON code fence.
+        const text = raw.trim().replace(/^```(?:json)?\s*\n([\s\S]*?)\n```$/i, '$1');
+        const parsed = schema.safeParse(JSON.parse(text));
+        if (parsed.success) return parsed.data;
+      } catch { /* Retry only malformed/invalid output, never a failed write. */ }
+    }
+    throw invalid();
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 /**
  * System instruction enforcing persona boundaries, untrusted user text separation,
  * and structured output compliance.
@@ -15,7 +60,10 @@ choice briefly and give 2–4 concrete steps within the existing 30-minute
 mission. Revision replaces part of that session; it does not add work.
 Do not change the schedule, invent resources, bypass prerequisites, mark
 completion, award XP, or promise placement success. Do not include secrets,
-HTML, links or markdown. Return only JSON matching the supplied schema.`;
+HTML, links or markdown. Do not invent a previous difficulty or learning history.
+If written feedback is empty, explain the selected help category and mission only.
+Keep explanation under 400 characters, each step and question under 180 characters.
+Return only JSON matching the supplied schema.`;
 
 /**
  * Zod validation schema for the AI guidance response.
@@ -40,18 +88,22 @@ export const GEMINI_RESPONSE_SCHEMA = {
     },
     explanation: {
       type: 'string',
+      minLength: '1', maxLength: '400',
       description: 'Brief explanation of how student feedback influenced this approach (max 400 characters)'
     },
     steps: {
       type: 'array',
+      minItems: '2', maxItems: '4',
       items: {
         type: 'string',
+        minLength: '1', maxLength: '180',
         description: 'Concrete micro-step within 30 min session (max 180 characters)'
       },
       description: '2 to 4 concrete practice steps'
     },
     checkQuestion: {
       type: 'string',
+      minLength: '1', maxLength: '180',
       description: 'One short check question to verify understanding (max 180 characters)'
     }
   },
@@ -91,10 +143,12 @@ export const GEMINI_ASSESSMENT_SCHEMA = {
     },
     explanation: {
       type: 'string',
+      minLength: '1', maxLength: '400',
       description: 'Concise explanation directly addressing the student answer (max 400 characters)'
     },
     nextStep: {
       type: 'string',
+      minLength: '1', maxLength: '200',
       description: 'One actionable coaching next step (max 200 characters)'
     }
   },
@@ -124,10 +178,11 @@ export function buildGuidancePrompt({
       id: mission.id,
       title: mission.title,
       type: mission.type,
-      durationMinutes: mission.durationMinutes || 30,
-      focus: mission.focus,
-      coreConcept: mission.coreConcept,
-      completionCriteria: mission.completionCriteria,
+      durationMinutes: mission.minutes || 30,
+      purpose: mission.why,
+      steps: mission.steps,
+      completionCriteria: mission.doneWhen,
+      resourceLabel: mission.resourceLabel,
       prerequisites: mission.prerequisites || []
     },
     completedPrerequisites,
@@ -187,81 +242,11 @@ export async function generateGeminiGuidance({
     httpOptions: { timeout: timeoutMs }
   });
 
-  let rawOutputText;
-
-  try {
-    const timeoutPromise = new Promise((_, reject) => {
-      const timer = setTimeout(() => {
-        const err = new Error('AI guidance request timed out.');
-        err.code = 'AI_TIMEOUT';
-        err.status = 504;
-        reject(err);
-      }, timeoutMs);
-      timer.unref?.();
-    });
-
-    const callPromise = ai.models.generateContent({
-      model: config.AI_MODEL || 'gemini-2.5-flash',
-      contents: [{ role: 'user', parts: [{ text: promptText }] }],
-      config: {
-        systemInstruction: SYSTEM_INSTRUCTION,
-        responseMimeType: 'application/json',
-        responseSchema: GEMINI_RESPONSE_SCHEMA,
-        temperature: 0.3
-      }
-    });
-
-    const result = await Promise.race([callPromise, timeoutPromise]);
-
-    if (typeof result?.text === 'function') {
-      rawOutputText = result.text();
-    } else if (typeof result?.text === 'string') {
-      rawOutputText = result.text;
-    } else if (result?.candidates?.[0]?.content?.parts?.[0]?.text) {
-      rawOutputText = result.candidates[0].content.parts[0].text;
-    }
-  } catch (err) {
-    if (err.code === 'AI_TIMEOUT' || err.status === 504) {
-      throw err;
-    }
-    const providerErr = new Error('AI service is unavailable. Please try again later.');
-    providerErr.code = 'AI_SERVICE_UNAVAILABLE';
-    providerErr.status = 503;
-    throw providerErr;
-  }
-
-  if (!rawOutputText || typeof rawOutputText !== 'string' || !rawOutputText.trim()) {
-    const err = new Error('Empty or absent output from AI provider.');
-    err.code = 'INVALID_AI_OUTPUT';
-    err.status = 502;
-    throw err;
-  }
-
-  let parsedJson;
-  try {
-    parsedJson = JSON.parse(rawOutputText);
-  } catch (parseError) {
-    const err = new Error('Failed to parse AI output as valid JSON.');
-    err.code = 'INVALID_AI_OUTPUT';
-    err.status = 502;
-    throw err;
-  }
-
-  // If mission has a curated check question, ensure the returned checkQuestion matches it
-  if (curatedCheck && curatedCheck.questionText) {
-    parsedJson.checkQuestion = curatedCheck.questionText.slice(0, 180);
-  }
-
-  const zodValidation = guidanceOutputSchema.safeParse(parsedJson);
-  if (!zodValidation.success) {
-    const err = new Error('AI output failed schema validation constraints.');
-    err.code = 'INVALID_AI_OUTPUT';
-    err.status = 502;
-    err.details = zodValidation.error.issues;
-    throw err;
-  }
-
-  return zodValidation.data;
+  const result = await requestValidatedOutput({ ai, promptText,
+    systemInstruction: SYSTEM_INSTRUCTION, responseSchema: GEMINI_RESPONSE_SCHEMA,
+    schema: guidanceOutputSchema, temperature: 0.3, timeoutMs });
+  if (curatedCheck?.questionText) result.checkQuestion = curatedCheck.questionText.slice(0, 180);
+  return result;
 }
 
 /**
@@ -327,74 +312,7 @@ export async function assessUnderstandingAnswer({
     httpOptions: { timeout: timeoutMs }
   });
 
-  let rawOutputText;
-
-  try {
-    const timeoutPromise = new Promise((_, reject) => {
-      const timer = setTimeout(() => {
-        const err = new Error('AI assessment request timed out.');
-        err.code = 'AI_TIMEOUT';
-        err.status = 504;
-        reject(err);
-      }, timeoutMs);
-      timer.unref?.();
-    });
-
-    const callPromise = ai.models.generateContent({
-      model: config.AI_MODEL || 'gemini-2.5-flash',
-      contents: [{ role: 'user', parts: [{ text: promptText }] }],
-      config: {
-        systemInstruction: ASSESSMENT_SYSTEM_INSTRUCTION,
-        responseMimeType: 'application/json',
-        responseSchema: GEMINI_ASSESSMENT_SCHEMA,
-        temperature: 0.2
-      }
-    });
-
-    const result = await Promise.race([callPromise, timeoutPromise]);
-
-    if (typeof result?.text === 'function') {
-      rawOutputText = result.text();
-    } else if (typeof result?.text === 'string') {
-      rawOutputText = result.text;
-    } else if (result?.candidates?.[0]?.content?.parts?.[0]?.text) {
-      rawOutputText = result.candidates[0].content.parts[0].text;
-    }
-  } catch (err) {
-    if (err.code === 'AI_TIMEOUT' || err.status === 504) {
-      throw err;
-    }
-    const providerErr = new Error('AI assessment service is unavailable. Please try again later.');
-    providerErr.code = 'AI_SERVICE_UNAVAILABLE';
-    providerErr.status = 503;
-    throw providerErr;
-  }
-
-  if (!rawOutputText || typeof rawOutputText !== 'string' || !rawOutputText.trim()) {
-    const err = new Error('Empty or absent output from AI provider.');
-    err.code = 'INVALID_AI_OUTPUT';
-    err.status = 502;
-    throw err;
-  }
-
-  let parsedJson;
-  try {
-    parsedJson = JSON.parse(rawOutputText);
-  } catch (parseError) {
-    const err = new Error('Failed to parse AI output as valid JSON.');
-    err.code = 'INVALID_AI_OUTPUT';
-    err.status = 502;
-    throw err;
-  }
-
-  const zodValidation = assessmentOutputSchema.safeParse(parsedJson);
-  if (!zodValidation.success) {
-    const err = new Error('AI assessment output failed schema validation constraints.');
-    err.code = 'INVALID_AI_OUTPUT';
-    err.status = 502;
-    err.details = zodValidation.error.issues;
-    throw err;
-  }
-
-  return zodValidation.data;
+  return requestValidatedOutput({ ai, promptText,
+    systemInstruction: ASSESSMENT_SYSTEM_INSTRUCTION, responseSchema: GEMINI_ASSESSMENT_SCHEMA,
+    schema: assessmentOutputSchema, temperature: 0.2, timeoutMs });
 }

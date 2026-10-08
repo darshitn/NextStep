@@ -5,14 +5,21 @@
  */
 
 export function getTodayKolkata() {
-  const now = new Date();
+  return getDateKolkata(new Date());
+}
+
+export function getDateKolkata(value) {
   const formatter = new Intl.DateTimeFormat('en-CA', {
     timeZone: 'Asia/Kolkata',
     year: 'numeric',
     month: '2-digit',
     day: '2-digit'
   });
-  return formatter.format(now);
+  return formatter.format(new Date(value));
+}
+
+export function completedMinutesOnDate(completions, date) {
+  return Object.values(completions).filter(c => c.completedAt && getDateKolkata(c.completedAt) === date).length * 30;
 }
 
 export function addDays(dateStr, days) {
@@ -84,7 +91,7 @@ export function deriveGoalStats(rawGoal, catalog) {
   let estimatedFinishDate = rawGoal.schedule.length > 0 ? rawGoal.schedule[rawGoal.schedule.length - 1].date : rawGoal.targetDate;
   if (completedIds.length === missions.length) {
     const sorted = Object.values(completions).sort((a, b) => b.completedAt.localeCompare(a.completedAt));
-    estimatedFinishDate = sorted[0]?.completedAt.slice(0, 10) || rawGoal.planStartDate;
+    estimatedFinishDate = sorted[0]?.completedAt ? getDateKolkata(sorted[0].completedAt) : rawGoal.planStartDate;
   }
 
   const isOverCapacity = estimatedFinishDate > rawGoal.targetDate;

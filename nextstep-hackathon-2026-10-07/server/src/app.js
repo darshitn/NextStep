@@ -71,7 +71,9 @@ export function createApp() {
 
     const errorPayload = {
       code: err.code || (status === 500 ? 'INTERNAL_SERVER_ERROR' : 'ERROR'),
-      message: err.message || 'An unexpected error occurred.'
+      message: status === 500 ? 'An unexpected error occurred. Please try again.'
+        : err.code === 'DATABASE_ERROR' ? 'The database is temporarily unavailable. Please try again.'
+        : err.message || 'An unexpected error occurred.'
     };
 
     if (err.fields) {

@@ -6,7 +6,8 @@
 
 import { supabaseAuth } from './supabase.js';
 
-const TIMEOUT_MS = 20000;
+const WRITE_TIMEOUT_MS = 20000;
+const READ_TIMEOUT_MS = 60000;
 
 function getApiBaseUrl() {
   const rawBase = (import.meta.env.VITE_API_BASE_URL || 'http://localhost:3001').trim();
@@ -21,7 +22,7 @@ async function request(endpoint, options = {}) {
   const normalizedEndpoint = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
   const fullUrl = `${baseUrl}/api${normalizedEndpoint}`;
 
-  const token = supabaseAuth.getAccessToken();
+  const token = normalizedEndpoint.startsWith('/goal') ? await supabaseAuth.getValidAccessToken() : null;
 
   const headers = {
     'Accept': 'application/json',
@@ -38,7 +39,10 @@ async function request(endpoint, options = {}) {
   }
 
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), TIMEOUT_MS);
+  // Render can need a cold start. Only reads get the longer window; writes are
+  // never retried automatically because their saved outcome may be unknown.
+  const timeoutMs = (options.method || 'GET') === 'GET' ? READ_TIMEOUT_MS : WRITE_TIMEOUT_MS;
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
   let response;
   try {
@@ -50,7 +54,7 @@ async function request(endpoint, options = {}) {
   } catch (err) {
     clearTimeout(timeoutId);
     if (err.name === 'AbortError') {
-      const timeoutError = new Error('Request timed out after 20 seconds. Please check your network and retry.');
+      const timeoutError = new Error(options.method === 'GET' ? 'The server is taking longer to wake up. Please try loading your plan again.' : 'The request timed out. Reload your plan to check whether it saved before trying again.');
       timeoutError.status = 504;
       timeoutError.code = 'TIMEOUT';
       throw timeoutError;

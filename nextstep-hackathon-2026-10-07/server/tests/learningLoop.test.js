@@ -761,5 +761,33 @@ describe('DSA Learning Loop — Blocker Persistence & Curated Understanding Chec
     const bodyCheck = await resCheck.json();
     assert.equal(bodyCheck.error.code, 'VERSION_CONFLICT');
   });
+  test('Core goal routes distinguish database outages from missing goals and version conflicts', async () => {
+    const availability = { mon: 60, tue: 0, wed: 60, thu: 0, fri: 60, sat: 0, sun: 0 };
+    const { getTodayKolkata } = await import('../src/services/scheduler.js');
+    const headers = { 'Content-Type': 'application/json', Authorization: 'Bearer user-2-token' };
+    const version = dbRows.get('g-user-2').version;
+    const payloads = [
+      ['/complete', { expectedVersion: version, missionId: 'm01', outcome: 'independent' }],
+      ['/recovery/preview', { expectedVersion: version, availability }],
+      ['/recovery/apply', { expectedVersion: version, availability, previewForDate: getTodayKolkata() }],
+      ['/guidance', { expectedVersion: version, missionId: 'm01', category: 'too_difficult' }]
+    ];
+    dbFailureMode = 'findError';
+    for (const [route, payload] of payloads) {
+      const response = await fetch(`${baseUrl}/api/goal${route}`, { method: 'POST', headers, body: JSON.stringify(payload) });
+      assert.equal(response.status, 503, route);
+      const body = await response.json();
+      assert.equal(body.error.code, 'DATABASE_ERROR');
+      assert.doesNotMatch(body.error.message, /connection terminated/i);
+    }
+    dbFailureMode = 'updateError';
+    for (const [route, payload] of payloads.filter(([route]) => route === '/complete' || route === '/recovery/apply')) {
+      const response = await fetch(`${baseUrl}/api/goal${route}`, { method: 'POST', headers, body: JSON.stringify(payload) });
+      assert.equal(response.status, 503, route);
+      assert.equal((await response.json()).error.code, 'DATABASE_ERROR');
+      assert.equal(dbRows.get('g-user-2').version, version);
+    }
+  });
+
 });
 

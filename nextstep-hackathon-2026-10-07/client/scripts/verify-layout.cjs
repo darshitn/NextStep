@@ -16,6 +16,7 @@ import { apiFixture, DEMO_ACCOUNTS } from '/src/fixtures/apiFixture.js';
 export const isFixtureMode = true;
 export const onSessionExpired = () => () => {};
 export const apiService = { ...apiFixture, demoAccounts: DEMO_ACCOUNTS,
+ async getCatalog() { if(localStorage.getItem('qaFailCatalog')) throw new Error('Fixture: catalogue unavailable. Please retry.'); return apiFixture.getCatalog(); },
  async getGuidance(payload) { if(window.qaFailGuidance) throw new Error('Fixture: guidance unavailable. Try again.'); const result = await apiFixture.getGuidance(payload); result.data.guidance.source = 'fixture'; return result; },
  async saveLearningContext(payload) { if(window.qaFailSave) throw new Error('Fixture: notes could not be saved.'); return apiFixture.saveLearningContext(payload); },
  async submitLearningCheck(payload) { if(window.qaFailCheck) throw new Error('Fixture: reasoning check unavailable. Your answer is preserved.'); const result = await apiFixture.submitLearningCheck(payload); result.data.assessment.source = 'fixture'; return result; },
@@ -33,7 +34,8 @@ async function preferences(page, style, mode) {
   assert.equal(await page.evaluate(() => document.documentElement.dataset.style), style);
   assert.equal(await page.evaluate(() => document.documentElement.dataset.theme), mode);
   const after = await page.evaluate(() => scrollY);
-  assert.ok(Math.abs(after - before) <= 2, `appearance must preserve scroll: ${before} -> ${after}`);
+  const maxScroll = await page.evaluate(() => document.documentElement.scrollHeight - innerHeight);
+  assert.ok(Math.abs(after - Math.min(before, maxScroll)) <= 2, `appearance must preserve scroll (allowing document bounds): ${before} -> ${after}; max ${maxScroll}; ${style} ${mode}`);
 }
 async function focusPractice(page) {
   await page.getByRole('button', { name: 'Continue practising', exact: true }).first().click();
@@ -306,6 +308,31 @@ async function contrast(page) {
     await page.getByRole('button',{name:'Record completion',exact:true}).first().waitFor();
     assert.equal(await page.evaluate(()=>document.documentElement.dataset.style),'study-journal');
     assert.equal(await page.evaluate(()=>document.documentElement.dataset.theme),'dark');
+    assert.equal(await page.getByRole('progressbar').getAttribute('aria-valuenow'),'4');
+  });
+  await record('non-trace mission shows actionable steps across six appearances and desktop/mobile', async () => {
+    await page.getByRole('button',{name:'Start practising',exact:true}).first().click();
+    await page.getByRole('heading',{name:'Your next 30 minutes'}).waitFor();
+    assert.equal(await page.getByRole('heading',{name:'Your next 30 minutes'}).count(),1);
+    assert.equal(await page.locator('.practice-step-list li').count(),3);
+    for(const width of [1440,390,320]) {
+      await page.setViewportSize({width,height:width===1440?1000:844});
+      for(const style of styles) for(const mode of ['light','dark']) {
+        await preferences(page,style,mode); await noOverflow(page);
+        assert.deepEqual((await contrast(page)).failures, [], `practice brief contrast: ${style} ${mode}`);
+      }
+      await page.evaluate(() => scrollTo({top:0,behavior:'instant'}));
+      await page.screenshot({path:path.join(out,`final-practice-brief-${width}.png`),fullPage:true});
+    }
+  });
+  await record('failed initial dashboard load displays a recoverable error instead of an endless spinner', async () => {
+    await page.evaluate(()=>localStorage.setItem('qaFailCatalog','1'));
+    await page.reload();
+    await page.getByRole('alert').waitFor();
+    assert.match(await page.getByRole('alert').innerText(),/catalogue unavailable/);
+    await page.evaluate(()=>localStorage.removeItem('qaFailCatalog'));
+    await page.getByRole('button',{name:'Retry Action'}).click();
+    await page.getByRole('progressbar').waitFor();
     assert.equal(await page.getByRole('progressbar').getAttribute('aria-valuenow'),'4');
   });
   assert.deepEqual(errors,[]);

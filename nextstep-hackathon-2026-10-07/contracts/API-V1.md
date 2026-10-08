@@ -16,7 +16,7 @@ Runtime Gemini is implemented through the backend guidance service. Missing AI c
 - Browser sign-in calls Supabase Auth directly. The publishable key is not a user access token.
 - Render validates the JWT with Supabase `auth.getUser(token)`; no caller-supplied owner ID.
 - A successful write responds only after the database save succeeds. Do not auto-retry writes on timeout.
-- Client timeout: 20 seconds, display retry/manual recovery; Render cold start may take longer. Wake the service before judging.
+- Client timeout: 60 seconds for reads to accommodate a Render cold start; 20 seconds for writes, with no automatic write retry. After a timed-out write, reload saved state before retrying. Expiring Supabase sessions are refreshed before authenticated API requests.
 
 ## Envelopes
 

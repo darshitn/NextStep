@@ -17,6 +17,7 @@ export default function DashboardPage({ goal, onGoalUpdated, catalog, onCatalogL
   const [isLoading, setIsLoading] = useState(!goal || !catalog);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [error, setError] = useState(null);
+  const [loadAttempt, setLoadAttempt] = useState(0);
   const [savedNotice, setSavedNotice] = useState('');
   const [editingName, setEditingName] = useState(false);
   const [draftName, setDraftName] = useState('');
@@ -65,6 +66,7 @@ export default function DashboardPage({ goal, onGoalUpdated, catalog, onCatalogL
     let mounted = true;
     async function loadData() {
       try {
+        if (!goal || !catalog) setIsLoading(true);
         setError(null);
         let currentGoal = goal;
         let currentCatalog = catalog;
@@ -94,7 +96,7 @@ export default function DashboardPage({ goal, onGoalUpdated, catalog, onCatalogL
 
     loadData();
     return () => { mounted = false; };
-  }, [goal, catalog, navigate, onGoalUpdated, onCatalogLoaded]);
+  }, [goal, catalog, navigate, onGoalUpdated, onCatalogLoaded, loadAttempt]);
 
   // Refresh goal handler
   const handleRefresh = async () => {
@@ -356,6 +358,9 @@ export default function DashboardPage({ goal, onGoalUpdated, catalog, onCatalogL
     return null;
   }, [learningRecords, goal?.nextMissionId, goal?.completions, catalog]);
 
+  if (!isLoading && error && (!goal || !catalog)) {
+    return <ErrorNotice error={error} onRetry={() => setLoadAttempt(attempt => attempt + 1)} />;
+  }
   if (isLoading || !goal || !catalog) {
     return <LoadingState message="Loading your practice dashboard..." />;
   }

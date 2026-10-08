@@ -8,7 +8,7 @@ export default function ErrorNotice({ error, onRetry, onDismiss }) {
   const code = error.code || (error.status ? `HTTP ${error.status}` : null);
 
   return (
-    <div className="glass-panel ui-border-border-a30 ui-bg-soft rounded-xl p-4 my-4 flex items-start gap-3 shadow-lg">
+    <div role="alert" className="glass-panel ui-border-border-a30 ui-bg-soft rounded-xl p-4 my-4 flex items-start gap-3 shadow-lg">
       <AlertCircle className="w-5 h-5 ui-text-ink shrink-0 mt-0.5" />
       <div className="flex-1 text-sm">
         <div className="flex items-center gap-2">

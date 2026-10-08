@@ -393,6 +393,17 @@ const GuidancePanel = forwardRef(function GuidancePanel({
 
       <div className="practice-columns">
         <div className="practice-main">
+          {mission.id !== 'm04' && (
+            <section className="practice-brief" aria-label="Your mission steps">
+              <h4 className="support-heading">Your next 30 minutes</h4>
+              <p className="practice-intro">{mission.why}</p>
+              <ol className="practice-step-list">
+                {(mission.steps || []).map((step, index) => <li key={step}><span aria-hidden="true">{index + 1}</span><p>{step}</p></li>)}
+              </ol>
+              <p className="practice-intro"><strong>Done when: </strong>{mission.doneWhen}</p>
+              {mission.resourceUrl && <a className="practice-resource" href={mission.resourceUrl} target="_blank" rel="noopener noreferrer">Open {mission.resourceLabel} ↗</a>}
+            </section>
+          )}
       {/* --- Interactive Step-by-Step Duplicate Trace for Mission M04 --- */}
       {mission.id === 'm04' && (
         <DuplicateTrace onProceedToCheck={handleScrollToCheck} />
@@ -551,11 +562,11 @@ const GuidancePanel = forwardRef(function GuidancePanel({
         </div>
       )}
 
-          {!displayedQuestion && mission.id !== 'm04' && <p className="practice-intro">Work through the steps in your mission. Use the notes alongside to capture what you tried and get guidance.</p>}
         </div>
         <div className="practice-support"><h4 className="support-heading">Guidance &amp; your notes</h4>
       {/* --- Section A: Explain My Blocker Form --- */}
       <div className="blocker-form space-y-4 pb-4 border-b ui-border-border">
+        <p className="practice-intro">Tell us what you tried and where you need help. Gemini uses these notes with this mission to tailor your next steps. Without notes, it uses the mission and your help choice.</p>
         <div>
           <label id="difficulty-category-label" className="text-xs font-semibold uppercase tracking-wider ui-text-ink block mb-2">
             How can we help?

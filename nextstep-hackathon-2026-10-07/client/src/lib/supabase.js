@@ -19,6 +19,7 @@ function getEnvConfig() {
 }
 
 let authListeners = [];
+let refreshPromise = null;
 
 export const supabaseAuth = {
   STORAGE_KEY,
@@ -42,6 +43,53 @@ export const supabaseAuth = {
   getAccessToken() {
     const session = this.getSession();
     return session?.access_token || null;
+  },
+
+  async getValidAccessToken() {
+    const session = this.getSession();
+    if (!session?.access_token) return null;
+    if (session.expires_at && Date.now() / 1000 < session.expires_at - 60) return session.access_token;
+    if (!session.refresh_token) {
+      const err = new Error('Your session has expired. Please sign in again.');
+      err.status = 401;
+      err.code = 'UNAUTHORIZED';
+      throw err;
+    }
+    // Dashboard requests share one token rotation rather than racing each other.
+    if (refreshPromise) return refreshPromise;
+    refreshPromise = (async () => {
+      const { url, key } = getEnvConfig();
+      let response;
+      try {
+        response = await fetch(`${url}/auth/v1/token?grant_type=refresh_token`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', apikey: key },
+          body: JSON.stringify({ refresh_token: session.refresh_token }),
+          signal: AbortSignal.timeout(10000)
+        });
+      } catch {
+        const err = new Error('Could not renew your session. Check your connection and try again.');
+        err.code = 'NETWORK_ERROR';
+        err.status = 0;
+        throw err;
+      }
+      const data = await response.json().catch(() => ({}));
+      // A sign-out or account switch during the request must win over its response.
+      if (this.getSession()?.refresh_token !== session.refresh_token) return this.getAccessToken();
+      if (!response.ok || !data.access_token || !data.refresh_token) {
+        const expired = [400, 401, 403].includes(response.status);
+        if (expired && typeof localStorage !== 'undefined') localStorage.removeItem(STORAGE_KEY);
+        const err = new Error(expired ? 'Your session has expired. Please sign in again.' : 'Session renewal is temporarily unavailable. Please try again.');
+        err.code = expired ? 'UNAUTHORIZED' : 'AUTH_UNAVAILABLE';
+        err.status = expired ? 401 : 503;
+        throw err;
+      }
+      const updated = { ...session, ...data, expires_at: Math.floor(Date.now() / 1000) + (data.expires_in || 3600) };
+      if (typeof localStorage !== 'undefined') localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
+      authListeners.forEach(fn => fn('TOKEN_REFRESHED', updated));
+      return updated.access_token;
+    })();
+    try { return await refreshPromise; } finally { refreshPromise = null; }
   },
 
   checkAuthFromUrl() {
@@ -101,8 +149,9 @@ export const supabaseAuth = {
     // Check if returning from email confirmation
     this.checkAuthFromUrl();
 
+    const accessToken = await this.getValidAccessToken();
     const session = this.getSession();
-    if (!session?.access_token) return null;
+    if (!accessToken || !session) return null;
 
     // Return stored user immediately if valid
     if (session.user) {
@@ -349,10 +398,14 @@ export const supabaseAuth = {
     const session = this.getSession();
     const { url, key } = getEnvConfig();
 
+    if (typeof localStorage !== 'undefined') localStorage.removeItem(STORAGE_KEY);
+    authListeners.forEach(fn => fn('SIGNED_OUT', null));
+
     if (session?.access_token && url && key) {
       try {
         await fetch(`${url}/auth/v1/logout`, {
           method: 'POST',
+          signal: AbortSignal.timeout(10000),
           headers: {
             apikey: key,
             Authorization: `Bearer ${session.access_token}`
@@ -363,10 +416,6 @@ export const supabaseAuth = {
       }
     }
 
-    if (typeof localStorage !== 'undefined') {
-      localStorage.removeItem(STORAGE_KEY);
-    }
-    authListeners.forEach(fn => fn('SIGNED_OUT', null));
     return { ok: true };
   },
 

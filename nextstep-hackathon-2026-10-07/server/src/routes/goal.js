@@ -12,6 +12,7 @@ import {
 } from '../schemas/goalSchemas.js';
 import {
   getTodayKolkata,
+  completedMinutesOnDate,
   calculateSchedule,
   deriveGoalStats
 } from '../services/scheduler.js';
@@ -282,7 +283,8 @@ router.post('/complete', async (req, res, next) => {
       .eq('version', row.version)
       .select();
 
-    if (updateError || !updatedRows || updatedRows.length === 0) {
+    if (updateError) return res.status(503).json({ error: { code: 'DATABASE_ERROR', message: 'Could not save your plan. Please try again.' } });
+    if (!updatedRows || updatedRows.length === 0) {
       return res.status(409).json({
         error: {
           code: 'VERSION_CONFLICT',
@@ -322,14 +324,8 @@ router.post('/recovery/preview', async (req, res, next) => {
       .select('*')
       .maybeSingle();
 
-    if (findError || !row) {
-      return res.status(row ? 503 : 404).json({
-        error: {
-          code: row ? 'DATABASE_ERROR' : 'GOAL_NOT_FOUND',
-          message: row ? findError.message : 'No active goal found.'
-        }
-      });
-    }
+    if (findError) return res.status(503).json({ error: { code: 'DATABASE_ERROR', message: 'Could not load your plan. Please try again.' } });
+    if (!row) return res.status(404).json({ error: { code: 'GOAL_NOT_FOUND', message: 'No active goal found.' } });
 
     if (row.version !== expectedVersion) {
       return res.status(409).json({
@@ -345,12 +341,7 @@ router.post('/recovery/preview', async (req, res, next) => {
     const effectiveStart = today > goal.planStartDate ? today : goal.planStartDate;
 
     const completions = goal.completions || {};
-    let completedTodayMinutes = 0;
-    Object.values(completions).forEach(c => {
-      if (c.completedAt && c.completedAt.slice(0, 10) === today) {
-        completedTodayMinutes += 30;
-      }
-    });
+    const completedTodayMinutes = completedMinutesOnDate(completions, today);
 
     const incompleteMissionIds = catalogData.missions
       .filter(m => !completions[m.id])
@@ -439,14 +430,8 @@ router.post('/recovery/apply', async (req, res, next) => {
       .select('*')
       .maybeSingle();
 
-    if (findError || !row) {
-      return res.status(row ? 503 : 404).json({
-        error: {
-          code: row ? 'DATABASE_ERROR' : 'GOAL_NOT_FOUND',
-          message: row ? findError.message : 'No active goal found.'
-        }
-      });
-    }
+    if (findError) return res.status(503).json({ error: { code: 'DATABASE_ERROR', message: 'Could not load your plan. Please try again.' } });
+    if (!row) return res.status(404).json({ error: { code: 'GOAL_NOT_FOUND', message: 'No active goal found.' } });
 
     if (row.version !== expectedVersion) {
       return res.status(409).json({
@@ -460,12 +445,7 @@ router.post('/recovery/apply', async (req, res, next) => {
     const goal = row.state;
     const effectiveStart = today > goal.planStartDate ? today : goal.planStartDate;
     const completions = goal.completions || {};
-    let completedTodayMinutes = 0;
-    Object.values(completions).forEach(c => {
-      if (c.completedAt && c.completedAt.slice(0, 10) === today) {
-        completedTodayMinutes += 30;
-      }
-    });
+    const completedTodayMinutes = completedMinutesOnDate(completions, today);
 
     const incompleteMissionIds = catalogData.missions
       .filter(m => !completions[m.id])
@@ -516,7 +496,8 @@ router.post('/recovery/apply', async (req, res, next) => {
       .eq('version', row.version)
       .select();
 
-    if (updateError || !updatedRows || updatedRows.length === 0) {
+    if (updateError) return res.status(503).json({ error: { code: 'DATABASE_ERROR', message: 'Could not save your plan. Please try again.' } });
+    if (!updatedRows || updatedRows.length === 0) {
       return res.status(409).json({
         error: {
           code: 'VERSION_CONFLICT',
@@ -573,14 +554,8 @@ router.post('/guidance', async (req, res, next) => {
       .select('*')
       .maybeSingle();
 
-    if (findError || !row) {
-      return res.status(row ? 503 : 404).json({
-        error: {
-          code: row ? 'DATABASE_ERROR' : 'GOAL_NOT_FOUND',
-          message: row ? findError.message : 'No active goal found.'
-        }
-      });
-    }
+    if (findError) return res.status(503).json({ error: { code: 'DATABASE_ERROR', message: 'Could not load your plan. Please try again.' } });
+    if (!row) return res.status(404).json({ error: { code: 'GOAL_NOT_FOUND', message: 'No active goal found.' } });
 
     // 4. Validate goal version
     if (row.version !== expectedVersion) {

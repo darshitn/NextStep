@@ -1,6 +1,6 @@
 # Deployment and release runbook
 
-**Sankirth is integration captain.** These are future human-operated instructions; generating this kit has not committed, pushed, configured, or deployed anything. An agent may execute an explicitly authorized step later, but credentials stay in local/provider settings.
+**Darshit owns integration and deployment.** This is the operational runbook for the implemented application. See FINAL-PRODUCTION-AUDIT.md for observed release evidence. Deployment requires user authorization; credentials remain in local/provider settings.
 
 ## A. Prepare a known release
 
@@ -17,8 +17,8 @@
 2. Root Directory: `nextstep-hackathon-2026-10-07/server` for this repository layout.
 3. Runtime Node; Build Command `npm ci`; Start Command `npm start`.
 4. Health Check Path `/api/health`.
-5. Set NODE_VERSION=24.21.0 in Render to match the checked local runtime, and engines.node=24.x in both app packages. Vercel uses the 24.x major and may choose its own patch version. Server reads Render's PORT and binds 0.0.0.0.
-6. Add server variables: SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, NODE_ENV=production, ALLOWED_ORIGINS initially including localhost for your local verification. Do not paste server/.env into the repository.
+5. Use a supported Node 24 LTS runtime in both providers. The final audit used Node 24.19.0; do not assume a particular local patch version is available on the provider. Server reads Render's PORT and binds 0.0.0.0.
+6. Add server variables: SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, AI_API_KEY, AI_PROVIDER=gemini, AI_MODEL=gemini-2.5-flash, NODE_ENV=production, and ALLOWED_ORIGINS containing the actual frontend origin (plus localhost only when needed for local verification). Do not paste server/.env into the repository.
 7. Deploy and inspect logs. Copy the exact HTTPS service origin into the team handoff.
 8. Open `/api/health` and `/api/catalog`. Health is not a DB test.
 
@@ -77,6 +77,10 @@ Show a factual loading/error state, then the labelled recording if needed. Say w
 Working today: [fill from evidence].
 Synthetic data: [state explicitly].
 Self-reported learning: yes.
-Runtime AI: none unless separately implemented and demonstrated.
+Runtime AI: server-side Gemini guidance and selected rubric-based understanding checks; verify the actual provider response after each deployment.
 Not yet validated: long-term retention, learning gains, placement outcomes.
 Known limits: twelve-mission starter, pilot accounts, no external completion verification.
+
+## Existing linked deployments
+
+The submitted frontend is https://next-step-six-theta.vercel.app and its API is https://nextstep-j78x.onrender.com. A GitHub push is not deployment proof. Confirm Vercel production status and the served bundle. On Render, compare the health response X-NextStep-Revision header with the released commit; health alone does not verify the database or Gemini. If automatic deployment is disabled or fails, use the authenticated provider dashboard to deploy the reviewed commit, then repeat the smoke tests. Preserve the current submitted URLs.

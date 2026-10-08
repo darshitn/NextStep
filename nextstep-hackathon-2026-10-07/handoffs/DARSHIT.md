@@ -433,3 +433,7 @@ Browser Verification (Live http://localhost:5173/login):
 - Blocker: none found for the bounded layout correction. This is not evidence of a live integration release.
 - Next exact action: review `codex/dashboard-layout` and its screenshot matrix. No further feature phase; no main merge or deployment performed. Commit/push are explicitly authorized by the current user request.
 
+
+## Final production audit — 2026-10-08
+
+User explicitly authorized audit fixes, push and redeployment. Branch: codex/final-production-audit from origin/main 28a8b75. Updated session renewal, dashboard retry, practice instructions, Gemini prompt/validation, IST capacity and database error handling. Backend 46/46 and client 39/39 passed; production build passed. Full desktop/mobile local fixture browser checks cover all appearances and learning-loop failures. Demo completions remain 0. No environment files or database migrations changed. See [final audit](../docs/FINAL-PRODUCTION-AUDIT.md) for exact scope and unverified live boundaries. Gate: local correction ready; provider deployment and post-deploy smoke checks pending.
