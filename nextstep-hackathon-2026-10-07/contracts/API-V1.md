@@ -142,7 +142,7 @@ HTTP 200:
 {"data":{"guidance":{"baseVersion":2,"missionId":"m02","mode":"guided_practice","explanation":"Use a small example to make each index change visible.","steps":["Write a short example array.","Trace each operation on paper.","Attempt the mission and check its completion criteria."],"checkQuestion":"What changes after the first operation?","source":"gemini"}}}
 ```
 
-Authenticated read-only AI endpoint. Server validates that `expectedVersion` matches the current goal version, and that `missionId` is the next eligible incomplete mission. Completed goal returns 422 `NO_PENDING_MISSION`. Categories: `too_difficult`, `need_revision`, `ready_to_continue`. Feedback optional, max 280 chars. AI guidance is ephemeral and does not mutate the saved goal. Returns 502 on malformed AI output, 503 on provider unavailable, 504 on timeout.
+Authenticated read-only AI endpoint. Server validates that `expectedVersion` matches the current goal version, and that `missionId` is either the next eligible incomplete mission or a mission already recorded as completed. Completed missions remain eligible for revision after the track finishes. Unknown mission IDs return 404 `MISSION_NOT_FOUND`; future incomplete missions return 422 `INVALID_MISSION`. Categories: `too_difficult`, `need_revision`, `ready_to_continue`. Feedback optional, max 280 chars. AI guidance is ephemeral and does not mutate the saved goal, completion history, XP or schedule. Returns 502 on malformed AI output, 503 on provider unavailable, 504 on timeout.
 
 ## Client integration obligations
 

@@ -23,13 +23,8 @@ export default function LoginPage({ onUserAuthenticated }) {
       const { user } = await apiService.signIn(email, password);
       onUserAuthenticated(user);
 
-      // Check if user already has an active goal
-      const res = await apiService.getGoal();
-      if (res?.data?.goal) {
-        navigate('/dashboard');
-      } else {
-        navigate('/onboarding');
-      }
+      // Dashboard owns loading/retrying the saved goal after authentication.
+      navigate('/dashboard');
     } catch (err) {
       console.error('Sign in error:', err);
       setError(err.message || 'Failed to authenticate student account.');

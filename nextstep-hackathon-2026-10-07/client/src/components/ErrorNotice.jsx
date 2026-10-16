@@ -1,7 +1,7 @@
 import React from 'react';
 import { AlertCircle, RefreshCw, XCircle } from 'lucide-react';
 
-export default function ErrorNotice({ error, onRetry, onDismiss }) {
+export default function ErrorNotice({ error, onRetry, onDismiss, retryLabel = 'Retry Action' }) {
   if (!error) return null;
 
   const message = typeof error === 'string' ? error : error.message || 'An unexpected error occurred.';
@@ -26,7 +26,7 @@ export default function ErrorNotice({ error, onRetry, onDismiss }) {
             className="mt-3 inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium ui-bg-soft hover:ui-bg-soft ui-text-ink rounded-lg border ui-border-border-a40 transition-colors"
           >
             <RefreshCw className="w-3.5 h-3.5" />
-            Retry Action
+            {retryLabel}
           </button>
         )}
       </div>

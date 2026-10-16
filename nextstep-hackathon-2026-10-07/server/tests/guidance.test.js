@@ -385,6 +385,40 @@ describe('Gemini Guidance Service & Route Test Suite', () => {
     assert.deepEqual(currentGoal.completions, {});
   });
 
+  test('Route: completed missions remain eligible for read-only revision after the track finishes', async () => {
+    const row = dbRows.get('g-user-1');
+    const original = structuredClone(row.state);
+    try {
+      row.state.completions = Object.fromEntries(catalogData.missions.map(m => [m.id, {
+        completedAt: '2026-10-08T10:00:00Z', outcome: 'with_hint', reflection: 'Synthetic revision record'
+      }]));
+      const before = JSON.stringify(row);
+      let requestedMission;
+      app.locals.mockGuidanceGenerator = async ({ mission }) => {
+        requestedMission = mission.id;
+        return { mode: 'revision_first', explanation: 'Review membership before inserting the value.',
+          steps: ['Trace a small input.', 'Explain check-before-insert.'], checkQuestion: 'What is in the set before the repeated value?' };
+      };
+      const res = await fetch(`${baseUrl}/api/goal/guidance`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer user-1-token' },
+        body: JSON.stringify({ expectedVersion: 1, missionId: 'm04', category: 'need_revision' })
+      });
+      assert.equal(res.status, 200);
+      assert.equal((await res.json()).data.guidance.missionId, 'm04');
+      assert.equal(requestedMission, 'm04');
+      assert.equal(JSON.stringify(row), before, 'Revision must not mutate any saved goal state');
+    } finally { row.state = original; }
+  });
+
+  test('Route: revision eligibility does not unlock future incomplete missions', async () => {
+    const res = await fetch(`${baseUrl}/api/goal/guidance`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer user-1-token' },
+      body: JSON.stringify({ expectedVersion: 1, missionId: 'm04', category: 'need_revision' })
+    });
+    assert.equal(res.status, 422);
+    assert.equal((await res.json()).error.code, 'INVALID_MISSION');
+  });
+
   test('Route: Stale expectedVersion returns 409 VERSION_CONFLICT', async () => {
     app.locals.mockGuidanceGenerator = async () => ({
       mode: 'standard_practice',

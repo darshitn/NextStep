@@ -2,7 +2,7 @@
 
 # Run and review NextStep
 
-**Current milestone:** final production reliability audit, 8 October 2026. See [audit evidence](docs/FINAL-PRODUCTION-AUDIT.md) for actual checks and deployment status. Correct observed defects without expanding the submitted feature scope.
+**Current milestone:** owner-authorized post-submission product upgrade, 16 October 2026. See [product direction and stages](docs/PRODUCT-UPGRADE.md). The 8 October [production audit](docs/FINAL-PRODUCTION-AUDIT.md) describes the earlier release; local upgrade work does not establish a new deployed version.
 
 NextStep is implemented. The [deployed frontend](https://next-step-six-theta.vercel.app/) calls a Render Express API, Supabase Auth/PostgreSQL, and server-side Gemini. No fixture mode is enabled in production.
 

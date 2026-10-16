@@ -7,6 +7,7 @@ import DashboardPage from './pages/DashboardPage.jsx';
 import RecoveryPage from './pages/RecoveryPage.jsx';
 import NotFoundPage from './pages/NotFoundPage.jsx';
 import LoadingState from './components/LoadingState.jsx';
+import ErrorNotice from './components/ErrorNotice.jsx';
 import { apiService, isFixtureMode, onSessionExpired } from './services/apiService.js';
 
 export default function App() {
@@ -16,6 +17,8 @@ export default function App() {
   const [catalog, setCatalog] = useState(null);
   const [isAuthChecking, setIsAuthChecking] = useState(true);
   const [sessionExpired, setSessionExpired] = useState(false);
+  const [authError, setAuthError] = useState(null);
+  const [authAttempt, setAuthAttempt] = useState(0);
 
   // Subscribe to session expiration events across all API requests
   useEffect(() => {
@@ -23,6 +26,8 @@ export default function App() {
       setSessionExpired(true);
       setUser(null);
       setGoal(null);
+      setCatalog(null);
+      setAuthError(null);
       navigate('/login');
     });
     return unsubscribe;
@@ -32,20 +37,24 @@ export default function App() {
   useEffect(() => {
     let mounted = true;
     async function checkAuth() {
+      setIsAuthChecking(true);
+      setAuthError(null);
       try {
         const currentUser = await apiService.getCurrentUser();
         if (mounted && currentUser) {
           setUser(currentUser);
         }
       } catch (err) {
-        console.error('Session check error:', err);
+        if (mounted && err.status !== 401 && err.code !== 'UNAUTHORIZED') {
+          setAuthError(err.message || 'Could not check your session. Please retry.');
+        }
       } finally {
         if (mounted) setIsAuthChecking(false);
       }
     }
     checkAuth();
     return () => { mounted = false; };
-  }, []);
+  }, [authAttempt]);
 
   const handleSignOut = async () => {
     try {
@@ -55,12 +64,18 @@ export default function App() {
     }
     setUser(null);
     setGoal(null);
+    setCatalog(null);
     navigate('/login');
   };
 
   const handleUserAuthenticated = (authenticatedUser) => {
+    if (user?.id !== authenticatedUser?.id) {
+      setGoal(null);
+      setCatalog(null);
+    }
     setUser(authenticatedUser);
     setSessionExpired(false);
+    setAuthError(null);
   };
 
   if (isAuthChecking) {
@@ -69,6 +84,12 @@ export default function App() {
         <LoadingState message="Connecting to NextStep..." />
       </div>
     );
+  }
+
+  if (authError) {
+    return <AppShell user={null} isFixtureMode={isFixtureMode}>
+      <ErrorNotice error={authError} onRetry={() => setAuthAttempt(attempt => attempt + 1)} />
+    </AppShell>;
   }
 
   return (

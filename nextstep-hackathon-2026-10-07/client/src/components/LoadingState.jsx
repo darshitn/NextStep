@@ -11,7 +11,6 @@ export default function LoadingState({ message = 'Loading your practice plan...'
         </div>
       </div>
       <p className="ui-text-ink font-medium text-sm tracking-wide">{message}</p>
-      <p className="ui-text-muted text-xs mt-1">Calibrating deterministic schedule...</p>
     </div>
   );
 }

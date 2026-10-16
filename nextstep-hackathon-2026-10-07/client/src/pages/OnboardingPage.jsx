@@ -10,10 +10,14 @@ export default function OnboardingPage({ onGoalUpdated }) {
   const [isInitializing, setIsInitializing] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState(null);
+  const [loadError, setLoadError] = useState(null);
+  const [loadAttempt, setLoadAttempt] = useState(0);
 
   useEffect(() => {
     let mounted = true;
     async function checkExistingGoal() {
+      setIsInitializing(true);
+      setLoadError(null);
       try {
         const res = await apiService.getGoal();
         if (mounted && res?.data?.goal) {
@@ -21,15 +25,14 @@ export default function OnboardingPage({ onGoalUpdated }) {
           navigate('/dashboard');
         }
       } catch (err) {
-        // Not fatal; user may be fresh
-        console.log('No existing goal loaded:', err);
+        if (mounted) setLoadError(err.message || 'Could not check for your saved goal.');
       } finally {
         if (mounted) setIsInitializing(false);
       }
     }
     checkExistingGoal();
     return () => { mounted = false; };
-  }, [navigate, onGoalUpdated]);
+  }, [navigate, onGoalUpdated, loadAttempt]);
 
   const handleCreateGoal = async (payload) => {
     setIsSubmitting(true);
@@ -67,6 +70,8 @@ export default function OnboardingPage({ onGoalUpdated }) {
   if (isInitializing) {
     return <LoadingState message="Checking existing practice goals..." />;
   }
+
+  if (loadError) return <ErrorNotice error={loadError} onRetry={() => setLoadAttempt(attempt => attempt + 1)} retryLabel="Retry loading goal" />;
 
   return (
     <div className="py-4 sm:py-8">

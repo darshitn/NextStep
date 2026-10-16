@@ -1,19 +1,34 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { useNavigate } from 'react-router-dom';
-import ProgressSummary from '../components/ProgressSummary.jsx';
-import PracticeActivity from '../components/PracticeActivity.jsx';
-import { activityByDay } from '../services/activity.js';
-import MissionCard from '../components/MissionCard.jsx';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
+import '../workspace.css';
+
+import WorkspaceNav from '../components/workspace/WorkspaceNav.jsx';
+import TodayView from '../components/workspace/TodayView.jsx';
+import RoadmapView from '../components/workspace/RoadmapView.jsx';
+import ReviewView from '../components/workspace/ReviewView.jsx';
+import InsightsView from '../components/workspace/InsightsView.jsx';
+
 import CompletionForm from '../components/CompletionForm.jsx';
 import GuidancePanel from '../components/GuidancePanel.jsx';
-import ResumePracticeCard from '../components/ResumePracticeCard.jsx';
 import LoadingState from '../components/LoadingState.jsx';
 import ErrorNotice from '../components/ErrorNotice.jsx';
 import { apiService } from '../services/apiService.js';
-import { RefreshCw, Compass, SlidersHorizontal, CheckCircle2, ListOrdered, Calendar } from 'lucide-react';
+import {
+  deriveWorkspaceStats,
+  deriveReviewItems,
+  deriveUpcomingMissions,
+  deriveNotesLibrary,
+  calculateRemainingSeconds,
+  startTimer,
+  pauseTimer,
+  resumeTimer,
+  resetTimer
+} from '../services/workspace.js';
 
 export default function DashboardPage({ goal, onGoalUpdated, catalog, onCatalogLoaded }) {
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
+
   const [isLoading, setIsLoading] = useState(!goal || !catalog);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [error, setError] = useState(null);
@@ -22,16 +37,97 @@ export default function DashboardPage({ goal, onGoalUpdated, catalog, onCatalogL
   const [editingName, setEditingName] = useState(false);
   const [draftName, setDraftName] = useState('');
   const [savingName, setSavingName] = useState(false);
+
+  // Active view from URL search param
+  const rawView = searchParams.get('view') || 'today';
+  const validViews = ['today', 'roadmap', 'review', 'insights'];
+  const activeView = validViews.includes(rawView) ? rawView : 'today';
+
+  const handleSelectView = (viewId) => {
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev);
+      if (viewId === 'today') {
+        next.delete('view');
+      } else {
+        next.set('view', viewId);
+      }
+      return next;
+    });
+  };
+
+  // Focus Timer state (kept mounted at Dashboard level across view switches)
+  const [timerState, setTimerState] = useState(() => resetTimer(25));
+  const [remainingSeconds, setRemainingSeconds] = useState(25 * 60);
+
+  useEffect(() => {
+    if (!timerState.isRunning || !timerState.endTime) return;
+
+    const tick = () => {
+      const remaining = calculateRemainingSeconds(timerState.endTime, Date.now());
+      setRemainingSeconds(remaining);
+      if (remaining <= 0) {
+        setTimerState((prev) => ({
+          ...prev,
+          isRunning: false,
+          endTime: null,
+          pausedRemainingSeconds: 0,
+          isCompleted: true
+        }));
+      }
+    };
+
+    tick();
+    const interval = setInterval(tick, 250);
+    return () => clearInterval(interval);
+  }, [timerState.isRunning, timerState.endTime]);
+
+  const handleStartTimer = () => {
+    const next = startTimer({ durationMinutes: timerState.presetMinutes, now: Date.now() });
+    setTimerState(next);
+    setRemainingSeconds(next.totalSeconds);
+  };
+
+  const handlePauseTimer = () => {
+    const next = pauseTimer(timerState, Date.now());
+    setTimerState(next);
+    setRemainingSeconds(next.pausedRemainingSeconds ?? 0);
+  };
+
+  const handleResumeTimer = () => {
+    const next = resumeTimer(timerState, Date.now());
+    setTimerState(next);
+  };
+
+  const handleResetTimer = () => {
+    const next = resetTimer(timerState.presetMinutes);
+    setTimerState(next);
+    setRemainingSeconds(next.totalSeconds);
+  };
+
+  const handleSelectTimerPreset = (mins) => {
+    const next = resetTimer(mins);
+    setTimerState(next);
+    setRemainingSeconds(next.totalSeconds);
+  };
+
   const saveName = async (event) => {
     event.preventDefault();
-    setSavingName(true); setError(null);
+    setSavingName(true);
+    setError(null);
     try {
-      const response = await apiService.renameGoal({ goalName: draftName.trim(), expectedVersion: goal.version });
+      const response = await apiService.renameGoal({
+        goalName: draftName.trim(),
+        expectedVersion: goal.version
+      });
       onGoalUpdated(response.data.goal);
-      setEditingName(false); setGuidanceData(null);
+      setEditingName(false);
+      setGuidanceData(null);
       setSavedNotice('Goal name saved. Your missions and progress are unchanged.');
-    } catch (err) { setError(err.message || 'Could not save goal name.'); }
-    finally { setSavingName(false); }
+    } catch (err) {
+      setError(err.message || 'Could not save goal name.');
+    } finally {
+      setSavingName(false);
+    }
   };
 
   // Active mission interactive modals/panels
@@ -39,19 +135,26 @@ export default function DashboardPage({ goal, onGoalUpdated, catalog, onCatalogL
   const [isSubmittingCompletion, setIsSubmittingCompletion] = useState(false);
 
   const [activeGuidanceMission, setActiveGuidanceMission] = useState(null);
+  const [practiceView, setPracticeView] = useState('today');
   const practiceRef = useRef(null);
   const practiceTriggerRef = useRef(null);
 
-  const openPractice = mission => {
+  const openPractice = (mission) => {
+    if (!mission) return;
+    setPracticeView(activeView);
     practiceTriggerRef.current = document.activeElement;
     const open = () => {
       setActiveGuidanceMission(mission);
       if (guidanceData && guidanceData.missionId !== mission.id) setGuidanceData(null);
-      if (activeGuidanceMission?.id === mission.id) practiceRef.current?.focusHeading();
+      if (activeGuidanceMission?.id === mission.id) requestAnimationFrame(() => practiceRef.current?.focusHeading());
     };
-    if (activeGuidanceMission && activeGuidanceMission.id !== mission.id) practiceRef.current?.requestLeave(open);
-    else open();
+    if (activeGuidanceMission && activeGuidanceMission.id !== mission.id) {
+      practiceRef.current?.requestLeave(open);
+    } else {
+      open();
+    }
   };
+
   const [guidanceData, setGuidanceData] = useState(null);
   const [isLoadingGuidance, setIsLoadingGuidance] = useState(false);
   const [guidanceError, setGuidanceError] = useState(null);
@@ -95,7 +198,9 @@ export default function DashboardPage({ goal, onGoalUpdated, catalog, onCatalogL
     }
 
     loadData();
-    return () => { mounted = false; };
+    return () => {
+      mounted = false;
+    };
   }, [goal, catalog, navigate, onGoalUpdated, onCatalogLoaded, loadAttempt]);
 
   // Refresh goal handler
@@ -106,7 +211,6 @@ export default function DashboardPage({ goal, onGoalUpdated, catalog, onCatalogL
       const res = await apiService.getGoal();
       if (res?.data?.goal) {
         onGoalUpdated(res.data.goal);
-        // Invalidate stale guidance if version changed
         if (guidanceData && guidanceData.baseVersion !== res.data.goal.version) {
           setGuidanceData(null);
         }
@@ -136,7 +240,6 @@ export default function DashboardPage({ goal, onGoalUpdated, catalog, onCatalogL
         onGoalUpdated(res.data.goal);
         setActiveCompletingMission(null);
         setSavedNotice('Practice recorded. One more step forward.');
-        // Ephemeral guidance invalidated upon completion of mission
         setGuidanceData(null);
         setActiveGuidanceMission(null);
       }
@@ -187,8 +290,18 @@ export default function DashboardPage({ goal, onGoalUpdated, catalog, onCatalogL
         expectedVersion: goal.version,
         missionId: contextData.missionId,
         category: contextData.category || 'too_difficult',
-        whatTried: contextData.whatTried !== undefined ? (contextData.whatTried ? String(contextData.whatTried).slice(0, 280) : null) : null,
-        whereStuck: contextData.whereStuck !== undefined ? (contextData.whereStuck ? String(contextData.whereStuck).slice(0, 280) : null) : null,
+        whatTried:
+          contextData.whatTried !== undefined
+            ? contextData.whatTried
+              ? String(contextData.whatTried).slice(0, 280)
+              : null
+            : null,
+        whereStuck:
+          contextData.whereStuck !== undefined
+            ? contextData.whereStuck
+              ? String(contextData.whereStuck).slice(0, 280)
+              : null
+            : null,
         selfReportedStatus: contextData.selfReportedStatus || 'still_unsure',
         dismissed: Boolean(contextData.dismissed)
       };
@@ -196,8 +309,10 @@ export default function DashboardPage({ goal, onGoalUpdated, catalog, onCatalogL
       if (contextData.guidance) {
         payload.guidance = {
           questionId: contextData.guidance.questionId || null,
-          questionText: contextData.guidance.questionText || contextData.guidance.checkQuestion || undefined,
-          checkQuestion: contextData.guidance.checkQuestion || contextData.guidance.questionText || undefined,
+          questionText:
+            contextData.guidance.questionText || contextData.guidance.checkQuestion || undefined,
+          checkQuestion:
+            contextData.guidance.checkQuestion || contextData.guidance.questionText || undefined,
           mode: contextData.guidance.mode,
           explanation: contextData.guidance.explanation,
           steps: contextData.guidance.steps,
@@ -256,7 +371,7 @@ export default function DashboardPage({ goal, onGoalUpdated, catalog, onCatalogL
     }
   };
 
-  // Dismiss Resume Card (keeps data in DB, marks dismissed: true)
+  // Dismiss Resume Card
   const handleDismissResumeCard = async (missionId) => {
     try {
       const existing = goal?.learning?.[missionId] || {};
@@ -293,16 +408,15 @@ export default function DashboardPage({ goal, onGoalUpdated, catalog, onCatalogL
     }
   };
 
-  // Derive saved learning context to resume
+  // Derive saved learning context to resume on Today
   const learningRecords = goal?.learning || {};
 
-  const resumeContext = React.useMemo(() => {
+  const resumeContext = useMemo(() => {
     if (!goal || !catalog) return null;
 
-    // 1. Prefer active mission's context if present and not dismissed
     const activeRec = goal.nextMissionId ? learningRecords[goal.nextMissionId] : null;
     if (activeRec && !activeRec.dismissed && (activeRec.whereStuck || activeRec.whatTried || activeRec.assessment)) {
-      const activeMissionObj = (catalog?.missions || []).find(m => m.id === goal.nextMissionId);
+      const activeMissionObj = (catalog?.missions || []).find((m) => m.id === goal.nextMissionId);
       return {
         record: activeRec,
         mission: activeMissionObj,
@@ -310,17 +424,21 @@ export default function DashboardPage({ goal, onGoalUpdated, catalog, onCatalogL
       };
     }
 
-    const otherMissionIds = Object.keys(learningRecords).filter(mId => mId !== goal.nextMissionId);
+    const otherMissionIds = Object.keys(learningRecords).filter((mId) => mId !== goal.nextMissionId);
 
-    // 2. Prioritize unresolved blockers on any uncompleted missions (so completed earlier records do not crowd out active difficulties)
-    const unresolvedUncompleted = otherMissionIds.find(mId => {
+    const unresolvedUncompleted = otherMissionIds.find((mId) => {
       const rec = learningRecords[mId];
       const isCompleted = Boolean(goal.completions?.[mId]);
-      return rec && !rec.dismissed && (rec.whereStuck || rec.whatTried || rec.assessment) &&
-        !isCompleted && rec.selfReportedStatus !== 'ready_to_continue';
+      return (
+        rec &&
+        !rec.dismissed &&
+        (rec.whereStuck || rec.whatTried || rec.assessment) &&
+        !isCompleted &&
+        rec.selfReportedStatus !== 'ready_to_continue'
+      );
     });
     if (unresolvedUncompleted) {
-      const missionObj = (catalog?.missions || []).find(m => m.id === unresolvedUncompleted);
+      const missionObj = (catalog?.missions || []).find((m) => m.id === unresolvedUncompleted);
       return {
         record: learningRecords[unresolvedUncompleted],
         mission: missionObj,
@@ -328,14 +446,13 @@ export default function DashboardPage({ goal, onGoalUpdated, catalog, onCatalogL
       };
     }
 
-    // 3. Any other uncompleted mission's un-dismissed record
-    const uncompletedOther = otherMissionIds.find(mId => {
+    const uncompletedOther = otherMissionIds.find((mId) => {
       const rec = learningRecords[mId];
       const isCompleted = Boolean(goal.completions?.[mId]);
       return rec && !rec.dismissed && (rec.whereStuck || rec.whatTried || rec.assessment) && !isCompleted;
     });
     if (uncompletedOther) {
-      const missionObj = (catalog?.missions || []).find(m => m.id === uncompletedOther);
+      const missionObj = (catalog?.missions || []).find((m) => m.id === uncompletedOther);
       return {
         record: learningRecords[uncompletedOther],
         mission: missionObj,
@@ -343,11 +460,10 @@ export default function DashboardPage({ goal, onGoalUpdated, catalog, onCatalogL
       };
     }
 
-    // 4. Finally, any other un-dismissed record (e.g. from an earlier completed mission)
     for (const mId of otherMissionIds) {
       const rec = learningRecords[mId];
       if (rec && !rec.dismissed && (rec.whereStuck || rec.whatTried || rec.assessment)) {
-        const missionObj = (catalog?.missions || []).find(m => m.id === mId);
+        const missionObj = (catalog?.missions || []).find((m) => m.id === mId);
         return {
           record: rec,
           mission: missionObj,
@@ -358,137 +474,151 @@ export default function DashboardPage({ goal, onGoalUpdated, catalog, onCatalogL
     return null;
   }, [learningRecords, goal?.nextMissionId, goal?.completions, catalog]);
 
+  // Derived workspace models
+  const missions = catalog?.missions || [];
+  const currentMission = missions.find((m) => m.id === goal?.nextMissionId);
+
+  const scheduleMap = useMemo(() => {
+    const map = {};
+    (goal?.schedule || []).forEach((item) => {
+      map[item.missionId] = item.date;
+    });
+    return map;
+  }, [goal?.schedule]);
+
+  const workspaceStats = useMemo(() => deriveWorkspaceStats(goal, catalog), [goal, catalog]);
+  const reviewData = useMemo(() => deriveReviewItems(goal, catalog), [goal, catalog]);
+  const upcomingMissions = useMemo(() => deriveUpcomingMissions(goal, catalog, 3), [goal, catalog]);
+  const notesLibrary = useMemo(() => deriveNotesLibrary(goal, catalog), [goal, catalog]);
+
   if (!isLoading && error && (!goal || !catalog)) {
-    return <ErrorNotice error={error} onRetry={() => setLoadAttempt(attempt => attempt + 1)} />;
+    return <ErrorNotice error={error} onRetry={() => setLoadAttempt((attempt) => attempt + 1)} />;
   }
   if (isLoading || !goal || !catalog) {
     return <LoadingState message="Loading your practice dashboard..." />;
   }
 
-  const missions = catalog.missions || [];
-  const completions = goal.completions || {};
-  const currentMission = missions.find(m => m.id === goal.nextMissionId);
-
-  // Map schedules to lookup
-  const scheduleMap = {};
-  (goal.schedule || []).forEach(item => {
-    scheduleMap[item.missionId] = item.date;
-  });
+  // Regression compatibility practice label
+  const practiceLabel =
+    goal.learning?.[currentMission?.id] || activeGuidanceMission?.id === currentMission?.id
+      ? 'Continue practising'
+      : 'Start practising';
 
   return (
-    <div className="dashboard-layout">
-      {editingName && <form onSubmit={saveName} className="rounded-xl border ui-border-border ui-bg-surface p-4 space-y-3">
-        <label htmlFor="rename-goal" className="block text-sm ui-text-ink">Your goal name</label>
-        <input id="rename-goal" required maxLength={80} value={draftName} onChange={e => setDraftName(e.target.value)} className="w-full rounded-lg ui-bg-surface border ui-border-border p-3 ui-text-ink" />
-        <p className="text-xs ui-text-muted">Naming your goal does not change the DSA Foundations curriculum.</p>
-        <button disabled={savingName || !draftName.trim()} className="px-4 py-2 ui-bg-accent ui-text-inverse rounded-lg disabled:opacity-50">{savingName ? 'Saving...' : 'Save goal name'}</button>
-        <button type="button" disabled={savingName} onClick={() => setEditingName(false)} className="ml-3 ui-text-ink">Cancel</button>
-      </form>}
-      {/* Top action row */}
-      <div className="goal-heading">
-        <div>
-          <h1 className="text-xl sm:text-2xl font-extrabold ui-text-ink tracking-tight">
-            {goal.goalName || 'Build my DSA foundations'}
-          </h1>
-          <p className="text-sm ui-text-muted mt-1">
-            DSA Foundations · A manageable next step, at your pace.
-          </p>
-        </div>
+    <div className="workspace-container">
+      {/* Main workspace layout with persistent navigation rail */}
+      <div className="workspace-layout">
+        <WorkspaceNav
+          activeView={activeView}
+          onSelectView={handleSelectView}
+          unresolvedReviewCount={reviewData.unresolvedCount}
+        />
 
-        <div className="flex items-center gap-2.5 self-start sm:self-auto">
-          <button onClick={() => { setDraftName(goal.goalName || 'Build my DSA foundations'); setEditingName(true); }} className="px-3 py-1.5 text-xs ui-text-ink rounded-xl border ui-border-border">Name my goal</button>
-          {goal.status !== 'completed' && <button
-            onClick={() => navigate('/recovery')}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl ui-bg-surface hover:ui-bg-soft border ui-border-border text-xs font-semibold ui-text-ink transition-colors hover:ui-border-border-a40"
-          >
-            <SlidersHorizontal className="w-3.5 h-3.5 ui-text-ink" />
-            <span>Adjust my week</span>
-          </button>}
+        <div className="workspace-main-panel min-w-0 flex flex-col gap-6">
+          {/* GuidancePanel renders outside per-view content so view switching preserves drafts */}
+          {activeGuidanceMission && (
+            <div hidden={practiceView !== activeView}>
+            <GuidancePanel
+              ref={practiceRef}
+              mission={activeGuidanceMission}
+              guidanceData={guidanceData}
+              savedContext={goal.learning?.[activeGuidanceMission.id] || null}
+              onRequestGuidance={handleRequestGuidance}
+              onSaveContext={handleSaveLearningContext}
+              onSubmitCheck={handleSubmitLearningCheck}
+              onClose={() => {
+                setActiveGuidanceMission(null);
+                setGuidanceError(null);
+                setLearningError(null);
+                practiceTriggerRef.current?.focus({ preventScroll: true });
+              }}
+              isLoading={isLoadingGuidance}
+              isSavingContext={isSavingLearningContext}
+              isSubmittingCheck={isSubmittingLearningCheck}
+              error={guidanceError}
+              assessmentError={learningError}
+            />
+            </div>
+          )}
 
-          <button
-            onClick={handleRefresh}
-            disabled={isRefreshing}
-            className="p-2 rounded-xl ui-bg-surface hover:ui-bg-soft border ui-border-border ui-text-ink hover:ui-text-ink transition-colors disabled:opacity-50"
-            title="Refresh saved goal"
-          >
-            <RefreshCw className={`w-3.5 h-3.5 ${isRefreshing ? 'animate-spin' : ''}`} />
-          </button>
+          {error && (
+            <ErrorNotice error={error} onDismiss={() => setError(null)} onRetry={handleRefresh} />
+          )}
+
+          {activeView === 'today' && (
+            <TodayView
+              goal={goal}
+              catalog={catalog}
+              missions={missions}
+              currentMission={currentMission}
+              scheduleMap={scheduleMap}
+              resumeContext={resumeContext}
+              upcomingMissions={upcomingMissions}
+              unresolvedReviewCount={reviewData.unresolvedCount}
+              totalReviewCount={reviewData.totalCount}
+              activeDaysCount={workspaceStats.activeDaysCount}
+              practiceLabel={practiceLabel}
+              onOpenPractice={openPractice}
+              onStartComplete={(m) => setActiveCompletingMission(m)}
+              onDismissResumeCard={handleDismissResumeCard}
+              onToggleSelfReportedStatus={handleToggleSelfReportedStatus}
+              isSavingLearningContext={isSavingLearningContext}
+              onSelectView={handleSelectView}
+              editingName={editingName}
+              setEditingName={setEditingName}
+              draftName={draftName}
+              setDraftName={setDraftName}
+              saveName={saveName}
+              savingName={savingName}
+              onNavigateRecovery={() => navigate('/recovery')}
+              onRefresh={handleRefresh}
+              isRefreshing={isRefreshing}
+              savedNotice={savedNotice}
+              // Focus timer props
+              timerState={timerState}
+              remainingSeconds={remainingSeconds}
+              onStartTimer={handleStartTimer}
+              onPauseTimer={handlePauseTimer}
+              onResumeTimer={handleResumeTimer}
+              onResetTimer={handleResetTimer}
+              onSelectTimerPreset={handleSelectTimerPreset}
+            />
+          )}
+
+          {activeView === 'roadmap' && (
+            <RoadmapView
+              catalog={catalog}
+              missions={missions}
+              goal={goal}
+              scheduleMap={scheduleMap}
+              onOpenPractice={openPractice}
+              onStartComplete={(m) => setActiveCompletingMission(m)}
+              activeGuidanceMission={activeGuidanceMission}
+            />
+          )}
+
+          <div hidden={activeView !== 'review'}>
+            <ReviewView
+              reviewItems={reviewData.items}
+              notesLibrary={notesLibrary}
+              unresolvedCount={reviewData.unresolvedCount}
+              onOpenPractice={openPractice}
+              onToggleSelfReportedStatus={handleToggleSelfReportedStatus}
+              onDismissResumeCard={handleDismissResumeCard}
+              onSelectView={handleSelectView}
+              isSaving={isSavingLearningContext}
+            />
+          </div>
+
+          {activeView === 'insights' && (
+            <InsightsView
+              stats={workspaceStats}
+              goal={goal}
+              catalog={catalog}
+            />
+          )}
         </div>
       </div>
-
-      {error && (
-        <ErrorNotice error={error} onDismiss={() => setError(null)} onRetry={handleRefresh} />
-      )}
-
-      {savedNotice && <p role="status" className="saved-notice status-success">{savedNotice}</p>}
-
-      <ProgressSummary goal={goal} totalMissions={missions.length} />
-
-      {currentMission ? <MissionCard
-        mission={currentMission} isCurrent scheduledDate={scheduleMap[currentMission.id]}
-        onComplete={() => setActiveCompletingMission(currentMission)}
-        onOpenGuidance={() => openPractice(currentMission)}
-        practiceLabel={goal.learning?.[currentMission.id] || activeGuidanceMission?.id === currentMission.id ? 'Continue practising' : 'Start practising'}
-        savedContextContent={resumeContext && <ResumePracticeCard
-          resumeContext={resumeContext} onResume={() => openPractice(resumeContext.mission)}
-          onDismiss={handleDismissResumeCard} onToggleStatus={handleToggleSelfReportedStatus}
-          isSaving={isSavingLearningContext} />}
-      /> : <section className="mission-card completed-track">
-        <CheckCircle2 size={32} /><h2>DSA starter completed!</h2>
-        <p>{missions.length} missions across {Object.keys(activityByDay(goal, missions)).length} active days. Your reflections and practice history are below.</p>
-        {resumeContext && <ResumePracticeCard resumeContext={resumeContext}
-          onResume={() => openPractice(resumeContext.mission)} onDismiss={handleDismissResumeCard}
-          onToggleStatus={handleToggleSelfReportedStatus} isSaving={isSavingLearningContext} />}
-      </section>}
-
-      {activeGuidanceMission && <GuidancePanel
-        ref={practiceRef} mission={activeGuidanceMission} guidanceData={guidanceData}
-        savedContext={goal.learning?.[activeGuidanceMission.id] || null}
-        onRequestGuidance={handleRequestGuidance} onSaveContext={handleSaveLearningContext}
-        onSubmitCheck={handleSubmitLearningCheck}
-        onClose={() => {
-          setActiveGuidanceMission(null); setGuidanceError(null); setLearningError(null);
-          practiceTriggerRef.current?.focus({ preventScroll: true });
-        }}
-        isLoading={isLoadingGuidance} isSavingContext={isSavingLearningContext}
-        isSubmittingCheck={isSubmittingLearningCheck} error={guidanceError} assessmentError={learningError}
-      />}
-
-      {/* Weekly Calendar & Practice Activity below main row */}
-      <div className="pt-4 border-t ui-border-border">
-        <PracticeActivity goal={goal} missions={missions} />
-      </div>
-
-      {/* Full 12-Mission Curriculum Roadmap */}
-      <details className="roadmap">
-        <summary className="flex items-center justify-between cursor-pointer rounded-lg py-1 focus-visible:outline focus-visible:outline-indigo-300">
-          <h2 className="text-base font-semibold ui-text-ink flex items-center gap-2">
-            <ListOrdered className="w-4 h-4 ui-text-ink" />
-            <span>Curriculum roadmap ({missions.length} missions)</span>
-          </h2>
-          <span className="text-xs ui-text-muted">Expand roadmap</span>
-        </summary>
-
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5 pt-2">
-          {missions.map((mission) => {
-            const isCompleted = !!completions[mission.id];
-            const isCurrent = mission.id === goal.nextMissionId;
-            const completionData = completions[mission.id];
-            const scheduledDate = scheduleMap[mission.id];
-
-            return (
-              <MissionCard
-                key={mission.id}
-                mission={mission}
-                isCurrent={isCurrent}
-                isCompleted={isCompleted}
-                completionData={completionData}
-                scheduledDate={scheduledDate}
-              />
-            );
-          })}
-        </div>
-      </details>
 
       {/* Completion Modal */}
       {activeCompletingMission && (

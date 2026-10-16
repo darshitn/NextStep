@@ -567,22 +567,15 @@ router.post('/guidance', async (req, res, next) => {
       });
     }
 
-    // 5. Verify mission is next eligible incomplete mission
+    // 5. Allow revision of completed work, while keeping future missions gated.
     const goal = deriveGoalStats(row.state, catalogData);
-    if (!goal.nextMissionId) {
-      return res.status(422).json({
-        error: {
-          code: 'NO_PENDING_MISSION',
-          message: 'All missions are already completed.'
-        }
-      });
-    }
-
-    if (goal.nextMissionId !== missionId) {
+    const mission = catalogData.missions.find(m => m.id === missionId);
+    if (!mission) return res.status(404).json({ error: { code: 'MISSION_NOT_FOUND', message: 'Mission not found in this track.' } });
+    if (goal.nextMissionId !== missionId && !goal.completions?.[missionId]) {
       return res.status(422).json({
         error: {
           code: 'INVALID_MISSION',
-          message: `Guidance is only applicable to the active mission (${goal.nextMissionId}).`
+          message: 'Guidance is available for your current mission or previously completed missions.'
         }
       });
     }
@@ -594,16 +587,6 @@ router.post('/guidance', async (req, res, next) => {
         error: {
           code: 'AI_NOT_CONFIGURED',
           message: `AI guidance is not available yet. Populate ${missing.join(' and ')} in server/.env.`
-        }
-      });
-    }
-
-    const mission = catalogData.missions.find(m => m.id === missionId);
-    if (!mission) {
-      return res.status(404).json({
-        error: {
-          code: 'MISSION_NOT_FOUND',
-          message: `Mission with ID "${missionId}" does not exist in track.`
         }
       });
     }

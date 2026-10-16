@@ -144,7 +144,7 @@ export default function CompletionForm({ mission, onSubmit, onCancel, isSubmitti
           <div className="p-3 rounded-xl ui-bg-soft-a60 border ui-border-border text-[11px] ui-text-muted flex items-start gap-2">
             <AlertCircle className="w-4 h-4 ui-text-muted shrink-0 mt-0.5" />
             <span>
-              Self-reported practice: accurately noting whether you needed a hint gives NextStep trustworthy data to adapt future mission pacing.
+              Your outcome and reflection are saved with this mission. Hint-assisted work appears in Review.
             </span>
           </div>
 

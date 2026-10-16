@@ -506,12 +506,11 @@ export const apiFixture = {
     if (goal.version !== expectedVersion) {
       throw { status: 409, code: 'VERSION_CONFLICT', message: 'Goal version changed. Refresh to view latest plan.' };
     }
-    if (goal.nextMissionId !== missionId) {
-      throw { status: 422, code: 'INVALID_MISSION', message: `Guidance is only applicable to the active mission (${goal.nextMissionId}).` };
-    }
-
     const mission = catalogData.missions.find(m => m.id === missionId);
     if (!mission) throw { status: 404, code: 'MISSION_NOT_FOUND', message: 'Mission not found.' };
+    if (goal.nextMissionId !== missionId && !goal.completions?.[missionId]) {
+      throw { status: 422, code: 'INVALID_MISSION', message: 'Guidance is available for your current mission or previously completed missions.' };
+    }
 
     // Simulate real network delay (500ms)
     await new Promise(r => setTimeout(r, 600));
@@ -564,7 +563,7 @@ export const apiFixture = {
           checkQuestion: checkQuestion,
           questionText: checkQuestion,
           questionId: (missionId === 'm02' ? 'q_m02_trace_search' : (missionId === 'm04' ? 'q_m04_duplicate_set' : (missionId === 'm06' ? 'q_m06_hash_map_twosum' : null))),
-          source: 'gemini'
+          source: 'fixture'
         }
       }
     };
@@ -651,7 +650,7 @@ export const apiFixture = {
       explanation: 'Your explanation shows you understand the core mechanics and boundary behaviour.',
       nextStep: 'Continue practising the implementation in your session.',
       assessedAt: new Date().toISOString(),
-      source: 'gemini'
+      source: 'fixture'
     };
     const updatedRecord = {
       ...currentRecord,

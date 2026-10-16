@@ -165,30 +165,56 @@ export const supabaseAuth = {
     const { url, key } = getEnvConfig();
     if (!url || !key) return null;
 
+    let res;
     try {
-      const res = await fetch(`${url}/auth/v1/user`, {
+      res = await fetch(`${url}/auth/v1/user`, {
         headers: {
           apikey: key,
-          Authorization: `Bearer ${session.access_token}`
-        }
+          Authorization: `Bearer ${accessToken}`
+        },
+        signal: AbortSignal.timeout(10000)
       });
-      if (!res.ok) {
-        this.signOut();
-        return null;
-      }
-      const user = await res.json();
-      session.user = user;
-      if (typeof localStorage !== 'undefined') {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(session));
-      }
-      return {
-        id: user.id,
-        email: user.email,
-        name: user.user_metadata?.full_name || user.email?.split('@')[0]
-      };
     } catch {
-      return null;
+      const current = this.getSession();
+      if (current?.access_token !== accessToken) return current ? this.getCurrentUser() : null;
+      const err = new Error('Could not check your session. Check your connection and retry.');
+      err.code = 'NETWORK_ERROR';
+      err.status = 0;
+      throw err;
     }
+
+    const user = await res.json().catch(() => null);
+    // A response for an old account must not overwrite or revoke a newer session.
+    const current = this.getSession();
+    if (current?.access_token !== accessToken) return current ? this.getCurrentUser() : null;
+    if (!res.ok) {
+      if (res.status === 401 || res.status === 403) {
+        await this.signOut();
+        if (this.getSession()?.access_token) return this.getCurrentUser();
+        const err = new Error('Your session has expired. Please sign in again.');
+        err.code = 'UNAUTHORIZED';
+        err.status = 401;
+        throw err;
+      }
+      const err = new Error('Session verification is temporarily unavailable. Please retry.');
+      err.code = 'AUTH_UNAVAILABLE';
+      err.status = 503;
+      throw err;
+    }
+    if (!user || typeof user.id !== 'string' || !user.id) {
+      const err = new Error('Could not verify the session response. Please retry.');
+      err.code = 'AUTH_UNAVAILABLE';
+      err.status = 503;
+      throw err;
+    }
+    if (typeof localStorage !== 'undefined') {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...current, user }));
+    }
+    return {
+      id: user.id,
+      email: user.email,
+      name: user.user_metadata?.full_name || user.email?.split('@')[0]
+    };
   },
 
   async signIn(email, password) {

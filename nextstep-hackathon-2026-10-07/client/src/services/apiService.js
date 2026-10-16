@@ -7,7 +7,7 @@ import { liveApi } from '../lib/api.js';
 // Rule: In production build, never silently or explicitly run in fixture mode.
 export const isFixtureMode = false;
 
-if (import.meta.env.PROD && isFixtureMode) {
+if (import.meta.env?.PROD && isFixtureMode) {
   throw new Error('[NextStep] Fatal: Fixture mode is strictly forbidden in production builds.');
 }
 
@@ -41,19 +41,11 @@ export const apiService = {
   },
 
   async signIn(email, password) {
-    try {
-      return await liveApi.signIn(email, password);
-    } catch (err) {
-      return handleApiError(err);
-    }
+    return liveApi.signIn(email, password);
   },
 
   async signUp(email, password, metadata) {
-    try {
-      return await liveApi.signUp(email, password, metadata);
-    } catch (err) {
-      return handleApiError(err);
-    }
+    return liveApi.signUp(email, password, metadata);
   },
 
   checkAuthFromUrl() {
