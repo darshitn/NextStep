@@ -758,8 +758,13 @@
 
   .context-card,
   .review-card,
+  .recall-panel,
   .insights-metric-card,
   .roadmap-toolbar {
     padding: 14px 16px;
+  }
+
+  .review-view-container article {
+    padding: 12px 14px;
   }
 }

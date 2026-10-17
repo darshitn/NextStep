@@ -8,7 +8,8 @@ import {
   Calendar,
   Search,
   X,
-  FileText
+  FileText,
+  Clock
 } from 'lucide-react';
 import { filterNotesLibrary } from '../../services/workspace.js';
 import RecallPanel from './RecallPanel.jsx';
@@ -21,10 +22,15 @@ export default function ReviewView({
   onToggleSelfReportedStatus,
   onDismissResumeCard,
   onSelectView,
-  isSaving
+  isSaving,
+  onSaveRecallAttempt,
+  goal,
+  onRefresh
 }) {
   const [activeRecallItem, setActiveRecallItem] = useState(null);
   const [recallDrafts, setRecallDrafts] = useState({});
+  const [recallConfidences, setRecallConfidences] = useState({});
+  const [recallAttemptIds, setRecallAttemptIds] = useState({});
   const [notesSearchQuery, setNotesSearchQuery] = useState('');
 
   const filteredNotes = useMemo(() => {
@@ -37,24 +43,32 @@ export default function ReviewView({
       <div>
         <h2 id="review-heading" className="text-xl font-bold ui-text-ink tracking-tight">Review</h2>
         <p className="text-sm ui-text-muted mt-1">
-          Suggested from your saved notes and completion history. These are practice suggestions, not a mastery assessment.
+          Suggested from your saved notes, due recall dates, and completion history. These are practice suggestions, not a formal mastery test.
         </p>
       </div>
 
-      {/* Active Recall Practice Panel with key to prevent state leaking across missions */}
+      {/* Active Recall Practice Panel with key to isolate state across missions */}
       {activeRecallItem && (
         <RecallPanel
           key={activeRecallItem.mission.id}
           mission={activeRecallItem.mission}
           item={activeRecallItem}
+          goal={goal}
           recallDraft={recallDrafts[activeRecallItem.mission.id] || ''}
-          onRecallDraftChange={(value) => setRecallDrafts((drafts) => ({ ...drafts, [activeRecallItem.mission.id]: value }))}
+          onRecallDraftChange={(value) =>
+            setRecallDrafts((drafts) => ({ ...drafts, [activeRecallItem.mission.id]: value }))
+          }
+          confidence={recallConfidences[activeRecallItem.mission.id] ?? null}
+          onConfidenceChange={(conf) =>
+            setRecallConfidences((confs) => ({ ...confs, [activeRecallItem.mission.id]: conf }))
+          }
+          attemptId={recallAttemptIds[activeRecallItem.mission.id] || null}
+          onAttemptIdChange={(id) =>
+            setRecallAttemptIds((ids) => ({ ...ids, [activeRecallItem.mission.id]: id }))
+          }
+          onSaveRecallAttempt={onSaveRecallAttempt}
+          onRefresh={onRefresh}
           onClose={() => {
-            setRecallDrafts((drafts) => {
-              const next = { ...drafts };
-              delete next[activeRecallItem.mission.id];
-              return next;
-            });
             setActiveRecallItem(null);
           }}
           onOpenPractice={onOpenPractice}
@@ -63,7 +77,7 @@ export default function ReviewView({
 
       {/* SECTION 1: Review Queue */}
       <section className="space-y-4" aria-label="Review queue">
-        <div className="flex items-center justify-between gap-3">
+        <div className="flex items-center justify-between gap-3 flex-wrap">
           <h3 className="text-base font-bold ui-text-ink flex items-center gap-2">
             <RotateCcw size={16} className="ui-text-accent" aria-hidden="true" />
             <span>Review queue ({reviewItems.length})</span>
@@ -80,7 +94,7 @@ export default function ReviewView({
           <div className="workspace-empty-state">
             <h3>No review items queued</h3>
             <p>
-              When you record difficulties in practice, complete missions with hints, or reach the 3-day recall interval on earlier work, items appear here.
+              When you record difficulties in practice, have recall reviews due, or complete missions with hints, items appear here.
             </p>
             <div className="workspace-empty-state-actions">
               <button
@@ -107,6 +121,7 @@ export default function ReviewView({
               const isBlocker = item.type === 'blocker';
               const isDismissed = Boolean(item.dismissed);
               const isUnresolved = !isDismissed && item.selfReportedStatus !== 'ready_to_continue';
+              const isRecallDue = item.type === 'recall_due' || item.isRecallDue;
 
               return (
                 <article
@@ -128,6 +143,11 @@ export default function ReviewView({
                       {isDismissed ? (
                         <span className="status-badge status-neutral text-xs">
                           Dismissed note
+                        </span>
+                      ) : isRecallDue ? (
+                        <span className="status-badge status-accent text-xs">
+                          <RotateCcw size={12} className="inline mr-1" aria-hidden="true" />
+                          <span>Recall due{item.nextReviewDate ? ` (${item.nextReviewDate})` : ''}</span>
                         </span>
                       ) : isBlocker ? (
                         <span
@@ -162,6 +182,12 @@ export default function ReviewView({
                       {item.isCompleted && (
                         <span className="status-badge status-neutral text-xs">
                           Completed
+                        </span>
+                      )}
+
+                      {item.recallHistory?.length > 0 && (
+                        <span className="text-xs font-medium ui-text-muted">
+                          {item.recallHistory.length} review{item.recallHistory.length === 1 ? '' : 's'} saved
                         </span>
                       )}
                     </div>
@@ -203,7 +229,7 @@ export default function ReviewView({
                     </dl>
                   )}
 
-                  {/* Non-blocker Content: Do NOT print reflection here! Reflection is revealed only in RecallPanel */}
+                  {/* Non-blocker Content: Reflection is revealed only in RecallPanel */}
                   {!isBlocker && (
                     <p className="text-xs ui-text-muted">
                       Suggested for spaced recall practice. Use the Recall action below to test your memory of the core solution and edge cases before checking your saved notes.
@@ -274,7 +300,7 @@ export default function ReviewView({
               <span>Notes & reflections library ({notesLibrary.length})</span>
             </h3>
             <p className="text-xs ui-text-muted mt-0.5">
-              Search all your saved practice notes, difficulties, and completion reflections.
+              Search all your saved practice notes, difficulties, completion reflections, and recall attempts.
             </p>
           </div>
 
@@ -286,7 +312,7 @@ export default function ReviewView({
               type="search"
               value={notesSearchQuery}
               onChange={(e) => setNotesSearchQuery(e.target.value)}
-              placeholder="Search notes..."
+              placeholder="Search notes and recall attempts..."
               className="roadmap-search-input text-xs py-1.5 pl-8 min-h-[36px]"
               aria-label="Search notes library"
             />
@@ -324,15 +350,15 @@ export default function ReviewView({
                   className="rounded-xl border ui-border-border ui-bg-surface p-4 space-y-3"
                   aria-label={`Notes for ${note.missionTitle}`}
                 >
-                  <div className="flex items-center justify-between gap-3 flex-wrap">
-                    <div className="flex items-center gap-2">
-                      <span className="text-xs font-bold uppercase tracking-wider ui-text-muted">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                    <div className="flex items-center gap-2 flex-wrap min-w-0">
+                      <span className="text-xs font-bold uppercase tracking-wider ui-text-muted shrink-0">
                         {note.missionId.toUpperCase()}
                       </span>
                       <h4 className="text-sm font-bold ui-text-ink">{note.missionTitle}</h4>
                     </div>
 
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-1.5 flex-wrap">
                       <span className="status-badge status-neutral text-xs">
                         {note.status === 'completed'
                           ? 'Completed'
@@ -340,6 +366,31 @@ export default function ReviewView({
                           ? 'Current mission'
                           : 'Upcoming'}
                       </span>
+
+                      {canOpenPractice && (
+                        <button
+                          type="button"
+                          onClick={() => setActiveRecallItem({
+                            id: `notes-${note.missionId}`,
+                            missionId: note.missionId,
+                            mission: note.mission,
+                            outcome: note.outcome,
+                            reflection: note.reflection,
+                            completedAt: note.completedAt,
+                            isCompleted: note.status === 'completed',
+                            isCurrent: note.status === 'current',
+                            recallHistory: note.recallHistory,
+                            latestRecall: note.latestRecall,
+                            nextReviewDate: note.nextReviewDate
+                          })}
+                          className="secondary-button text-xs py-1 px-2.5 min-h-[30px]"
+                          aria-label={`Recall practice for ${note.missionTitle}`}
+                        >
+                          <RotateCcw size={12} aria-hidden="true" />
+                          <span>Recall</span>
+                        </button>
+                      )}
+
                       {canOpenPractice && (
                         <button
                           type="button"
@@ -378,6 +429,23 @@ export default function ReviewView({
                         Reflection ({note.outcome === 'independent' ? 'Independent' : 'With a hint'}):
                       </span>
                       <p className="italic ui-text-ink">&ldquo;{note.reflection}&rdquo;</p>
+                    </div>
+                  )}
+
+                  {/* Saved recall history summary in Notes Library */}
+                  {note.recallHistory?.length > 0 && (
+                    <div className="flex items-center justify-between gap-2 pt-2 border-t ui-border-border text-xs flex-wrap">
+                      <div className="flex items-center gap-1.5 ui-text-muted">
+                        <Clock size={12} aria-hidden="true" />
+                        <span>
+                          {note.recallHistory.length} recall attempt{note.recallHistory.length === 1 ? '' : 's'} saved
+                        </span>
+                      </div>
+                      {note.nextReviewDate && (
+                        <span className="font-semibold ui-text-accent">
+                          Next review scheduled: {note.nextReviewDate}
+                        </span>
+                      )}
                     </div>
                   )}
                 </article>

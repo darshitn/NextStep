@@ -187,6 +187,31 @@ async function textContrast(page) {
   await page.getByRole('progressbar').waitFor();
   assert.equal(await page.getByRole('progressbar').getAttribute('aria-valuenow'),'3');
  });
+ await check('Persistent review saves attempt, rates confidence, calculates due date, and survives reload',async()=>{
+  await select('Review');
+  await page.getByRole('button',{name:'Recall',exact:true}).first().click();
+  const recall=page.locator('.recall-panel');
+  await recall.waitFor();
+  await recall.getByRole('textbox').fill('Synthetic persistent recall: hash map lookup O(1) time.');
+  await recall.getByRole('radio',{name:/4 · Good/i}).click();
+  await recall.getByRole('button',{name:'Save review',exact:true}).click();
+  await recall.getByText('Recall review saved!').waitFor();
+  await recall.getByRole('list',{name:'Saved recall attempts'}).getByText('Synthetic persistent recall: hash map lookup O(1) time.').waitFor();
+  await recall.getByText(/Due: 2026-/).first().waitFor();
+  const goalAfterSave=await page.evaluate(async()=>{
+   const {apiFixture}=await import('/src/fixtures/apiFixture.js');
+   return (await apiFixture.getGoal()).data.goal;
+  });
+  assert.equal(Object.keys(goalAfterSave.completions).length,3,'Completions count must remain unchanged');
+  await recall.getByRole('button',{name:'Done with recall',exact:true}).click();
+  await page.reload({waitUntil:'domcontentloaded'});
+  await page.locator('.workspace-nav').waitFor();
+  await select('Review');
+  await page.locator('[aria-label="Saved notes list"]').getByRole('button',{name:/recall/i}).first().click();
+  await recall.waitFor();
+  await recall.getByRole('list',{name:'Saved recall attempts'}).getByText('Synthetic persistent recall: hash map lookup O(1) time.').waitFor();
+  await recall.getByRole('button',{name:'Done with recall',exact:true}).click();
+ });
  await check('All workspace views fit desktop/mobile with computed text contrast across six themes',async()=>{
   for(const width of [1440,390,320]){
    await page.setViewportSize({width,height:900});

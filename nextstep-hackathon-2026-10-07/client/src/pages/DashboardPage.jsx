@@ -371,6 +371,32 @@ export default function DashboardPage({ goal, onGoalUpdated, catalog, onCatalogL
     }
   };
 
+  // Save Recall Review handler
+  const handleSaveRecallAttempt = async ({ missionId, attemptId, attemptText, confidence }) => {
+    try {
+      const res = await apiService.saveRecallAttempt({
+        expectedVersion: goal.version,
+        missionId,
+        attemptId,
+        attemptText,
+        confidence
+      });
+      if (res?.data?.goal) {
+        onGoalUpdated(res.data.goal);
+        setSavedNotice('Recall review saved. Due date scheduled.');
+        setTimeout(() => setSavedNotice(''), 4000);
+      }
+      return res?.data;
+    } catch (err) {
+      console.error('Save recall review error:', err);
+      if (err.status === 409 || err.code === 'VERSION_CONFLICT') {
+        setError('Your practice plan was updated in another session. Refreshing latest state...');
+        handleRefresh();
+      }
+      throw err;
+    }
+  };
+
   // Dismiss Resume Card
   const handleDismissResumeCard = async (missionId) => {
     try {
@@ -607,6 +633,9 @@ export default function DashboardPage({ goal, onGoalUpdated, catalog, onCatalogL
               onDismissResumeCard={handleDismissResumeCard}
               onSelectView={handleSelectView}
               isSaving={isSavingLearningContext}
+              onSaveRecallAttempt={handleSaveRecallAttempt}
+              goal={goal}
+              onRefresh={handleRefresh}
             />
           </div>
 
