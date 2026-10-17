@@ -439,3 +439,27 @@ Browser Verification (Live http://localhost:5173/login):
 User explicitly authorized audit fixes, push and redeployment. Branch: codex/final-production-audit from origin/main 28a8b75. Updated session renewal, dashboard retry, practice instructions, Gemini prompt/validation, IST capacity and database error handling. Backend 46/46 and client 39/39 passed; production build passed. Full desktop/mobile local fixture browser checks cover all appearances and learning-loop failures. Demo completions remain 0. No environment files or database migrations changed. See [final audit](../docs/FINAL-PRODUCTION-AUDIT.md) for exact scope and unverified live boundaries. Gate: local correction ready; provider deployment and post-deploy smoke checks pending.
 
 Post-publish: bbab876 pushed to audit branch and main. Vercel success and new live bundle verified. Live 18-combination appearance matrix passed with 0 JS errors; existing notes and 0/12 completions preserved; real Gemini HTTP 200 observed. Render still lacks the new revision header: backend correction not yet verified live. User chose manual Render deployment. Gate: frontend live; backend release verification WAITING for that deployment.
+
+## Persistent recall reviews — 2026-10-17
+
+- Milestone: PERSISTENT RECALL REVIEWS / READY & LOCALLY VERIFIED
+- Summary:
+  1. API endpoint `POST /api/goal/learning/recall` with RFC 4122 UUID idempotency, Asia/Kolkata date computation, and optimistic concurrency version control.
+  2. History retention capped at 20 latest chronological attempts per mission within existing owner-scoped JSON goal state (no database migrations).
+  3. Smart review queue derivation: scheduled due reviews, suppression of repetitive hints for future-scheduled missions, guaranteed retention of active blockers.
+  4. Interactive Recall UI: 1–5 confidence selector, inline conflict handling, draft protection, notes library search integration, and responsive layout down to 320px.
+- Files changed:
+  - contracts/API-V1.md
+  - server/src/schemas/goalSchemas.js, server/src/routes/goal.js, server/tests/persistentReview.test.js
+  - client/src/lib/api.js, client/src/services/apiService.js, client/src/services/workspace.js, client/src/fixtures/apiFixture.js, client/src/fixtures/persistentReview.test.js
+  - client/src/components/workspace/RecallPanel.jsx, ReviewView.jsx, client/src/pages/DashboardPage.jsx, client/src/workspace.css, client/scripts/verify-workspace.cjs
+  - docs/PERSISTENT-REVIEW-HANDOFF.md, docs/PERSISTENT-REVIEW-RESULT.md
+- Verification Commands & Results:
+  - npm.cmd --prefix server test: PASS (58/58 tests passed across 4 suites, 0 failed)
+  - npm.cmd --prefix client test: PASS (65/65 tests passed across 1 suite, 0 failed)
+  - npm.cmd --prefix client run build: PASS (Vite production build in 39.23s, 0 errors)
+  - git diff --check: PASS (0 whitespace/formatting errors)
+  - Browser verification (verify-workspace.cjs): PASS (14/14 automated journeys passed)
+- Boundary & Safety:
+  - Verified against synthetic fixtures in local isolation.
+  - No database migration, no external network calls, zero credential leakage.

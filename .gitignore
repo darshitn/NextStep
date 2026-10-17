@@ -16,3 +16,4 @@ playwright-report/
 ~$*
 .vscode/
 .idea/
+/handoffs/

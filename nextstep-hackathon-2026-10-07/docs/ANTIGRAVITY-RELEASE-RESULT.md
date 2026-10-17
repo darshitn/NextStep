@@ -1,5 +1,21 @@
 # NextStep Release Result — 16 October 2026
 
+## Current release acceptance — supersedes earlier deployment status below
+
+- Render deployment `dep-db8utfui0phs7393vvp0` was manually triggered through the existing signed-in service dashboard, using the already-authorized release on `main`.
+- Render displayed **Deploy succeeded | Live**, duration **36.4 seconds**, source `060d1f18c4511af946d5da34f0d21933b89e79a0`. It checked out that commit, built successfully and started the production API. This documentation commit contains implementation commit `7a8cdd2`.
+- Independent public `/api/health` request returned **HTTP 200**, `apiVersion: 1` and `X-NextStep-Revision: 060d1f18c4511af946d5da34f0d21933b89e79a0`.
+- The signed-in production frontend reopened completed M04 from Roadmap. A guidance request containing only newly typed synthetic QA input succeeded and displayed **Source: gemini**, a personalized approach and relevant duplicate-trace practice steps. The previous `NO_PENDING_MISSION` error did not occur. This is a live provider-backed UI check, separate from mocked automated tests.
+- No notes, completion, readiness or recovery save controls were submitted. The unsaved QA draft was explicitly discarded via the close guard, and the page reloaded. No database migration, environment change, billing change or permission change was performed.
+- After reload, Roadmap still displayed **Completed (12)** and **Next (0)**, confirming the completion count remained unchanged.
+- Ignored local deployment screenshot: `client/.local/release-live/render-deployed.jpg`. No credentials or student-note contents are stored in this report.
+- Current stages: **1 review complete; 2 local verification complete; 3 Git/frontend/backend publication complete; 4 authenticated revision verified, empty-account write lifecycle and cross-account isolation still unverified**. Counts: **3 complete, 1 partially verified, 0 unstarted**.
+- Remaining acceptance needs an owner-confirmed empty test account for create/save/complete/recovery, plus a second account for ownership isolation. The existing completed account is preserved and must not be reset to manufacture this evidence.
+
+The earlier execution report and first follow-up audit below are retained as historical evidence; their pending-Render status is now resolved. This acceptance update is a local documentation change until separately committed/published.
+
+> Independent follow-up audit (16 October 2026): GitHub `main` and `codex/release-audit` both resolve to documentation commit `060d1f18c4511af946d5da34f0d21933b89e79a0`, which includes release commit `7a8cdd2`. The public frontend serves `index-DG7uw9kP.js` and `index-Bxx0Nby3.css`; Render health still reports `eec8b0b85fc5b56df420b494e446b132e98e99b6`. Stage 3 is therefore partially complete (Git publication and frontend deployment verified, backend deployment pending), not fully complete. Current counts are 2 complete and 2 in progress. The local JS artifact `index-DGHxHfo_.js` differs from the hosted JS filename; environment-specific builds can differ, but matching source revision must be checked through provider deployment metadata rather than inferred from those filenames. The synthetic harness `results.json` confirms 13 recorded passing journeys, no page errors and no failed local requests, and separately records four expected Google Fonts load failures caused by external-network blocking. Its evidence is not a zero-console-error result. Reloading the existing authenticated production browser confirmed the new Today/Roadmap/Review/Insights navigation and unchanged 12/12 progress. Render Dashboard currently requires private owner sign-in; no deploy has been triggered by this follow-up. The original execution report is retained below for provenance. Provider-backed revision and empty-account lifecycle acceptance remain pending. No secrets or provider settings were changed by this follow-up audit.
+
 ## Executive summary
 
 This evidence-based release report documents the review, defect repair, independent automated/browser verification, Git publication, and production deployment inspection for the **NextStep Post-Submission Product Upgrade**.
