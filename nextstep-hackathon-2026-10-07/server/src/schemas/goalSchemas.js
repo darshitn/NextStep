@@ -129,3 +129,24 @@ export const submitLearningCheckSchema = z.object({
   selfReportedStatus: z.enum(['still_unsure', 'ready_to_continue']).optional()
 }).strict();
 
+export const recallAttemptSchema = z.object({
+  expectedVersion: z.number().int().positive(),
+  missionId: z.string().min(1),
+  attemptId: z.string().uuid(),
+  attemptText: z.string().trim().min(1, 'Attempt text cannot be empty').max(2000, 'Attempt text cannot exceed 2000 characters'),
+  confidence: z.number().int().min(1).max(5)
+}).strict();
+
+export const CONFIDENCE_INTERVALS = {
+  1: 1,
+  2: 2,
+  3: 3,
+  4: 7,
+  5: 14
+};
+
+export function calculateNextReviewDate(dateOrIso = new Date().toISOString(), confidence = 1) {
+  const dateKolkata = new Date(dateOrIso).toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
+  const daysToAdd = CONFIDENCE_INTERVALS[confidence] || 1;
+  return addDays(dateKolkata, daysToAdd);
+}

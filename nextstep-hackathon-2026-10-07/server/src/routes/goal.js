@@ -8,10 +8,15 @@ import {
   recoveryApplySchema,
   guidanceSchema,
   saveLearningContextSchema,
-  submitLearningCheckSchema
+  submitLearningCheckSchema,
+  recallAttemptSchema,
+  CONFIDENCE_INTERVALS,
+  calculateNextReviewDate
 } from '../schemas/goalSchemas.js';
 import {
   getTodayKolkata,
+  getDateKolkata,
+  addDays,
   completedMinutesOnDate,
   calculateSchedule,
   deriveGoalStats
@@ -1080,6 +1085,191 @@ router.post('/learning/check', async (req, res, next) => {
           nextStep: assessmentResult.nextStep,
           source: 'gemini'
         }
+      }
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// POST /api/goal/learning/recall - Record persistent retrieval practice attempt
+router.post('/learning/recall', async (req, res, next) => {
+  try {
+    const parseResult = recallAttemptSchema.safeParse(req.body);
+    if (!parseResult.success) {
+      const fields = {};
+      parseResult.error.issues.forEach(i => {
+        fields[i.path.join('.')] = i.message;
+      });
+      return res.status(422).json({
+        error: {
+          code: 'VALIDATION_ERROR',
+          message: 'Invalid recall attempt payload.',
+          fields
+        }
+      });
+    }
+
+    const { expectedVersion, missionId, attemptId, attemptText, confidence } = parseResult.data;
+
+    const { data: row, error: findError } = await req.supabase
+      .from('nextstep_goals')
+      .select('*')
+      .maybeSingle();
+
+    if (findError) {
+      return res.status(503).json({
+        error: {
+          code: 'DATABASE_ERROR',
+          message: findError.message || 'Database service unavailable.'
+        }
+      });
+    }
+
+    if (!row) {
+      return res.status(404).json({
+        error: {
+          code: 'GOAL_NOT_FOUND',
+          message: 'No active goal found.'
+        }
+      });
+    }
+
+    const mission = catalogData.missions.find(m => m.id === missionId);
+    if (!mission) {
+      return res.status(404).json({
+        error: {
+          code: 'MISSION_NOT_FOUND',
+          message: `Mission with ID "${missionId}" does not exist in track.`
+        }
+      });
+    }
+
+    const goal = deriveGoalStats(row.state, catalogData);
+    if (goal.nextMissionId !== missionId && !goal.completions?.[missionId]) {
+      return res.status(422).json({
+        error: {
+          code: 'MISSION_NOT_ELIGIBLE',
+          message: 'Recall reviews are available for your current mission or previously completed missions.'
+        }
+      });
+    }
+
+    const existingLearning = row.state.learning || {};
+    const currentMissionRecord = existingLearning[missionId] || {};
+    const existingHistory = Array.isArray(currentMissionRecord.recallHistory) ? currentMissionRecord.recallHistory : [];
+
+    // Duplicate retry: if same attemptId exists
+    const existingAttempt = existingHistory.find(a => a.attemptId === attemptId);
+    if (existingAttempt) {
+      if (existingAttempt.attemptText === attemptText && existingAttempt.confidence === confidence) {
+        return res.status(200).json({
+          data: {
+            goal,
+            recallAttempt: existingAttempt
+          }
+        });
+      } else {
+        return res.status(409).json({
+          error: {
+            code: 'ATTEMPT_CONFLICT',
+            message: 'An attempt with this ID was already recorded with different content.'
+          }
+        });
+      }
+    }
+
+    if (row.version !== expectedVersion) {
+      return res.status(409).json({
+        error: {
+          code: 'VERSION_CONFLICT',
+          message: 'Goal version changed. Refresh to view latest plan.'
+        }
+      });
+    }
+
+    const nowIso = new Date().toISOString();
+    const nextReviewDate = calculateNextReviewDate(nowIso, confidence);
+
+    const newRecallAttempt = {
+      attemptId,
+      attemptText,
+      confidence,
+      savedAt: nowIso,
+      nextReviewDate
+    };
+
+    const updatedHistory = [...existingHistory, newRecallAttempt].slice(-20);
+
+    const updatedMissionRecord = {
+      ...currentMissionRecord,
+      missionId,
+      recallHistory: updatedHistory,
+      updatedAt: nowIso
+    };
+
+    const newVersion = row.version + 1;
+    const updatedState = {
+      ...row.state,
+      version: newVersion,
+      learning: {
+        ...existingLearning,
+        [missionId]: updatedMissionRecord
+      },
+      updatedAt: nowIso
+    };
+
+    const { data: updatedRows, error: updateError } = await req.supabase
+      .from('nextstep_goals')
+      .update({
+        version: newVersion,
+        state: updatedState,
+        updated_at: nowIso
+      })
+      .eq('id', row.id)
+      .eq('version', row.version)
+      .select();
+
+    if (updateError) {
+      return res.status(503).json({
+        error: {
+          code: 'DATABASE_ERROR',
+          message: updateError.message || 'Database update failed.'
+        }
+      });
+    }
+
+    if (!updatedRows || updatedRows.length === 0) {
+      const { data: freshRow } = await req.supabase
+        .from('nextstep_goals')
+        .select('*')
+        .maybeSingle();
+
+      if (freshRow) {
+        const freshHistory = freshRow.state?.learning?.[missionId]?.recallHistory || [];
+        const savedMatch = freshHistory.find(a => a.attemptId === attemptId);
+        if (savedMatch && savedMatch.attemptText === attemptText && savedMatch.confidence === confidence) {
+          return res.status(200).json({
+            data: {
+              goal: deriveGoalStats(freshRow.state, catalogData),
+              recallAttempt: savedMatch
+            }
+          });
+        }
+      }
+
+      return res.status(409).json({
+        error: {
+          code: 'VERSION_CONFLICT',
+          message: 'Goal was modified concurrently. Refresh to view latest plan.'
+        }
+      });
+    }
+
+    return res.status(200).json({
+      data: {
+        goal: deriveGoalStats(updatedState, catalogData),
+        recallAttempt: newRecallAttempt
       }
     });
   } catch (err) {

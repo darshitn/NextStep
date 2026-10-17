@@ -256,3 +256,59 @@ Three representative missions have server-curated questions and reference rubric
 2. `m04`: Set-based duplicate detection (trace `[2, 5, 2]`, index detected and contents immediately prior). Question ID: `q_m04_duplicate_set`.
 3. `m06`: Two Sum hash map (target 9 on `[2, 7, 11, 15]`, complement lookup key and insertion order rationale). Question ID: `q_m06_hash_map_twosum`.
 Other missions retain open-ended practice guidance without curated question rubrics.
+
+### POST /api/goal/learning/recall — authenticated
+Record a retrieval practice attempt with self-rated confidence and calculate an authoritative next review due date.
+```json
+{
+  "expectedVersion": 2,
+  "missionId": "m02",
+  "attemptId": "10000000-0000-4000-8000-000000000002",
+  "attemptText": "Linear search checks each index sequentially until target is found or array ends.",
+  "confidence": 4
+}
+```
+Validation:
+- `expectedVersion`: integer >= 1
+- `missionId`: known mission in track
+- `attemptId`: client-generated UUID (reused for identical retries)
+- `attemptText`: string, trimmed 1 to 2000 characters; whitespace-only is rejected
+- `confidence`: integer in {1, 2, 3, 4, 5} (1=very unsure, 2=unsure, 3=fair, 4=confident, 5=very confident)
+
+Eligibility:
+- Mission must be the next eligible incomplete mission OR an already completed mission.
+- Unknown mission ID returns 404 `MISSION_NOT_FOUND`.
+- Future incomplete mission returns 422 `INVALID_MISSION`.
+
+Storage & Idempotency:
+- Stored under `goal.state.learning[missionId].recallHistory` as an array of up to 20 latest chronological records:
+  ```json
+  {
+    "attemptId": "10000000-0000-4000-8000-000000000002",
+    "attemptText": "...",
+    "confidence": 4,
+    "savedAt": "2026-10-16T10:30:00.000Z",
+    "nextReviewDate": "2026-10-23"
+  }
+  ```
+- Server computes `savedAt` at receipt and derives `nextReviewDate` (YYYY-MM-DD in Asia/Kolkata) using confidence intervals: 1 -> +1 day, 2 -> +2 days, 3 -> +3 days, 4 -> +7 days, 5 -> +14 days. This mapping is an explicit product heuristic, not a validated memory model. Client timestamps or dates are never accepted.
+- Duplicate retry: if `attemptId` already exists in `recallHistory` with identical `attemptText` and `confidence`, returns HTTP 200 with current goal and saved record without incrementing version or mutating state, even if `expectedVersion` is stale.
+- Reusing an existing `attemptId` with different text or confidence returns 409 `ATTEMPT_CONFLICT`.
+- Stale version on a new `attemptId` returns 409 `VERSION_CONFLICT`.
+- Atomically increments version on new write. Does not alter schedules, completions, XP, or dismiss blockers.
+
+HTTP 200:
+```json
+{
+  "data": {
+    "goal": Goal,
+    "recallAttempt": {
+      "attemptId": "10000000-0000-4000-8000-000000000002",
+      "attemptText": "...",
+      "confidence": 4,
+      "savedAt": "2026-10-16T10:30:00.000Z",
+      "nextReviewDate": "2026-10-23"
+    }
+  }
+}
+```
