@@ -677,6 +677,96 @@ export const apiFixture = {
         }
       }
     };
+  },
+
+  async saveRecallAttempt({ expectedVersion, missionId, attemptId, attemptText, confidence }) {
+    await new Promise(r => setTimeout(r, 50));
+    if (!currentUser) throw { status: 401, code: 'UNAUTHORIZED', message: 'Sign in required.' };
+    const storageKey = STORAGE_KEY_PREFIX + currentUser.id;
+    const raw = safeStorage.getItem(storageKey);
+    if (!raw) throw { status: 404, code: 'GOAL_NOT_FOUND', message: 'No active goal found.' };
+
+    const goal = JSON.parse(raw);
+    const mission = catalogData.missions.find(m => m.id === missionId);
+    if (!mission) throw { status: 404, code: 'MISSION_NOT_FOUND', message: 'Mission not found.' };
+
+    const derivedGoal = deriveGoalStats(goal);
+    if (derivedGoal.nextMissionId !== missionId && !goal.completions?.[missionId]) {
+      throw { status: 422, code: 'MISSION_NOT_ELIGIBLE', message: 'Recall reviews are available for your current mission or previously completed missions.' };
+    }
+
+    const trimmedText = typeof attemptText === 'string' ? attemptText.trim() : '';
+    if (!trimmedText || trimmedText.length > 2000) {
+      throw { status: 422, code: 'VALIDATION_ERROR', message: 'Attempt text must be between 1 and 2000 characters.' };
+    }
+    const confInt = Number(confidence);
+    if (!Number.isInteger(confInt) || confInt < 1 || confInt > 5) {
+      throw { status: 422, code: 'VALIDATION_ERROR', message: 'Confidence must be an integer between 1 and 5.' };
+    }
+    if (!attemptId || typeof attemptId !== 'string') {
+      throw { status: 422, code: 'VALIDATION_ERROR', message: 'A valid attemptId UUID is required.' };
+    }
+
+    const existingLearning = goal.learning || {};
+    const currentRecord = existingLearning[missionId] || {};
+    const existingHistory = Array.isArray(currentRecord.recallHistory) ? currentRecord.recallHistory : [];
+
+    // Duplicate retry check
+    const existingAttempt = existingHistory.find(a => a.attemptId === attemptId);
+    if (existingAttempt) {
+      if (existingAttempt.attemptText === trimmedText && existingAttempt.confidence === confInt) {
+        return {
+          data: {
+            goal: deriveGoalStats(goal),
+            recallAttempt: existingAttempt
+          }
+        };
+      }
+      throw { status: 409, code: 'ATTEMPT_CONFLICT', message: 'An attempt with this ID was already recorded with different content.' };
+    }
+
+    if (goal.version !== expectedVersion) {
+      const err = new Error('Goal version changed.');
+      err.code = 'VERSION_CONFLICT';
+      err.status = 409;
+      throw err;
+    }
+
+    const intervals = { 1: 1, 2: 2, 3: 3, 4: 7, 5: 14 };
+    const today = getTodayKolkata();
+    const nextReviewDate = addDays(today, intervals[confInt] || 1);
+    const nowIso = new Date().toISOString();
+
+    const newAttempt = {
+      attemptId,
+      attemptText: trimmedText,
+      confidence: confInt,
+      savedAt: nowIso,
+      nextReviewDate
+    };
+
+    const updatedHistory = [...existingHistory, newAttempt].slice(-20);
+    const updatedRecord = {
+      ...currentRecord,
+      missionId,
+      recallHistory: updatedHistory,
+      updatedAt: nowIso
+    };
+
+    goal.version += 1;
+    goal.learning = {
+      ...existingLearning,
+      [missionId]: updatedRecord
+    };
+    goal.updatedAt = nowIso;
+    safeStorage.setItem(storageKey, JSON.stringify(goal));
+
+    return {
+      data: {
+        goal: deriveGoalStats(goal),
+        recallAttempt: newAttempt
+      }
+    };
   }
 };
 

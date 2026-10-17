@@ -179,6 +179,13 @@ export const liveApi = {
       method: 'POST',
       body: payload
     });
+  },
+
+  async saveRecallAttempt(payload) {
+    return request('/goal/learning/recall', {
+      method: 'POST',
+      body: payload
+    });
   }
 };
 

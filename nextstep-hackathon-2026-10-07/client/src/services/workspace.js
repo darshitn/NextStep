@@ -195,6 +195,7 @@ export function deriveReviewItems(goal, catalog, now = new Date()) {
   const items = [];
   let unresolvedCount = 0;
 
+  const todayIST = localDay(now);
   const processedMissionIds = new Set();
 
   // 1. Process learning records for eligible missions (current or completed only)
@@ -208,51 +209,91 @@ export function deriveReviewItems(goal, catalog, now = new Date()) {
     // Future missions are NOT offered for review simply because of notes
     if (!isCompleted && !isCurrent) continue;
 
-    const hasContent = Boolean(
+    const recallHistory = Array.isArray(rec.recallHistory) ? rec.recallHistory : [];
+    const latestRecall = recallHistory.length > 0 ? recallHistory[recallHistory.length - 1] : null;
+
+    const hasBlocker = Boolean(
       (rec.whereStuck && rec.whereStuck.trim()) ||
       (rec.whatTried && rec.whatTried.trim()) ||
       rec.assessment ||
       rec.category
     );
 
-    if (!hasContent) continue;
-
-    processedMissionIds.add(missionId);
-    // Dismissal removes the suggestion; the notes library retains the record.
-    if (rec.dismissed) continue;
-    const isUnresolved = rec.selfReportedStatus !== 'ready_to_continue' && !rec.dismissed;
+    const isUnresolved = rec.selfReportedStatus !== 'ready_to_continue' && !rec.dismissed && hasBlocker;
     if (isUnresolved) {
       unresolvedCount++;
+    }
+
+    // Dismissal removes the suggestion; the notes library retains the record.
+    if (rec.dismissed) {
+      processedMissionIds.add(missionId);
+      continue;
     }
 
     const completion = completions[missionId] || null;
     const daysSince = completion?.completedAt ? dayDifferenceIST(completion.completedAt, now) : 0;
 
+    let isRecallDue = false;
+    let isRecallFuture = false;
+    if (latestRecall?.nextReviewDate) {
+      if (latestRecall.nextReviewDate <= todayIST) {
+        isRecallDue = true;
+      } else {
+        isRecallFuture = true;
+      }
+    }
+
+    // A future due date suppresses the old hint/age-only repeated suggestion.
+    // However, never hide an unresolved blocker just because its next review is later.
+    if (isRecallFuture && !isUnresolved) {
+      processedMissionIds.add(missionId);
+      continue;
+    }
+
     let reason = '';
-    if (!isCompleted && isUnresolved) {
+    let itemType = 'blocker';
+
+    if (isRecallDue) {
+      itemType = 'recall_due';
+      reason = `Recall review scheduled for ${latestRecall.nextReviewDate} is due (based on your confidence rating).`;
+    } else if (!isCompleted && isUnresolved) {
+      itemType = 'blocker';
       reason = 'Unresolved difficulty recorded on your current mission.';
     } else if (isCompleted && isUnresolved) {
+      itemType = 'blocker';
       reason = 'Saved blocker still marked unsure from earlier practice.';
     } else if (isCompleted && completion?.outcome === 'with_hint') {
+      itemType = 'hint_review';
       reason = 'Completed with a hint — suggested for unassisted retrieval practice.';
     } else if (isCompleted && daysSince >= 3) {
+      itemType = 'recall';
       reason = `Completed ${daysSince} days ago — suggested for recall practice (3-day starter interval heuristic).`;
-    } else {
+    } else if (hasBlocker) {
+      itemType = 'blocker';
       reason = 'Saved practice notes available to revisit.';
+    } else {
+      processedMissionIds.add(missionId);
+      continue;
     }
+
+    processedMissionIds.add(missionId);
 
     items.push({
       id: `learning-${missionId}`,
-      type: 'blocker',
+      type: itemType,
       missionId,
       mission,
-      category: rec.category || 'too_difficult',
+      category: rec.category || (isRecallDue ? 'recall_due' : 'too_difficult'),
       whatTried: rec.whatTried || null,
       whereStuck: rec.whereStuck || null,
       selfReportedStatus: rec.selfReportedStatus || 'still_unsure',
       dismissed: Boolean(rec.dismissed),
       assessment: rec.assessment || null,
       guidance: rec.guidance || null,
+      recallHistory,
+      latestRecall,
+      nextReviewDate: latestRecall?.nextReviewDate || null,
+      isRecallDue,
       isCompleted,
       isCurrent,
       outcome: completion?.outcome || null,
@@ -288,6 +329,10 @@ export function deriveReviewItems(goal, catalog, now = new Date()) {
         dismissed: false,
         assessment: null,
         guidance: null,
+        recallHistory: [],
+        latestRecall: null,
+        nextReviewDate: null,
+        isRecallDue: false,
         outcome: comp.outcome,
         reflection: comp.reflection || null,
         completedAt: comp.completedAt,
@@ -310,6 +355,10 @@ export function deriveReviewItems(goal, catalog, now = new Date()) {
         dismissed: false,
         assessment: null,
         guidance: null,
+        recallHistory: [],
+        latestRecall: null,
+        nextReviewDate: null,
+        isRecallDue: false,
         outcome: comp.outcome,
         reflection: comp.reflection || null,
         completedAt: comp.completedAt,
@@ -337,18 +386,18 @@ export function deriveReviewItems(goal, catalog, now = new Date()) {
 }
 
 function getReviewPriorityScore(item) {
-  if (item.dismissed) return 60;
+  if (item.dismissed) return 70;
   // 1. Unresolved uncompleted blocker on current mission
   if (!item.isCompleted && item.selfReportedStatus !== 'ready_to_continue') return 10;
-  // 2. Hint-assisted completed mission
+  // 2. Recall due today or overdue
+  if (item.type === 'recall_due' || item.isRecallDue) return 15;
+  // 3. Hint-assisted completed mission
   if (item.outcome === 'with_hint' || item.type === 'hint_review') return 20;
-  // 3. Older completed mission (>=3 days)
-  if (item.type === 'recall' || (item.isCompleted && item.daysSinceIST >= 3)) return 30;
   // 4. Completed mission with unresolved blocker
-  if (item.isCompleted && item.selfReportedStatus !== 'ready_to_continue') return 40;
-  // 5. Other uncompleted notes
-  if (!item.isCompleted) return 45;
-  // 6. Other resolved
+  if (item.isCompleted && item.selfReportedStatus !== 'ready_to_continue') return 30;
+  // 5. Older completed mission (>=3 days)
+  if (item.type === 'recall' || (item.isCompleted && item.daysSinceIST >= 3)) return 40;
+  // 6. Other notes
   return 50;
 }
 
@@ -375,11 +424,14 @@ export function deriveNotesLibrary(goal, catalog) {
         rec.category)
     );
     const hasReflection = Boolean(comp && comp.reflection && comp.reflection.trim());
+    const hasRecall = Boolean(rec && Array.isArray(rec.recallHistory) && rec.recallHistory.length > 0);
 
-    if (!hasLearning && !hasReflection) continue;
+    if (!hasLearning && !hasReflection && !hasRecall) continue;
 
     const isCompleted = Boolean(comp);
     const isCurrent = mission.id === nextMissionId;
+    const recallHistory = Array.isArray(rec?.recallHistory) ? rec.recallHistory : [];
+    const latestRecall = recallHistory.length > 0 ? recallHistory[recallHistory.length - 1] : null;
 
     notes.push({
       id: `note-${mission.id}`,
@@ -394,6 +446,9 @@ export function deriveNotesLibrary(goal, catalog) {
       whereStuck: rec?.whereStuck || null,
       selfReportedStatus: rec?.selfReportedStatus || null,
       assessment: rec?.assessment || null,
+      recallHistory,
+      latestRecall,
+      nextReviewDate: latestRecall?.nextReviewDate || null,
       outcome: comp?.outcome || null,
       reflection: comp?.reflection || null,
       completedAt: comp?.completedAt || null,
@@ -415,7 +470,7 @@ export function deriveNotesLibrary(goal, catalog) {
 }
 
 /**
- * Searches the notes library by keyword across mission title, ID, whatTried, whereStuck, reflection.
+ * Searches the notes library by keyword across mission title, ID, whatTried, whereStuck, reflection, and recall attempts.
  */
 export function filterNotesLibrary(notes = [], query = '') {
   const q = (query || '').trim().toLowerCase();
@@ -428,8 +483,11 @@ export function filterNotesLibrary(notes = [], query = '') {
     const matchStuck = (n.whereStuck || '').toLowerCase().includes(q);
     const matchReflection = (n.reflection || '').toLowerCase().includes(q);
     const matchCategory = (n.category || '').toLowerCase().includes(q);
+    const matchRecall = Array.isArray(n.recallHistory) && n.recallHistory.some(a =>
+      (a.attemptText || '').toLowerCase().includes(q)
+    );
 
-    return matchId || matchTitle || matchTried || matchStuck || matchReflection || matchCategory;
+    return matchId || matchTitle || matchTried || matchStuck || matchReflection || matchCategory || matchRecall;
   });
 }
 

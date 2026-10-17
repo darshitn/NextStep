@@ -138,6 +138,14 @@ export const apiService = {
     } catch (err) {
       return handleApiError(err);
     }
+  },
+
+  async saveRecallAttempt(payload) {
+    try {
+      return await liveApi.saveRecallAttempt(payload);
+    } catch (err) {
+      return handleApiError(err);
+    }
   }
 };
 
