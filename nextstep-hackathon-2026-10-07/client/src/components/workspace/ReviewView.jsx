@@ -16,9 +16,12 @@ import RecallPanel from './RecallPanel.jsx';
 
 export default function ReviewView({
   reviewItems = [],
+  workspaceReviewQueue = [],
   notesLibrary = [],
   unresolvedCount = 0,
   onOpenPractice,
+  onOpenProofLesson,
+  onOpenPracticeProblem,
   onToggleSelfReportedStatus,
   onDismissResumeCard,
   onSelectView,
@@ -287,6 +290,120 @@ export default function ReviewView({
                 </article>
               );
             })}
+          </div>
+        )}
+      </section>
+
+      {/* SECTION 1B: Curriculum Proof & Practice Review */}
+      <section className="space-y-4 pt-6 border-t ui-border-border" aria-label="Workspace curriculum review queue">
+        <div className="flex items-center justify-between gap-3 flex-wrap">
+          <div>
+            <h3 className="text-base font-bold ui-text-ink flex items-center gap-2">
+              <RotateCcw size={16} className="ui-text-accent" aria-hidden="true" />
+              <span>Curriculum Proof &amp; Practice review ({workspaceReviewQueue.length})</span>
+            </h3>
+            <p className="text-xs ui-text-muted mt-0.5">
+              Interactive trace exercises and external practice problems due for spaced review or flagged with misconceptions.
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => onSelectView('proof')}
+              className="secondary-button text-xs py-1.5 px-2.5"
+            >
+              <span>Open Proof Studio</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => onSelectView('practice')}
+              className="secondary-button text-xs py-1.5 px-2.5"
+            >
+              <span>Practice Library</span>
+            </button>
+          </div>
+        </div>
+
+        {workspaceReviewQueue.length === 0 ? (
+          <div className="rounded-xl border ui-border-border ui-bg-surface p-5 text-center">
+            <p className="text-xs ui-text-muted">
+              No curriculum Proof exercises or Practice problems are currently flagged for review.
+            </p>
+          </div>
+        ) : (
+          <div className="space-y-3" role="list" aria-label="Curriculum review items">
+            {workspaceReviewQueue.map((wItem) => (
+              <article
+                key={wItem.id}
+                role="listitem"
+                className="rounded-xl border ui-border-border ui-bg-surface p-4 space-y-2.5"
+              >
+                <div className="flex items-center justify-between gap-2 flex-wrap">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="status-badge status-accent text-xs">
+                      {wItem.kind === 'exercise' ? 'Proof Exercise' : 'Practice Problem'}
+                    </span>
+                    <h4 className="text-sm font-bold ui-text-ink">{wItem.title}</h4>
+                  </div>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    {wItem.isDue && (
+                      <span className="status-badge status-attention text-xs">
+                        Due {wItem.nextReviewDate ? `(${wItem.nextReviewDate})` : ''}
+                      </span>
+                    )}
+                    {wItem.attemptsCount > 0 && (
+                      <span className="text-xs ui-text-muted">
+                        {wItem.attemptsCount} attempt{wItem.attemptsCount === 1 ? '' : 's'}
+                      </span>
+                    )}
+                  </div>
+                </div>
+
+                <p className="text-xs font-semibold ui-text-accent">{wItem.reason}</p>
+
+                {wItem.reflection && (
+                  <p className="text-xs ui-text-muted italic">
+                    Saved reflection: &ldquo;{wItem.reflection}&rdquo;
+                  </p>
+                )}
+                {wItem.note && (
+                  <p className="text-xs ui-text-muted italic">
+                    Saved note: &ldquo;{wItem.note}&rdquo;
+                  </p>
+                )}
+
+                <div className="flex items-center gap-2 pt-1 flex-wrap">
+                  {wItem.kind === 'exercise' ? (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        onOpenProofLesson &&
+                        onOpenProofLesson({
+                          topicId: wItem.topicId,
+                          lessonId: wItem.lessonId,
+                          exerciseId: wItem.exerciseId
+                        })
+                      }
+                      className="primary-button text-xs py-1.5 px-3"
+                    >
+                      <RotateCcw size={13} aria-hidden="true" />
+                      <span>Re-trace in Proof Studio</span>
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        onOpenPracticeProblem && onOpenPracticeProblem(wItem.problemId)
+                      }
+                      className="primary-button text-xs py-1.5 px-3"
+                    >
+                      <BookOpen size={13} aria-hidden="true" />
+                      <span>Review in Practice Library</span>
+                    </button>
+                  )}
+                </div>
+              </article>
+            ))}
           </div>
         )}
       </section>

@@ -150,3 +150,74 @@ export function calculateNextReviewDate(dateOrIso = new Date().toISOString(), co
   const daysToAdd = CONFIDENCE_INTERVALS[confidence] || 1;
   return addDays(dateKolkata, daysToAdd);
 }
+
+export const saveLessonProgressSchema = z.object({
+  expectedVersion: z.number().int().positive(),
+  requestId: z.string().uuid(),
+  lessonId: z.string().regex(/^les_[a-z0-9_]+$/),
+  topicId: z.string().regex(/^topic_[a-z0-9_]+$/).optional(),
+  status: z.enum(['not_started', 'in_progress', 'completed']),
+  completedSections: z.array(z.string().max(60)).max(12).optional(),
+  reflection: z.string().trim().max(500).nullable().optional(),
+  knowledgeCheckOptionId: z.string().optional(),
+  knowledgeCheckPassed: z.boolean().optional()
+}).strict();
+
+export const saveExerciseAttemptSchema = z.object({
+  expectedVersion: z.number().int().positive(),
+  attemptId: z.string().uuid(),
+  exerciseId: z.string().regex(/^ex_[a-z0-9_]+$/),
+  variantKey: z.enum(['primary', 'alternate']).default('primary'),
+  stepAnswers: z.array(z.object({
+    stepIndex: z.number().int().min(0).max(50),
+    choiceId: z.string().min(1)
+  })).min(1, 'All trace steps must be completed with choice IDs'),
+  edgeChoiceId: z.string().min(1, 'Edge case boundary check choice is required'),
+  outcome: z.enum(['independent', 'with_hint', 'needed_reference']).optional(),
+  mistakeCount: z.number().int().min(0).max(50).default(0),
+  hintRevealed: z.boolean().default(false),
+  referenceRevealed: z.boolean().default(false),
+  reflection: z.string().trim().max(500).nullable().optional()
+}).strict();
+
+export const savePracticeAttemptSchema = z.object({
+  expectedVersion: z.number().int().positive(),
+  attemptId: z.string().uuid(),
+  problemId: z.string().regex(/^prac_[a-z0-9_]+$/),
+  outcome: z.enum(['solved_independently', 'with_hint', 'reviewed_editorial', 'bookmarked']),
+  note: z.string().trim().max(500).nullable().optional(),
+  needsReview: z.boolean().optional()
+}).strict();
+
+export const workspacePlanPreviewSchema = z.object({
+  expectedVersion: z.number().int().positive(),
+  availability: availabilitySchema,
+  selectedItemIds: z.array(z.string().min(3).max(80)).min(1).max(40),
+  targetDate: z.string().regex(isoDateRegex).optional()
+}).strict();
+
+export const workspacePlanApplySchema = z.object({
+  expectedVersion: z.number().int().positive(),
+  previewForDate: z.string().regex(isoDateRegex),
+  curriculumVersion: z.string().min(3).max(40),
+  availability: availabilitySchema,
+  selectedItemIds: z.array(z.string().min(3).max(80)).min(1).max(40),
+  targetDate: z.string().regex(isoDateRegex).optional()
+}).strict();
+
+export function calculateExerciseReviewDate(dateOrIso, outcome, mistakeCount = 0) {
+  const dateKolkata = new Date(dateOrIso).toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
+  if (outcome === 'needed_reference') return addDays(dateKolkata, 1);
+  if (outcome === 'with_hint') return addDays(dateKolkata, 2);
+  if (mistakeCount > 0) return addDays(dateKolkata, 3);
+  return addDays(dateKolkata, 7);
+}
+
+export function calculatePracticeReviewDate(dateOrIso, outcome, needsReview = false) {
+  const dateKolkata = new Date(dateOrIso).toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
+  if (needsReview || outcome === 'reviewed_editorial' || outcome === 'bookmarked') {
+    return addDays(dateKolkata, 1);
+  }
+  if (outcome === 'with_hint') return addDays(dateKolkata, 2);
+  return addDays(dateKolkata, 7);
+}

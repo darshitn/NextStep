@@ -11,7 +11,14 @@ import {
   submitLearningCheckSchema,
   recallAttemptSchema,
   CONFIDENCE_INTERVALS,
-  calculateNextReviewDate
+  calculateNextReviewDate,
+  saveLessonProgressSchema,
+  saveExerciseAttemptSchema,
+  savePracticeAttemptSchema,
+  workspacePlanPreviewSchema,
+  workspacePlanApplySchema,
+  calculateExerciseReviewDate,
+  calculatePracticeReviewDate
 } from '../schemas/goalSchemas.js';
 import {
   getTodayKolkata,
@@ -19,8 +26,17 @@ import {
   addDays,
   completedMinutesOnDate,
   calculateSchedule,
-  deriveGoalStats
+  deriveGoalStats,
+  normalizeStudyWorkspace,
+  calculateWorkspaceStudyPlan,
+  DEFAULT_CURRICULUM_VERSION
 } from '../services/scheduler.js';
+import {
+  getPublishedCurriculum,
+  getAuthoritativeLesson,
+  getAuthoritativeExercise,
+  gradeExerciseAttempt
+} from '../services/curriculumRegistry.js';
 import { isAiConfigured, getMissingAiConfig } from '../config.js';
 import { generateGeminiGuidance, assessUnderstandingAnswer } from '../services/guidance.js';
 import { checkRateLimit } from '../services/rateLimiter.js';
@@ -1270,6 +1286,763 @@ router.post('/learning/recall', async (req, res, next) => {
       data: {
         goal: deriveGoalStats(updatedState, catalogData),
         recallAttempt: newRecallAttempt
+      }
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// POST /api/goal/workspace/lesson - Record lesson progress, knowledge check, or reflection
+router.post('/workspace/lesson', async (req, res, next) => {
+  try {
+    const parseResult = saveLessonProgressSchema.safeParse(req.body);
+    if (!parseResult.success) {
+      const fields = {};
+      parseResult.error.issues.forEach((i) => {
+        fields[i.path.join('.')] = i.message;
+      });
+      return res.status(422).json({
+        error: {
+          code: 'VALIDATION_ERROR',
+          message: 'Invalid lesson progress payload.',
+          fields
+        }
+      });
+    }
+
+    const {
+      expectedVersion,
+      requestId,
+      lessonId,
+      topicId,
+      status,
+      completedSections,
+      reflection,
+      knowledgeCheckOptionId,
+      knowledgeCheckPassed
+    } = parseResult.data;
+
+    const lesson = getAuthoritativeLesson(lessonId);
+    if (!lesson) {
+      return res.status(404).json({
+        error: {
+          code: 'ITEM_NOT_FOUND',
+          message: `Published lesson "${lessonId}" does not exist.`
+        }
+      });
+    }
+
+    let finalKcPassed = knowledgeCheckPassed;
+    if (knowledgeCheckOptionId && lesson.knowledgeCheck) {
+      finalKcPassed = knowledgeCheckOptionId === lesson.knowledgeCheck.correctOptionId;
+    }
+
+    const { data: row, error: findError } = await req.supabase
+      .from('nextstep_goals')
+      .select('*')
+      .maybeSingle();
+
+    if (findError) {
+      return res.status(503).json({
+        error: { code: 'DATABASE_ERROR', message: findError.message || 'Database service unavailable.' }
+      });
+    }
+    if (!row) {
+      return res.status(404).json({
+        error: { code: 'GOAL_NOT_FOUND', message: 'No active goal found.' }
+      });
+    }
+
+    const workspace = normalizeStudyWorkspace(row.state.studyWorkspace);
+    const existingLessonRecord = workspace.lessonProgress[lessonId];
+
+    // Idempotent retry check on requestId
+    if (existingLessonRecord && existingLessonRecord.lastRequestId === requestId) {
+      return res.status(200).json({
+        data: {
+          goal: deriveGoalStats(row.state, catalogData),
+          lessonProgress: existingLessonRecord
+        }
+      });
+    }
+
+    if (row.version !== expectedVersion) {
+      return res.status(409).json({
+        error: {
+          code: 'VERSION_CONFLICT',
+          message: 'Goal version changed. Refresh to view latest workspace state.'
+        }
+      });
+    }
+
+    const nowIso = new Date().toISOString();
+    const updatedLessonRecord = {
+      lessonId,
+      topicId: topicId || lesson.topicId,
+      status,
+      startedAt: existingLessonRecord?.startedAt || nowIso,
+      lastVisitedAt: nowIso,
+      completedSections: completedSections ?? existingLessonRecord?.completedSections ?? [],
+      reflection: reflection !== undefined ? reflection : (existingLessonRecord?.reflection ?? null),
+      knowledgeCheckPassed:
+        finalKcPassed !== undefined
+          ? finalKcPassed
+          : Boolean(existingLessonRecord?.knowledgeCheckPassed),
+      lastRequestId: requestId,
+      updatedAt: nowIso
+    };
+
+    const newVersion = row.version + 1;
+    const updatedWorkspace = {
+      ...workspace,
+      selectedTopicId: topicId || lesson.topicId,
+      lessonProgress: {
+        ...workspace.lessonProgress,
+        [lessonId]: updatedLessonRecord
+      },
+      updatedAt: nowIso
+    };
+
+    const updatedState = {
+      ...row.state,
+      version: newVersion,
+      studyWorkspace: updatedWorkspace,
+      updatedAt: nowIso
+    };
+
+    const { data: updatedRows, error: updateError } = await req.supabase
+      .from('nextstep_goals')
+      .update({
+        version: newVersion,
+        state: updatedState,
+        updated_at: nowIso
+      })
+      .eq('id', row.id)
+      .eq('version', row.version)
+      .select();
+
+    if (updateError) {
+      return res.status(503).json({
+        error: { code: 'DATABASE_ERROR', message: updateError.message || 'Database update failed.' }
+      });
+    }
+
+    if (!updatedRows || updatedRows.length === 0) {
+      return res.status(409).json({
+        error: {
+          code: 'VERSION_CONFLICT',
+          message: 'Goal was modified concurrently. Refresh to view latest workspace state.'
+        }
+      });
+    }
+
+    return res.status(200).json({
+      data: {
+        goal: deriveGoalStats(updatedState, catalogData),
+        lessonProgress: updatedLessonRecord
+      }
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// POST /api/goal/workspace/exercise - Record an interactive Proof exercise attempt
+router.post('/workspace/exercise', async (req, res, next) => {
+  try {
+    const parseResult = saveExerciseAttemptSchema.safeParse(req.body);
+    if (!parseResult.success) {
+      const fields = {};
+      parseResult.error.issues.forEach((i) => {
+        fields[i.path.join('.')] = i.message;
+      });
+      return res.status(422).json({
+        error: {
+          code: 'VALIDATION_ERROR',
+          message: 'Invalid exercise attempt payload.',
+          fields
+        }
+      });
+    }
+
+    const {
+      expectedVersion,
+      attemptId,
+      exerciseId,
+      variantKey = 'primary',
+      stepAnswers,
+      edgeChoiceId,
+      mistakeCount = 0,
+      hintRevealed = false,
+      referenceRevealed = false,
+      reflection
+    } = parseResult.data;
+
+    const exercise = getAuthoritativeExercise(exerciseId);
+    if (!exercise) {
+      return res.status(404).json({
+        error: {
+          code: 'ITEM_NOT_FOUND',
+          message: `Published exercise "${exerciseId}" does not exist.`
+        }
+      });
+    }
+
+    const grading = gradeExerciseAttempt({
+      exerciseId,
+      variantKey,
+      stepAnswers,
+      edgeChoiceId
+    });
+    if (!grading.valid) {
+      return res.status(422).json({
+        error: {
+          code: grading.code || 'VALIDATION_ERROR',
+          message: grading.message
+        }
+      });
+    }
+
+    // Authoritative outcome derivation: ignore/normalize any forged client outcome
+    let authoritativeOutcome = 'independent';
+    if (referenceRevealed) {
+      authoritativeOutcome = 'needed_reference';
+    } else if (hintRevealed || mistakeCount > 0) {
+      authoritativeOutcome = 'with_hint';
+    }
+
+    const { data: row, error: findError } = await req.supabase
+      .from('nextstep_goals')
+      .select('*')
+      .maybeSingle();
+
+    if (findError) {
+      return res.status(503).json({
+        error: { code: 'DATABASE_ERROR', message: findError.message || 'Database service unavailable.' }
+      });
+    }
+    if (!row) {
+      return res.status(404).json({
+        error: { code: 'GOAL_NOT_FOUND', message: 'No active goal found.' }
+      });
+    }
+
+    const workspace = normalizeStudyWorkspace(row.state.studyWorkspace);
+    const existingList = Array.isArray(workspace.exerciseAttempts[exerciseId])
+      ? workspace.exerciseAttempts[exerciseId]
+      : [];
+
+    const existingAttempt = existingList.find((a) => a.attemptId === attemptId);
+    if (existingAttempt) {
+      const normalizedReflection = reflection ?? null;
+      if (
+        existingAttempt.outcome === authoritativeOutcome &&
+        (existingAttempt.variantKey || 'primary') === variantKey &&
+        existingAttempt.mistakeCount === mistakeCount &&
+        existingAttempt.hintRevealed === hintRevealed &&
+        existingAttempt.referenceRevealed === referenceRevealed &&
+        (existingAttempt.reflection ?? null) === normalizedReflection
+      ) {
+        return res.status(200).json({
+          data: {
+            goal: deriveGoalStats(row.state, catalogData),
+            exerciseAttempt: existingAttempt
+          }
+        });
+      }
+      return res.status(409).json({
+        error: {
+          code: 'ATTEMPT_CONFLICT',
+          message: 'An exercise attempt with this ID was already recorded with different content.'
+        }
+      });
+    }
+
+    if (row.version !== expectedVersion) {
+      return res.status(409).json({
+        error: {
+          code: 'VERSION_CONFLICT',
+          message: 'Goal version changed. Refresh to view latest workspace state.'
+        }
+      });
+    }
+
+    const nowIso = new Date().toISOString();
+    const nextReviewDate = calculateExerciseReviewDate(nowIso, authoritativeOutcome, mistakeCount);
+
+    const newExerciseAttempt = {
+      attemptId,
+      exerciseId,
+      lessonId: exercise.lessonId,
+      topicId: exercise.topicId,
+      variantKey,
+      outcome: authoritativeOutcome,
+      mistakeCount,
+      hintRevealed,
+      referenceRevealed,
+      reflection: reflection ?? null,
+      savedAt: nowIso,
+      nextReviewDate
+    };
+
+    const updatedHistory = [...existingList, newExerciseAttempt].slice(-20);
+    const newVersion = row.version + 1;
+    const updatedWorkspace = {
+      ...workspace,
+      selectedTopicId: exercise.topicId,
+      exerciseAttempts: {
+        ...workspace.exerciseAttempts,
+        [exerciseId]: updatedHistory
+      },
+      updatedAt: nowIso
+    };
+
+    const updatedState = {
+      ...row.state,
+      version: newVersion,
+      studyWorkspace: updatedWorkspace,
+      updatedAt: nowIso
+    };
+
+    const { data: updatedRows, error: updateError } = await req.supabase
+      .from('nextstep_goals')
+      .update({
+        version: newVersion,
+        state: updatedState,
+        updated_at: nowIso
+      })
+      .eq('id', row.id)
+      .eq('version', row.version)
+      .select();
+
+    if (updateError) {
+      return res.status(503).json({
+        error: { code: 'DATABASE_ERROR', message: updateError.message || 'Database update failed.' }
+      });
+    }
+
+    if (!updatedRows || updatedRows.length === 0) {
+      return res.status(409).json({
+        error: {
+          code: 'VERSION_CONFLICT',
+          message: 'Goal was modified concurrently. Refresh to view latest workspace state.'
+        }
+      });
+    }
+
+    return res.status(200).json({
+      data: {
+        goal: deriveGoalStats(updatedState, catalogData),
+        exerciseAttempt: newExerciseAttempt
+      }
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// POST /api/goal/workspace/practice - Record a self-reported external practice attempt
+router.post('/workspace/practice', async (req, res, next) => {
+  try {
+    const parseResult = savePracticeAttemptSchema.safeParse(req.body);
+    if (!parseResult.success) {
+      const fields = {};
+      parseResult.error.issues.forEach((i) => {
+        fields[i.path.join('.')] = i.message;
+      });
+      return res.status(422).json({
+        error: {
+          code: 'VALIDATION_ERROR',
+          message: 'Invalid practice attempt payload.',
+          fields
+        }
+      });
+    }
+
+    const { expectedVersion, attemptId, problemId, outcome, note, needsReview } = parseResult.data;
+
+    const curriculum = getPublishedCurriculum();
+    const problem = curriculum.practiceProblems.find((p) => p.id === problemId);
+    if (!problem) {
+      return res.status(404).json({
+        error: {
+          code: 'ITEM_NOT_FOUND',
+          message: `Published practice problem "${problemId}" does not exist.`
+        }
+      });
+    }
+
+    const { data: row, error: findError } = await req.supabase
+      .from('nextstep_goals')
+      .select('*')
+      .maybeSingle();
+
+    if (findError) {
+      return res.status(503).json({
+        error: { code: 'DATABASE_ERROR', message: findError.message || 'Database service unavailable.' }
+      });
+    }
+    if (!row) {
+      return res.status(404).json({
+        error: { code: 'GOAL_NOT_FOUND', message: 'No active goal found.' }
+      });
+    }
+
+    const workspace = normalizeStudyWorkspace(row.state.studyWorkspace);
+    const existingList = Array.isArray(workspace.practiceAttempts[problemId])
+      ? workspace.practiceAttempts[problemId]
+      : [];
+
+    const normalizedNote = note ?? null;
+    const normalizedNeedsReview = Boolean(
+      needsReview !== undefined
+        ? needsReview
+        : outcome === 'with_hint' || outcome === 'reviewed_editorial' || outcome === 'bookmarked'
+    );
+
+    const existingAttempt = existingList.find((a) => a.attemptId === attemptId);
+    if (existingAttempt) {
+      if (
+        existingAttempt.outcome === outcome &&
+        (existingAttempt.note ?? null) === normalizedNote &&
+        Boolean(existingAttempt.needsReview) === normalizedNeedsReview
+      ) {
+        return res.status(200).json({
+          data: {
+            goal: deriveGoalStats(row.state, catalogData),
+            practiceAttempt: existingAttempt
+          }
+        });
+      }
+      return res.status(409).json({
+        error: {
+          code: 'ATTEMPT_CONFLICT',
+          message: 'A practice attempt with this ID was already recorded with different content.'
+        }
+      });
+    }
+
+    if (row.version !== expectedVersion) {
+      return res.status(409).json({
+        error: {
+          code: 'VERSION_CONFLICT',
+          message: 'Goal version changed. Refresh to view latest workspace state.'
+        }
+      });
+    }
+
+    const nowIso = new Date().toISOString();
+    const nextReviewDate = calculatePracticeReviewDate(nowIso, outcome, normalizedNeedsReview);
+
+    const newPracticeAttempt = {
+      attemptId,
+      problemId,
+      topicId: problem.topicId,
+      outcome,
+      note: normalizedNote,
+      needsReview: normalizedNeedsReview,
+      selfReported: true,
+      savedAt: nowIso,
+      nextReviewDate
+    };
+
+    const updatedHistory = [...existingList, newPracticeAttempt].slice(-20);
+    const newVersion = row.version + 1;
+    const updatedWorkspace = {
+      ...workspace,
+      selectedTopicId: problem.topicId,
+      practiceAttempts: {
+        ...workspace.practiceAttempts,
+        [problemId]: updatedHistory
+      },
+      updatedAt: nowIso
+    };
+
+    const updatedState = {
+      ...row.state,
+      version: newVersion,
+      studyWorkspace: updatedWorkspace,
+      updatedAt: nowIso
+    };
+
+    const { data: updatedRows, error: updateError } = await req.supabase
+      .from('nextstep_goals')
+      .update({
+        version: newVersion,
+        state: updatedState,
+        updated_at: nowIso
+      })
+      .eq('id', row.id)
+      .eq('version', row.version)
+      .select();
+
+    if (updateError) {
+      return res.status(503).json({
+        error: { code: 'DATABASE_ERROR', message: updateError.message || 'Database update failed.' }
+      });
+    }
+
+    if (!updatedRows || updatedRows.length === 0) {
+      return res.status(409).json({
+        error: {
+          code: 'VERSION_CONFLICT',
+          message: 'Goal was modified concurrently. Refresh to view latest workspace state.'
+        }
+      });
+    }
+
+    return res.status(200).json({
+      data: {
+        goal: deriveGoalStats(updatedState, catalogData),
+        practiceAttempt: newPracticeAttempt
+      }
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// POST /api/goal/workspace/plan/preview - Read-only capacity-aware study plan preview
+router.post('/workspace/plan/preview', async (req, res, next) => {
+  try {
+    const parseResult = workspacePlanPreviewSchema.safeParse(req.body);
+    if (!parseResult.success) {
+      const fields = {};
+      parseResult.error.issues.forEach((i) => {
+        fields[i.path.join('.')] = i.message;
+      });
+      return res.status(422).json({
+        error: {
+          code: 'VALIDATION_ERROR',
+          message: 'Invalid workspace plan preview payload.',
+          fields
+        }
+      });
+    }
+
+    const { expectedVersion, availability, selectedItemIds, targetDate } = parseResult.data;
+
+    const { data: row, error: findError } = await req.supabase
+      .from('nextstep_goals')
+      .select('*')
+      .maybeSingle();
+
+    if (findError) {
+      return res.status(503).json({
+        error: { code: 'DATABASE_ERROR', message: findError.message || 'Database service unavailable.' }
+      });
+    }
+    if (!row) {
+      return res.status(404).json({
+        error: { code: 'GOAL_NOT_FOUND', message: 'No active goal found.' }
+      });
+    }
+
+    if (row.version !== expectedVersion) {
+      return res.status(409).json({
+        error: {
+          code: 'VERSION_CONFLICT',
+          message: 'Goal version changed. Refresh to preview against latest state.'
+        }
+      });
+    }
+
+    const curriculum = getPublishedCurriculum();
+    const validIds = new Set([
+      ...curriculum.lessons.map((l) => l.id),
+      ...curriculum.exercises.map((e) => e.id),
+      ...curriculum.practiceProblems.map((p) => p.id)
+    ]);
+
+    for (const itemId of selectedItemIds) {
+      if (!validIds.has(itemId)) {
+        return res.status(404).json({
+          error: {
+            code: 'ITEM_NOT_FOUND',
+            message: `Curriculum item "${itemId}" is not a published lesson, exercise, or practice problem.`
+          }
+        });
+      }
+    }
+
+    const today = getTodayKolkata();
+    const workspace = normalizeStudyWorkspace(row.state.studyWorkspace);
+    const plan = calculateWorkspaceStudyPlan({
+      startDate: today,
+      targetDate: targetDate || row.state.targetDate,
+      availability,
+      selectedItemIds,
+      curriculum,
+      studyWorkspace: workspace
+    });
+
+    return res.status(200).json({
+      data: {
+        previewForDate: today,
+        baseVersion: row.version,
+        curriculumVersion: workspace.curriculumVersion || DEFAULT_CURRICULUM_VERSION,
+        ...plan
+      }
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// POST /api/goal/workspace/plan/apply - Persist accepted workspace study plan without mutating starter schedule
+router.post('/workspace/plan/apply', async (req, res, next) => {
+  try {
+    const parseResult = workspacePlanApplySchema.safeParse(req.body);
+    if (!parseResult.success) {
+      const fields = {};
+      parseResult.error.issues.forEach((i) => {
+        fields[i.path.join('.')] = i.message;
+      });
+      return res.status(422).json({
+        error: {
+          code: 'VALIDATION_ERROR',
+          message: 'Invalid workspace plan apply payload.',
+          fields
+        }
+      });
+    }
+
+    const {
+      expectedVersion,
+      previewForDate,
+      curriculumVersion,
+      availability,
+      selectedItemIds,
+      targetDate
+    } = parseResult.data;
+
+    const today = getTodayKolkata();
+    if (previewForDate !== today) {
+      return res.status(409).json({
+        error: {
+          code: 'STALE_PREVIEW',
+          message: 'This study plan preview was generated for a different day. Please preview again.'
+        }
+      });
+    }
+
+    const { data: row, error: findError } = await req.supabase
+      .from('nextstep_goals')
+      .select('*')
+      .maybeSingle();
+
+    if (findError) {
+      return res.status(503).json({
+        error: { code: 'DATABASE_ERROR', message: findError.message || 'Database service unavailable.' }
+      });
+    }
+    if (!row) {
+      return res.status(404).json({
+        error: { code: 'GOAL_NOT_FOUND', message: 'No active goal found.' }
+      });
+    }
+
+    if (row.version !== expectedVersion) {
+      return res.status(409).json({
+        error: {
+          code: 'VERSION_CONFLICT',
+          message: 'Goal version changed since preview. Please preview and apply again.'
+        }
+      });
+    }
+
+    const workspace = normalizeStudyWorkspace(row.state.studyWorkspace);
+    const activeCurriculumVersion = workspace.curriculumVersion || DEFAULT_CURRICULUM_VERSION;
+    if (curriculumVersion !== activeCurriculumVersion) {
+      return res.status(409).json({
+        error: {
+          code: 'CURRICULUM_VERSION_CONFLICT',
+          message: 'Curriculum version changed since preview. Please preview again.'
+        }
+      });
+    }
+
+    const curriculum = getPublishedCurriculum();
+    const validIds = new Set([
+      ...curriculum.lessons.map((l) => l.id),
+      ...curriculum.exercises.map((e) => e.id),
+      ...curriculum.practiceProblems.map((p) => p.id)
+    ]);
+
+    for (const itemId of selectedItemIds) {
+      if (!validIds.has(itemId)) {
+        return res.status(404).json({
+          error: {
+            code: 'ITEM_NOT_FOUND',
+            message: `Curriculum item "${itemId}" is not a published lesson, exercise, or practice problem.`
+          }
+        });
+      }
+    }
+
+    const plan = calculateWorkspaceStudyPlan({
+      startDate: today,
+      targetDate: targetDate || row.state.targetDate,
+      availability,
+      selectedItemIds,
+      curriculum,
+      studyWorkspace: workspace
+    });
+
+    const nowIso = new Date().toISOString();
+    const savedStudyPlan = {
+      planId: crypto.randomUUID(),
+      createdAt: nowIso,
+      baseVersion: row.version + 1,
+      curriculumVersion: activeCurriculumVersion,
+      ...plan
+    };
+
+    const newVersion = row.version + 1;
+    const updatedWorkspace = {
+      ...workspace,
+      studyPlan: savedStudyPlan,
+      updatedAt: nowIso
+    };
+
+    const updatedState = {
+      ...row.state,
+      version: newVersion,
+      studyWorkspace: updatedWorkspace,
+      updatedAt: nowIso
+    };
+
+    const { data: updatedRows, error: updateError } = await req.supabase
+      .from('nextstep_goals')
+      .update({
+        version: newVersion,
+        state: updatedState,
+        updated_at: nowIso
+      })
+      .eq('id', row.id)
+      .eq('version', row.version)
+      .select();
+
+    if (updateError) {
+      return res.status(503).json({
+        error: { code: 'DATABASE_ERROR', message: updateError.message || 'Database update failed.' }
+      });
+    }
+
+    if (!updatedRows || updatedRows.length === 0) {
+      return res.status(409).json({
+        error: {
+          code: 'VERSION_CONFLICT',
+          message: 'Goal was modified concurrently. Refresh to view latest workspace state.'
+        }
+      });
+    }
+
+    return res.status(200).json({
+      data: {
+        goal: deriveGoalStats(updatedState, catalogData),
+        studyPlan: savedStudyPlan
       }
     });
   } catch (err) {

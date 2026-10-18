@@ -7,6 +7,7 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
+    "preview:synthetic": "node scripts/start-synthetic-preview.mjs",
     "test": "node --test src/fixtures/*.test.js"
   },
   "dependencies": {

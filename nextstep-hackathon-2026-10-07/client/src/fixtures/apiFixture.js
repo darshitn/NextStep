@@ -3,9 +3,16 @@
 // Used for unblocked UI development and fixture demonstration.
 
 import catalogData from './dsa-starter.json' with { type: 'json' };
+import curriculumData from './curriculum.json' with { type: 'json' };
+import {
+  getAuthoritativeExercise,
+  getAuthoritativeLesson,
+  gradeExerciseAttempt
+} from '../../../server/src/services/curriculumRegistry.js';
 
 const STORAGE_KEY_PREFIX = 'nextstep_fixture_goal_';
 const AUTH_KEY = 'nextstep_fixture_user';
+export const DEFAULT_CURRICULUM_VERSION = 'atlas-proof-v1';
 
 // Safe in-memory storage fallback for Node.js test runner and SSR
 const memoryStore = new Map();
@@ -82,6 +89,290 @@ function getDayOfWeek(dateStr) {
   return names[d.getUTCDay()];
 }
 
+export function normalizeStudyWorkspace(rawWorkspace) {
+  const base = rawWorkspace && typeof rawWorkspace === 'object' ? rawWorkspace : {};
+  return {
+    schemaVersion: 1,
+    curriculumVersion: base.curriculumVersion || DEFAULT_CURRICULUM_VERSION,
+    selectedTopicId: typeof base.selectedTopicId === 'string' ? base.selectedTopicId : 'topic_arrays',
+    lessonProgress: base.lessonProgress && typeof base.lessonProgress === 'object' ? base.lessonProgress : {},
+    exerciseAttempts: base.exerciseAttempts && typeof base.exerciseAttempts === 'object' ? base.exerciseAttempts : {},
+    practiceAttempts: base.practiceAttempts && typeof base.practiceAttempts === 'object' ? base.practiceAttempts : {},
+    studyPlan: base.studyPlan && typeof base.studyPlan === 'object' ? base.studyPlan : null,
+    updatedAt: base.updatedAt || null
+  };
+}
+
+export function calculateWorkspaceStudyPlan({
+  startDate,
+  targetDate,
+  availability,
+  selectedItemIds,
+  curriculum = curriculumData,
+  studyWorkspace
+}) {
+  const normalizedWorkspace = normalizeStudyWorkspace(studyWorkspace);
+  const completedLessons = new Set(
+    Object.entries(normalizedWorkspace.lessonProgress)
+      .filter(([k, lp]) => lp && (lp.status === 'completed' || lp.completedAt))
+      .map(([k, lp]) => lp.lessonId || k)
+  );
+
+  const topicById = new Map((curriculum.topics || []).map((t) => [t.id, t]));
+  const lessonById = new Map((curriculum.lessons || []).map((l) => [l.id, l]));
+  const exerciseById = new Map((curriculum.exercises || []).map((e) => [e.id, e]));
+  const practiceById = new Map((curriculum.practiceProblems || []).map((p) => [p.id, p]));
+
+  // 1. Collect all required work items and uncompleted prerequisites
+  const requiredItems = new Map();
+
+  function collectLessonAndPrereqs(lessonId) {
+    const lesson = lessonById.get(lessonId);
+    if (!lesson) return;
+    for (const prereqLessonId of lesson.prerequisites || []) {
+      if (!completedLessons.has(prereqLessonId)) {
+        collectLessonAndPrereqs(prereqLessonId);
+      }
+    }
+    if (completedLessons.has(lesson.id) || requiredItems.has(lesson.id)) return;
+    const topic = topicById.get(lesson.topicId);
+    requiredItems.set(lesson.id, {
+      itemId: lesson.id,
+      itemType: 'lesson',
+      topicId: lesson.topicId,
+      topicOrder: topic ? topic.order : 99,
+      itemOrder: lesson.order * 10,
+      title: lesson.title,
+      estimatedMinutes: lesson.estimatedMinutes || 20,
+      lessonObj: lesson
+    });
+  }
+
+  for (const rawId of selectedItemIds || []) {
+    if (lessonById.has(rawId)) {
+      if (!completedLessons.has(rawId)) {
+        collectLessonAndPrereqs(rawId);
+      }
+    } else if (exerciseById.has(rawId)) {
+      const ex = exerciseById.get(rawId);
+      if (!completedLessons.has(ex.lessonId)) {
+        collectLessonAndPrereqs(ex.lessonId);
+      }
+      if (!requiredItems.has(ex.id)) {
+        const topic = topicById.get(ex.topicId);
+        const lesson = lessonById.get(ex.lessonId);
+        requiredItems.set(ex.id, {
+          itemId: ex.id,
+          itemType: 'exercise',
+          topicId: ex.topicId,
+          topicOrder: topic ? topic.order : 99,
+          itemOrder: (lesson ? lesson.order * 10 : 50) + 2,
+          title: ex.title,
+          estimatedMinutes: 15,
+          exerciseObj: ex
+        });
+      }
+    } else if (practiceById.has(rawId)) {
+      const prac = practiceById.get(rawId);
+      for (const lid of prac.lessonIds || []) {
+        if (!completedLessons.has(lid)) {
+          collectLessonAndPrereqs(lid);
+        }
+      }
+      if (!requiredItems.has(prac.id)) {
+        const topic = topicById.get(prac.topicId);
+        const linkedLessons = (prac.lessonIds || []).map((lid) => lessonById.get(lid)).filter(Boolean);
+        const maxLessonOrder = linkedLessons.length > 0 ? Math.max(...linkedLessons.map((l) => l.order)) : 5;
+        requiredItems.set(prac.id, {
+          itemId: prac.id,
+          itemType: 'practice',
+          topicId: prac.topicId,
+          topicOrder: topic ? topic.order : 99,
+          itemOrder: maxLessonOrder * 10 + 5,
+          title: prac.title,
+          estimatedMinutes: prac.estimatedMinutes || 20,
+          practiceObj: prac
+        });
+      }
+    }
+  }
+
+  // 2. Build dependency graph
+  const itemIds = Array.from(requiredItems.keys());
+  const inDegree = new Map();
+  const outgoing = new Map();
+
+  for (const id of itemIds) {
+    inDegree.set(id, 0);
+    outgoing.set(id, new Set());
+  }
+
+  for (const [id, item] of requiredItems.entries()) {
+    const directPrereqs = new Set();
+    if (item.itemType === 'lesson') {
+      for (const p of item.lessonObj.prerequisites || []) {
+        if (requiredItems.has(p)) {
+          directPrereqs.add(p);
+        }
+      }
+      for (const [otherId, otherItem] of requiredItems.entries()) {
+        if (
+          otherItem.itemType === 'lesson' &&
+          otherItem.topicId === item.topicId &&
+          otherItem.lessonObj.order < item.lessonObj.order
+        ) {
+          directPrereqs.add(otherId);
+        }
+      }
+    } else if (item.itemType === 'exercise') {
+      if (requiredItems.has(item.exerciseObj.lessonId)) {
+        directPrereqs.add(item.exerciseObj.lessonId);
+      }
+    } else if (item.itemType === 'practice') {
+      for (const lid of item.practiceObj.lessonIds || []) {
+        if (requiredItems.has(lid)) {
+          directPrereqs.add(lid);
+        }
+      }
+    }
+
+    inDegree.set(id, directPrereqs.size);
+    for (const prereqId of directPrereqs) {
+      outgoing.get(prereqId).add(id);
+    }
+  }
+
+  // 3. Stable tie-breaking comparator based on display ordering
+  function compareWorkItems(aId, bId) {
+    const a = requiredItems.get(aId);
+    const b = requiredItems.get(bId);
+    if (a.topicOrder !== b.topicOrder) return a.topicOrder - b.topicOrder;
+    if (a.itemOrder !== b.itemOrder) return a.itemOrder - b.itemOrder;
+    return a.itemId.localeCompare(b.itemId);
+  }
+
+  // 4. Stable Kahn's algorithm
+  const available = itemIds.filter((id) => inDegree.get(id) === 0);
+  available.sort(compareWorkItems);
+
+  const orderedWorkItems = [];
+
+  while (available.length > 0) {
+    const currentId = available.shift();
+    const item = requiredItems.get(currentId);
+    orderedWorkItems.push({
+      itemId: item.itemId,
+      itemType: item.itemType,
+      topicId: item.topicId,
+      topicOrder: item.topicOrder,
+      itemOrder: item.itemOrder,
+      title: item.title,
+      estimatedMinutes: item.estimatedMinutes
+    });
+
+    for (const depId of outgoing.get(currentId) || []) {
+      const nextDeg = inDegree.get(depId) - 1;
+      inDegree.set(depId, nextDeg);
+      if (nextDeg === 0) {
+        available.push(depId);
+        available.sort(compareWorkItems);
+      }
+    }
+  }
+
+  if (orderedWorkItems.length < requiredItems.size) {
+    const scheduledSet = new Set(orderedWorkItems.map((w) => w.itemId));
+    const remaining = itemIds.filter((id) => !scheduledSet.has(id));
+    remaining.sort(compareWorkItems);
+    for (const remId of remaining) {
+      const item = requiredItems.get(remId);
+      orderedWorkItems.push({
+        itemId: item.itemId,
+        itemType: item.itemType,
+        topicId: item.topicId,
+        topicOrder: item.topicOrder,
+        itemOrder: item.itemOrder,
+        title: item.title,
+        estimatedMinutes: item.estimatedMinutes
+      });
+    }
+  }
+
+  const sessions = [];
+  const unscheduledItemIds = [];
+  let cursor = startDate;
+  let loopGuard = 0;
+
+  const queue = orderedWorkItems.map((item) => ({
+    ...item,
+    remainingMinutes: item.estimatedMinutes,
+    parts: []
+  }));
+  let qIdx = 0;
+
+  while (qIdx < queue.length && loopGuard < 366) {
+    const weekday = getDayOfWeek(cursor);
+    let availableToday = availability[weekday] || 0;
+
+    while (availableToday > 0 && qIdx < queue.length) {
+      const current = queue[qIdx];
+      const alloc = Math.min(availableToday, current.remainingMinutes);
+      current.parts.push({
+        date: cursor,
+        allocatedMinutes: alloc
+      });
+      current.remainingMinutes -= alloc;
+      availableToday -= alloc;
+      if (current.remainingMinutes <= 0) {
+        qIdx += 1;
+      }
+    }
+
+    cursor = addDays(cursor, 1);
+    loopGuard += 1;
+  }
+
+  for (let i = 0; i < queue.length; i += 1) {
+    const item = queue[i];
+    if (item.remainingMinutes > 0) {
+      unscheduledItemIds.push(item.itemId);
+    } else {
+      const totalParts = item.parts.length;
+      item.parts.forEach((p, idx) => {
+        sessions.push({
+          date: p.date,
+          itemId: item.itemId,
+          itemType: item.itemType,
+          topicId: item.topicId,
+          title: item.title,
+          allocatedMinutes: p.allocatedMinutes,
+          totalEstimatedMinutes: item.estimatedMinutes,
+          partIndex: idx + 1,
+          totalParts
+        });
+      });
+    }
+  }
+
+  const estimatedFinishDate = sessions.length > 0 ? sessions[sessions.length - 1].date : startDate;
+  const deadlineConflict = Boolean(
+    unscheduledItemIds.length > 0 || (targetDate && estimatedFinishDate > targetDate)
+  );
+  const status = deadlineConflict ? 'over_capacity' : 'on_track';
+
+  return {
+    planStartDate: startDate,
+    targetDate,
+    availability,
+    selectedItemIds: orderedWorkItems.map((w) => w.itemId),
+    sessions,
+    unscheduledItemIds,
+    estimatedFinishDate,
+    deadlineConflict,
+    status
+  };
+}
+
 // Pure deterministic scheduler
 export function calculateSchedule(startDate, availability, missionIds, completedTodayMinutes = 0) {
   const schedule = [];
@@ -137,6 +428,8 @@ export function deriveGoalStats(goal) {
 
   return {
     ...goal,
+    learning: goal.learning || {},
+    studyWorkspace: normalizeStudyWorkspace(goal.studyWorkspace),
     xp,
     level,
     remainingMinutes,
@@ -152,16 +445,78 @@ function createInitialSeedGoal(stateType, userEmail) {
   const missionIds = catalogData.missions.map(m => m.id);
   const defaultAvailability = { mon: 60, tue: 0, wed: 60, thu: 0, fri: 60, sat: 0, sun: 0 };
   const schedule = calculateSchedule(today, defaultAvailability, missionIds);
-  const estimatedFinish = schedule[schedule.length - 1].date;
   const targetDate = addDays(today, 30);
+  const yesterdayIso = new Date(Date.now() - 86400000).toISOString();
 
   let completions = {};
+  let studyWorkspace = normalizeStudyWorkspace({});
+
   if (stateType === 'active') {
     completions['m01'] = {
-      completedAt: new Date(Date.now() - 86400000).toISOString(),
+      completedAt: yesterdayIso,
       outcome: 'independent',
       reflection: 'Reviewed basic array indexing and linear scans.'
     };
+    studyWorkspace = normalizeStudyWorkspace({
+      selectedTopicId: 'topic_arrays',
+      lessonProgress: {
+        les_arrays_01: {
+          lessonId: 'les_arrays_01',
+          topicId: 'topic_arrays',
+          status: 'completed',
+          startedAt: yesterdayIso,
+          lastVisitedAt: yesterdayIso,
+          completedSections: ['explanation', 'worked_example', 'knowledge_check'],
+          reflection: 'Evaluate candidateGain strictly before updating minPrice so index i never pairs with itself.',
+          knowledgeCheckPassed: true,
+          updatedAt: yesterdayIso
+        },
+        les_arrays_02: {
+          lessonId: 'les_arrays_02',
+          topicId: 'topic_arrays',
+          status: 'in_progress',
+          startedAt: yesterdayIso,
+          lastVisitedAt: yesterdayIso,
+          completedSections: ['explanation'],
+          reflection: null,
+          knowledgeCheckPassed: false,
+          updatedAt: yesterdayIso
+        }
+      },
+      exerciseAttempts: {
+        ex_arrays_01: [
+          {
+            attemptId: '30000000-0000-4000-8000-000000000001',
+            exerciseId: 'ex_arrays_01',
+            lessonId: 'les_arrays_01',
+            topicId: 'topic_arrays',
+            outcome: 'independent',
+            mistakeCount: 0,
+            hintRevealed: false,
+            referenceRevealed: false,
+            reflection: 'Confirmed minPrice drops to 1 at i = 3 while bestGain stays 4.',
+            savedAt: yesterdayIso,
+            nextReviewDate: addDays(today, 6)
+          }
+        ]
+      },
+      practiceAttempts: {
+        prac_arrays_01: [
+          {
+            attemptId: '40000000-0000-4000-8000-000000000001',
+            problemId: 'prac_arrays_01',
+            topicId: 'topic_arrays',
+            outcome: 'solved_independently',
+            note: 'Single-pass running minimum handled decreasing test cases cleanly.',
+            needsReview: false,
+            selfReported: true,
+            savedAt: yesterdayIso,
+            nextReviewDate: addDays(today, 6)
+          }
+        ]
+      },
+      updatedAt: yesterdayIso
+    });
   } else if (stateType === 'interrupted') {
     completions['m01'] = {
       completedAt: new Date(Date.now() - 172800000).toISOString(),
@@ -169,10 +524,70 @@ function createInitialSeedGoal(stateType, userEmail) {
       reflection: 'Built mental model for array indexing.'
     };
     completions['m02'] = {
-      completedAt: new Date(Date.now() - 86400000).toISOString(),
+      completedAt: yesterdayIso,
       outcome: 'with_hint',
       reflection: 'Trace lookups took extra time on boundary conditions.'
     };
+    studyWorkspace = normalizeStudyWorkspace({
+      selectedTopicId: 'topic_hashing',
+      lessonProgress: {
+        les_arrays_01: {
+          lessonId: 'les_arrays_01',
+          topicId: 'topic_arrays',
+          status: 'completed',
+          startedAt: yesterdayIso,
+          lastVisitedAt: yesterdayIso,
+          completedSections: ['explanation', 'worked_example', 'knowledge_check'],
+          reflection: 'Completed prefix invariant check.',
+          knowledgeCheckPassed: true,
+          updatedAt: yesterdayIso
+        },
+        les_hashing_01: {
+          lessonId: 'les_hashing_01',
+          topicId: 'topic_hashing',
+          status: 'in_progress',
+          startedAt: yesterdayIso,
+          lastVisitedAt: yesterdayIso,
+          completedSections: ['explanation', 'worked_example'],
+          reflection: 'Need to remember map.has(need) instead of truthiness check on index 0.',
+          knowledgeCheckPassed: true,
+          updatedAt: yesterdayIso
+        }
+      },
+      exerciseAttempts: {
+        ex_hashing_01: [
+          {
+            attemptId: '30000000-0000-4000-8000-000000000002',
+            exerciseId: 'ex_hashing_01',
+            lessonId: 'les_hashing_01',
+            topicId: 'topic_hashing',
+            outcome: 'with_hint',
+            mistakeCount: 1,
+            hintRevealed: true,
+            referenceRevealed: false,
+            reflection: 'Caught the self-complement trap on target = 6 with nums[0] = 3.',
+            savedAt: yesterdayIso,
+            nextReviewDate: today
+          }
+        ]
+      },
+      practiceAttempts: {
+        prac_hashing_01: [
+          {
+            attemptId: '40000000-0000-4000-8000-000000000002',
+            problemId: 'prac_hashing_01',
+            topicId: 'topic_hashing',
+            outcome: 'with_hint',
+            note: 'Had to fix `if (map.get(need))` failing when partner was at index 0.',
+            needsReview: true,
+            selfReported: true,
+            savedAt: yesterdayIso,
+            nextReviewDate: today
+          }
+        ]
+      },
+      updatedAt: yesterdayIso
+    });
   }
 
   const rawGoal = {
@@ -187,6 +602,7 @@ function createInitialSeedGoal(stateType, userEmail) {
     availability: defaultAvailability,
     schedule: schedule,
     completions: completions,
+    studyWorkspace,
     updatedAt: new Date().toISOString()
   };
 
@@ -301,7 +717,8 @@ export const apiFixture = {
         title: catalogData.title,
         estimatedMinutes: catalogData.estimatedMinutes,
         notice: catalogData.notice,
-        missions: catalogData.missions
+        missions: catalogData.missions,
+        curriculum: curriculumData
       }
     };
   },
@@ -767,6 +1184,491 @@ export const apiFixture = {
         recallAttempt: newAttempt
       }
     };
+  },
+
+  async saveLessonProgress({
+    expectedVersion,
+    requestId,
+    lessonId,
+    topicId,
+    status,
+    completedSections,
+    reflection,
+    knowledgeCheckPassed
+  }) {
+    await new Promise((r) => setTimeout(r, 30));
+    if (!currentUser) throw { status: 401, code: 'UNAUTHORIZED', message: 'Sign in required.' };
+    const storageKey = STORAGE_KEY_PREFIX + currentUser.id;
+    const raw = safeStorage.getItem(storageKey);
+    if (!raw) throw { status: 404, code: 'GOAL_NOT_FOUND', message: 'No active goal found.' };
+
+    const lesson = (curriculumData.lessons || []).find((l) => l.id === lessonId);
+    if (!lesson) {
+      throw { status: 404, code: 'ITEM_NOT_FOUND', message: `Published lesson "${lessonId}" does not exist.` };
+    }
+    if (!requestId || typeof requestId !== 'string') {
+      throw { status: 422, code: 'VALIDATION_ERROR', message: 'A valid requestId UUID is required.' };
+    }
+    if (!['not_started', 'in_progress', 'completed'].includes(status)) {
+      throw { status: 422, code: 'VALIDATION_ERROR', message: 'Invalid lesson status.' };
+    }
+
+    const goal = JSON.parse(raw);
+    const workspace = normalizeStudyWorkspace(goal.studyWorkspace);
+    const existingRecord = workspace.lessonProgress[lessonId];
+
+    if (existingRecord && existingRecord.lastRequestId === requestId) {
+      return {
+        data: {
+          goal: deriveGoalStats(goal),
+          lessonProgress: existingRecord
+        }
+      };
+    }
+
+    if (goal.version !== expectedVersion) {
+      const err = new Error('Goal version changed.');
+      err.code = 'VERSION_CONFLICT';
+      err.status = 409;
+      throw err;
+    }
+
+    const nowIso = new Date().toISOString();
+    const trimmedReflection =
+      typeof reflection === 'string' ? reflection.trim().slice(0, 500) : (reflection ?? existingRecord?.reflection ?? null);
+
+    const updatedRecord = {
+      lessonId,
+      topicId: topicId || lesson.topicId,
+      status,
+      startedAt: existingRecord?.startedAt || nowIso,
+      lastVisitedAt: nowIso,
+      completedSections: completedSections ?? existingRecord?.completedSections ?? [],
+      reflection: trimmedReflection,
+      knowledgeCheckPassed:
+        knowledgeCheckPassed !== undefined ? Boolean(knowledgeCheckPassed) : Boolean(existingRecord?.knowledgeCheckPassed),
+      lastRequestId: requestId,
+      updatedAt: nowIso
+    };
+
+    goal.version += 1;
+    goal.studyWorkspace = {
+      ...workspace,
+      selectedTopicId: topicId || lesson.topicId,
+      lessonProgress: {
+        ...workspace.lessonProgress,
+        [lessonId]: updatedRecord
+      },
+      updatedAt: nowIso
+    };
+    goal.updatedAt = nowIso;
+    safeStorage.setItem(storageKey, JSON.stringify(goal));
+
+    return {
+      data: {
+        goal: deriveGoalStats(goal),
+        lessonProgress: updatedRecord
+      }
+    };
+  },
+
+  async saveExerciseAttempt({
+    expectedVersion,
+    attemptId,
+    exerciseId,
+    variantKey = 'primary',
+    stepAnswers = [],
+    edgeChoiceId,
+    mistakeCount = 0,
+    hintRevealed = false,
+    referenceRevealed = false,
+    reflection = null,
+    outcome
+  }) {
+    await new Promise((r) => setTimeout(r, 30));
+    if (!currentUser) throw { status: 401, code: 'UNAUTHORIZED', message: 'Sign in required.' };
+    const storageKey = STORAGE_KEY_PREFIX + currentUser.id;
+    const raw = safeStorage.getItem(storageKey);
+    if (!raw) throw { status: 404, code: 'GOAL_NOT_FOUND', message: 'No active goal found.' };
+
+    const exercise = getAuthoritativeExercise(exerciseId);
+    if (!exercise) {
+      throw { status: 404, code: 'ITEM_NOT_FOUND', message: `Published exercise "${exerciseId}" does not exist.` };
+    }
+    if (!attemptId || typeof attemptId !== 'string') {
+      throw { status: 422, code: 'VALIDATION_ERROR', message: 'A valid attemptId UUID is required.' };
+    }
+
+    if (!Array.isArray(stepAnswers) || stepAnswers.length === 0 || !edgeChoiceId) {
+      throw { status: 422, code: 'INCOMPLETE_TRACE', message: 'Trace steps and edge case verification must be completed.' };
+    }
+
+    const grading = gradeExerciseAttempt({ exerciseId, variantKey, stepAnswers, edgeChoiceId });
+    if (!grading.valid) {
+      throw { status: 422, code: grading.code || 'VALIDATION_ERROR', message: grading.message };
+    }
+
+    let authoritativeOutcome = 'independent';
+    if (referenceRevealed) authoritativeOutcome = 'needed_reference';
+    else if (hintRevealed || mistakeCount > 0) authoritativeOutcome = 'with_hint';
+
+    const goal = JSON.parse(raw);
+    const workspace = normalizeStudyWorkspace(goal.studyWorkspace);
+    const existingList = Array.isArray(workspace.exerciseAttempts[exerciseId])
+      ? workspace.exerciseAttempts[exerciseId]
+      : [];
+    const normalizedReflection = typeof reflection === 'string' ? reflection.trim().slice(0, 500) : null;
+
+    const existingAttempt = existingList.find((a) => a.attemptId === attemptId);
+    if (existingAttempt) {
+      if (
+        existingAttempt.outcome === authoritativeOutcome &&
+        (existingAttempt.variantKey || 'primary') === variantKey &&
+        existingAttempt.mistakeCount === mistakeCount &&
+        existingAttempt.hintRevealed === Boolean(hintRevealed) &&
+        existingAttempt.referenceRevealed === Boolean(referenceRevealed) &&
+        (existingAttempt.reflection ?? null) === normalizedReflection
+      ) {
+        return {
+          data: {
+            goal: deriveGoalStats(goal),
+            exerciseAttempt: existingAttempt
+          }
+        };
+      }
+      throw {
+        status: 409,
+        code: 'ATTEMPT_CONFLICT',
+        message: 'An exercise attempt with this ID was already recorded with different content.'
+      };
+    }
+
+    if (goal.version !== expectedVersion) {
+      const err = new Error('Goal version changed.');
+      err.code = 'VERSION_CONFLICT';
+      err.status = 409;
+      throw err;
+    }
+
+    const today = getTodayKolkata();
+    let daysToAdd = 7;
+    if (authoritativeOutcome === 'needed_reference') daysToAdd = 1;
+    else if (authoritativeOutcome === 'with_hint') daysToAdd = 2;
+    else if (mistakeCount > 0) daysToAdd = 3;
+
+    const nowIso = new Date().toISOString();
+    const newAttempt = {
+      attemptId,
+      exerciseId,
+      lessonId: exercise.lessonId,
+      topicId: exercise.topicId,
+      variantKey,
+      outcome: authoritativeOutcome,
+      mistakeCount: Number(mistakeCount) || 0,
+      hintRevealed: Boolean(hintRevealed),
+      referenceRevealed: Boolean(referenceRevealed),
+      reflection: normalizedReflection,
+      savedAt: nowIso,
+      nextReviewDate: addDays(today, daysToAdd)
+    };
+
+    const updatedHistory = [...existingList, newAttempt].slice(-20);
+    goal.version += 1;
+    goal.studyWorkspace = {
+      ...workspace,
+      selectedTopicId: exercise.topicId,
+      exerciseAttempts: {
+        ...workspace.exerciseAttempts,
+        [exerciseId]: updatedHistory
+      },
+      updatedAt: nowIso
+    };
+    goal.updatedAt = nowIso;
+    safeStorage.setItem(storageKey, JSON.stringify(goal));
+
+    return {
+      data: {
+        goal: deriveGoalStats(goal),
+        exerciseAttempt: newAttempt
+      }
+    };
+  },
+
+  async evaluateTraceStep({ exerciseId, variantKey = 'primary', stepIndex, choiceId }) {
+    await new Promise((r) => setTimeout(r, 10));
+    const exercise = getAuthoritativeExercise(exerciseId);
+    if (!exercise) throw { status: 404, code: 'ITEM_NOT_FOUND', message: 'Exercise not found.' };
+    const variant = variantKey === 'alternate' ? exercise.alternateVariant : exercise.primaryVariant;
+    const step = (variant?.steps || []).find((s) => s.stepIndex === Number(stepIndex));
+    if (!step) throw { status: 404, code: 'STEP_NOT_FOUND', message: 'Step not found.' };
+    const choice = (step.choices || []).find((c) => c.id === choiceId);
+    if (!choice) throw { status: 404, code: 'CHOICE_NOT_FOUND', message: 'Choice not found.' };
+    return {
+      data: {
+        isCorrect: Boolean(choice.isCorrect),
+        feedback: choice.misconceptionFeedback || '',
+        explanation: choice.isCorrect ? step.correctExplanation || null : null
+      }
+    };
+  },
+
+  async evaluateEdgeCheck({ exerciseId, choiceId }) {
+    await new Promise((r) => setTimeout(r, 10));
+    const exercise = getAuthoritativeExercise(exerciseId);
+    if (!exercise || !exercise.edgeCaseCheck) throw { status: 404, code: 'ITEM_NOT_FOUND', message: 'Exercise not found.' };
+    const choice = (exercise.edgeCaseCheck.choices || []).find((c) => c.id === choiceId);
+    if (!choice) throw { status: 404, code: 'CHOICE_NOT_FOUND', message: 'Edge check choice not found.' };
+    return {
+      data: {
+        isCorrect: Boolean(choice.isCorrect),
+        feedback: choice.misconceptionFeedback || '',
+        explanation: choice.isCorrect ? exercise.edgeCaseCheck.explanation || null : null
+      }
+    };
+  },
+
+  async evaluateLessonCheck({ lessonId, optionId }) {
+    await new Promise((r) => setTimeout(r, 10));
+    const lesson = getAuthoritativeLesson(lessonId);
+    if (!lesson || !lesson.knowledgeCheck) throw { status: 404, code: 'ITEM_NOT_FOUND', message: 'Lesson not found.' };
+    const opt = (lesson.knowledgeCheck.options || []).find((o) => o.id === optionId);
+    if (!opt) throw { status: 404, code: 'OPTION_NOT_FOUND', message: 'Option not found.' };
+    const isCorrect = optionId === lesson.knowledgeCheck.correctOptionId;
+    return {
+      data: {
+        isCorrect,
+        feedback: opt.feedback || '',
+        explanation: isCorrect ? lesson.knowledgeCheck.explanation || null : null
+      }
+    };
+  },
+
+  async getExerciseReference(exerciseId) {
+    await new Promise((r) => setTimeout(r, 10));
+    const exercise = getAuthoritativeExercise(exerciseId);
+    if (!exercise) throw { status: 404, code: 'ITEM_NOT_FOUND', message: 'Exercise not found.' };
+    return {
+      data: {
+        exerciseId,
+        referenceInvariant: exercise.referenceInvariant || null,
+        edgeCaseNote: exercise.primaryVariant?.edgeCaseNote || null,
+        referenceImplementation: exercise.referenceImplementation || null
+      }
+    };
+  },
+
+  async savePracticeAttempt({
+    expectedVersion,
+    attemptId,
+    problemId,
+    outcome,
+    note = null,
+    needsReview
+  }) {
+    await new Promise((r) => setTimeout(r, 30));
+    if (!currentUser) throw { status: 401, code: 'UNAUTHORIZED', message: 'Sign in required.' };
+    const storageKey = STORAGE_KEY_PREFIX + currentUser.id;
+    const raw = safeStorage.getItem(storageKey);
+    if (!raw) throw { status: 404, code: 'GOAL_NOT_FOUND', message: 'No active goal found.' };
+
+    const problem = (curriculumData.practiceProblems || []).find((p) => p.id === problemId);
+    if (!problem) {
+      throw { status: 404, code: 'ITEM_NOT_FOUND', message: `Published practice problem "${problemId}" does not exist.` };
+    }
+    if (!attemptId || typeof attemptId !== 'string') {
+      throw { status: 422, code: 'VALIDATION_ERROR', message: 'A valid attemptId UUID is required.' };
+    }
+
+    const goal = JSON.parse(raw);
+    const workspace = normalizeStudyWorkspace(goal.studyWorkspace);
+    const existingList = Array.isArray(workspace.practiceAttempts[problemId])
+      ? workspace.practiceAttempts[problemId]
+      : [];
+    const normalizedNote = typeof note === 'string' ? note.trim().slice(0, 500) : null;
+    const normalizedNeedsReview = Boolean(
+      needsReview !== undefined
+        ? needsReview
+        : outcome === 'with_hint' || outcome === 'reviewed_editorial' || outcome === 'bookmarked'
+    );
+
+    const existingAttempt = existingList.find((a) => a.attemptId === attemptId);
+    if (existingAttempt) {
+      if (
+        existingAttempt.outcome === outcome &&
+        (existingAttempt.note ?? null) === normalizedNote &&
+        Boolean(existingAttempt.needsReview) === normalizedNeedsReview
+      ) {
+        return {
+          data: {
+            goal: deriveGoalStats(goal),
+            practiceAttempt: existingAttempt
+          }
+        };
+      }
+      throw {
+        status: 409,
+        code: 'ATTEMPT_CONFLICT',
+        message: 'A practice attempt with this ID was already recorded with different content.'
+      };
+    }
+
+    if (goal.version !== expectedVersion) {
+      const err = new Error('Goal version changed.');
+      err.code = 'VERSION_CONFLICT';
+      err.status = 409;
+      throw err;
+    }
+
+    const today = getTodayKolkata();
+    let daysToAdd = 7;
+    if (normalizedNeedsReview || outcome === 'reviewed_editorial' || outcome === 'bookmarked') daysToAdd = 1;
+    else if (outcome === 'with_hint') daysToAdd = 2;
+
+    const nowIso = new Date().toISOString();
+    const newAttempt = {
+      attemptId,
+      problemId,
+      topicId: problem.topicId,
+      outcome,
+      note: normalizedNote,
+      needsReview: normalizedNeedsReview,
+      selfReported: true,
+      savedAt: nowIso,
+      nextReviewDate: addDays(today, daysToAdd)
+    };
+
+    const updatedHistory = [...existingList, newAttempt].slice(-20);
+    goal.version += 1;
+    goal.studyWorkspace = {
+      ...workspace,
+      selectedTopicId: problem.topicId,
+      practiceAttempts: {
+        ...workspace.practiceAttempts,
+        [problemId]: updatedHistory
+      },
+      updatedAt: nowIso
+    };
+    goal.updatedAt = nowIso;
+    safeStorage.setItem(storageKey, JSON.stringify(goal));
+
+    return {
+      data: {
+        goal: deriveGoalStats(goal),
+        practiceAttempt: newAttempt
+      }
+    };
+  },
+
+  async previewWorkspacePlan({ expectedVersion, availability, selectedItemIds, targetDate }) {
+    if (!currentUser) throw { status: 401, code: 'UNAUTHORIZED', message: 'Sign in required.' };
+    const storageKey = STORAGE_KEY_PREFIX + currentUser.id;
+    const raw = safeStorage.getItem(storageKey);
+    if (!raw) throw { status: 404, code: 'GOAL_NOT_FOUND', message: 'No active goal found.' };
+
+    const goal = JSON.parse(raw);
+    if (goal.version !== expectedVersion) {
+      const err = new Error('Goal version changed.');
+      err.code = 'VERSION_CONFLICT';
+      err.status = 409;
+      throw err;
+    }
+
+    const sumAvail = Object.values(availability || {}).reduce((acc, v) => acc + (Number(v) || 0), 0);
+    if (sumAvail <= 0) {
+      throw { status: 422, code: 'VALIDATION_ERROR', message: 'At least one day must have nonzero availability.' };
+    }
+
+    const today = getTodayKolkata();
+    const workspace = normalizeStudyWorkspace(goal.studyWorkspace);
+    const plan = calculateWorkspaceStudyPlan({
+      startDate: today,
+      targetDate: targetDate || goal.targetDate,
+      availability,
+      selectedItemIds,
+      curriculum: curriculumData,
+      studyWorkspace: workspace
+    });
+
+    return {
+      data: {
+        previewForDate: today,
+        baseVersion: goal.version,
+        curriculumVersion: workspace.curriculumVersion || DEFAULT_CURRICULUM_VERSION,
+        ...plan
+      }
+    };
+  },
+
+  async applyWorkspacePlan({
+    expectedVersion,
+    previewForDate,
+    curriculumVersion,
+    availability,
+    selectedItemIds,
+    targetDate
+  }) {
+    if (!currentUser) throw { status: 401, code: 'UNAUTHORIZED', message: 'Sign in required.' };
+    const storageKey = STORAGE_KEY_PREFIX + currentUser.id;
+    const raw = safeStorage.getItem(storageKey);
+    if (!raw) throw { status: 404, code: 'GOAL_NOT_FOUND', message: 'No active goal found.' };
+
+    const today = getTodayKolkata();
+    if (previewForDate !== today) {
+      const err = new Error('This study plan preview was generated for a different day.');
+      err.code = 'STALE_PREVIEW';
+      err.status = 409;
+      throw err;
+    }
+
+    const goal = JSON.parse(raw);
+    if (goal.version !== expectedVersion) {
+      const err = new Error('Goal version changed.');
+      err.code = 'VERSION_CONFLICT';
+      err.status = 409;
+      throw err;
+    }
+
+    const workspace = normalizeStudyWorkspace(goal.studyWorkspace);
+    const activeCurriculumVersion = workspace.curriculumVersion || DEFAULT_CURRICULUM_VERSION;
+    if (curriculumVersion && curriculumVersion !== activeCurriculumVersion) {
+      const err = new Error('Curriculum version changed since preview.');
+      err.code = 'CURRICULUM_VERSION_CONFLICT';
+      err.status = 409;
+      throw err;
+    }
+
+    const plan = calculateWorkspaceStudyPlan({
+      startDate: today,
+      targetDate: targetDate || goal.targetDate,
+      availability,
+      selectedItemIds,
+      curriculum: curriculumData,
+      studyWorkspace: workspace
+    });
+
+    const nowIso = new Date().toISOString();
+    const savedStudyPlan = {
+      planId: 'plan-' + Math.random().toString(36).slice(2, 10),
+      createdAt: nowIso,
+      baseVersion: goal.version + 1,
+      curriculumVersion: activeCurriculumVersion,
+      ...plan
+    };
+
+    goal.version += 1;
+    goal.studyWorkspace = {
+      ...workspace,
+      studyPlan: savedStudyPlan,
+      updatedAt: nowIso
+    };
+    goal.updatedAt = nowIso;
+    safeStorage.setItem(storageKey, JSON.stringify(goal));
+
+    return {
+      data: {
+        goal: deriveGoalStats(goal),
+        studyPlan: savedStudyPlan
+      }
+    };
   }
 };
-

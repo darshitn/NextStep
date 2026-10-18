@@ -5,7 +5,7 @@ export default function ProgressSummary({ goal, totalMissions = 12 }) {
   const count = Math.min(Object.keys(goal.completions || {}).length, totalMissions);
   const percent = totalMissions ? Math.round(count / totalMissions * 100) : 0;
   return <section className="progress-strip" aria-label="Your progress">
-    <div className="progress-count"><span className="section-label">Your progress</span><p><strong>{count}</strong> / {totalMissions} missions</p>
+    <div className="progress-count"><span className="section-label">Starter track progress</span><p><strong>{count}</strong> / {totalMissions} starter missions</p>
       <div className="progress-track" role="progressbar" aria-label="Missions completed" aria-valuemin={0} aria-valuemax={totalMissions} aria-valuenow={count}><div style={{ width: `${percent}%` }} /></div>
     </div>
     <dl className="progress-metrics">

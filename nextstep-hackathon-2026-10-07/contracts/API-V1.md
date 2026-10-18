@@ -312,3 +312,130 @@ HTTP 200:
   }
 }
 ```
+
+## Atlas + Proof Learning Workspace Extension (17 October 2026)
+
+### Preservation of Starter Track & One-Goal Constraint
+- Existing `dsa-starter-v1` missions (`m01`–`m12`), `schedule`, `completions`, `learning`, `xp`, `level`, `remainingMinutes`, `nextMissionId`, `estimatedFinishDate`, and `status` are preserved unchanged.
+- All Atlas + Proof learning workspace state is stored additively under `goal.state.studyWorkspace` within the existing owner-scoped `public.nextstep_goals` row using optimistic compare-and-set (`version`). No database schema migration is required.
+- Legacy goals without `studyWorkspace` receive a normalized default `studyWorkspace` object on read and retain all additive fields across every legacy mutation (`/complete`, `/recovery/apply`, `/learning/context`, `/learning/check`, `/learning/recall`, `PATCH /api/goal`).
+
+### Namespaced Curriculum IDs & Public Catalog
+- Curriculum IDs use strict prefixes disjoint from `m01`–`m12`:
+  - Topics: `topic_<slug>`
+  - Prerequisite edges: `{ fromTopicId, toTopicId, rationale }`
+  - Lessons: `les_<topic>_<nn>`
+  - Interactive exercises: `ex_<topic>_<nn>`
+  - External practice references: `prac_<topic>_<nn>`
+  - Source attributions: `src_<slug>`
+- `GET /api/catalog` returns the existing starter mission fields AND an additive `curriculum` object containing only items with `reviewStatus === "published"`. Unreviewed drafts (`reviewStatus !== "published"`) are excluded from production catalog indexes and published counts.
+- **Grading Integrity & Student-Safe Catalog**: `GET /api/catalog` outputs student-safe curriculum representations. Answer keys (`isCorrect` flags on step and edge choices, `correctOptionId` on lesson knowledge checks, and `referenceImplementation` code) are stripped from public responses to prevent client-side answer sniffing.
+- **Evaluation Endpoints (Interactive Formative Feedback)**:
+  - `POST /api/catalog/exercise/evaluate-step`: `{ exerciseId, variantKey, stepIndex, choiceId }` -> `{ data: { isCorrect, feedback, explanation } }`
+  - `POST /api/catalog/exercise/evaluate-edge`: `{ exerciseId, choiceId }` -> `{ data: { isCorrect, feedback, explanation } }`
+  - `POST /api/catalog/lesson/evaluate-check`: `{ lessonId, optionId }` -> `{ data: { isCorrect, feedback, explanation } }`
+  - `GET /api/catalog/exercise/:exerciseId/reference`: Explicit on-demand request for reference invariant, implementation, and edge case notes.
+
+### Additive `goal.studyWorkspace` Shape
+```json
+{
+  "schemaVersion": 1,
+  "curriculumVersion": "atlas-proof-v1",
+  "selectedTopicId": "topic_hashing",
+  "lessonProgress": {},
+  "exerciseAttempts": {},
+  "practiceAttempts": {},
+  "studyPlan": null,
+  "updatedAt": "2026-10-17T10:00:00.000Z"
+}
+```
+- **Retention & Bounds**:
+  - `exerciseAttempts[exerciseId]`: up to 20 latest chronological attempts per exercise.
+  - `practiceAttempts[problemId]`: up to 20 latest chronological attempts per problem.
+  - `lessonProgress[lessonId]`: keyed by published `lessonId`, `reflection` trimmed up to 500 characters.
+  - `studyPlan.selectedItemIds`: up to 40 explicitly selected curriculum items.
+
+### POST /api/goal/workspace/lesson — authenticated
+Save lesson progress, reflection, knowledge check outcome, or selected topic in Atlas/Proof.
+```json
+{
+  "expectedVersion": 2,
+  "requestId": "20000000-0000-4000-8000-000000000001",
+  "lessonId": "les_hashing_01",
+  "topicId": "topic_hashing",
+  "status": "completed",
+  "completedSections": ["explanation", "worked_example", "trace", "edge_case", "knowledge_check", "reflection"],
+  "reflection": "Check membership before inserting so an element never matches itself.",
+  "knowledgeCheckOptionId": "kc_les_hashing_01_b"
+}
+```
+- Server validates `lessonId` and `topicId` against published curriculum, grades `knowledgeCheckOptionId` server-side against authoritative curriculum, enforces `requestId` idempotency (identical retry returns 200 without version bump; conflicting payload with same `requestId` returns 409 `REQUEST_CONFLICT`), and updates `studyWorkspace.lessonProgress[lessonId]` with CAS.
+- Recording lesson progress never claims verified mastery and never alters starter `m01`–`m12` completions or XP.
+
+### POST /api/goal/workspace/exercise — authenticated
+Record an interactive Proof trace/reasoning exercise attempt with authoritative server-side grading.
+```json
+{
+  "expectedVersion": 3,
+  "attemptId": "30000000-0000-4000-8000-000000000001",
+  "exerciseId": "ex_hashing_01",
+  "variantKey": "primary",
+  "stepAnswers": [
+    { "stepIndex": 0, "choiceId": "c1_correct" },
+    { "stepIndex": 1, "choiceId": "c2_correct" }
+  ],
+  "edgeChoiceId": "ec_hash1_correct",
+  "outcome": "with_hint",
+  "mistakeCount": 1,
+  "hintRevealed": false,
+  "referenceRevealed": true,
+  "reflection": "Forgot that index 1 value 5 stays in the set when index 2 is checked."
+}
+```
+- **Authoritative Grading**: Server grades every `stepAnswer` and `edgeChoiceId` against the authoritative (answer-key-bearing) curriculum. Incomplete traces or incorrect choices are rejected with HTTP 422 (`VALIDATION_ERROR`).
+- **Authoritative Outcome Derivation**: Regardless of the client-supplied `outcome`, the server normalizes the outcome:
+  - `needed_reference` if `referenceRevealed` is true.
+  - `with_hint` if `hintRevealed` is true or `mistakeCount > 0`.
+  - `independent` only if zero mistakes, no hint, and no reference reveal.
+- **CAS & Idempotency**: Computes server-assigned `savedAt` and `nextReviewDate` in `Asia/Kolkata`, caps history at 20 attempts per exercise, and enforces `attemptId` idempotency (identical retry returns 200; altered payload with same `attemptId` returns 409 `ATTEMPT_CONFLICT`).
+
+### POST /api/goal/workspace/practice — authenticated
+Record a self-reported attempt on an external practice problem reference.
+```json
+{
+  "expectedVersion": 4,
+  "attemptId": "40000000-0000-4000-8000-000000000001",
+  "problemId": "prac_hashing_01",
+  "outcome": "with_hint",
+  "note": "Used a hash set to check seen values in O(1) average time.",
+  "needsReview": true
+}
+```
+- Outcomes: `independent`, `with_hint`, `not_yet`.
+- Server validates `problemId` against published practice references, always sets `selfReported: true`, assigns `savedAt` and `nextReviewDate` (`Asia/Kolkata`), caps history at 20 attempts per problem, and enforces `attemptId` idempotency.
+
+### POST /api/goal/workspace/plan/preview — authenticated (read-only)
+Calculate a capacity-aware study plan for explicitly selected curriculum items without mutating saved state.
+```json
+{
+  "expectedVersion": 5,
+  "availability": { "mon": 30, "tue": 0, "wed": 30, "thu": 0, "fri": 30, "sat": 0, "sun": 0 },
+  "selectedItemIds": ["les_hashing_01", "les_hashing_02", "prac_hashing_01"],
+  "targetDate": "2026-10-31"
+}
+```
+- Respects topic and lesson prerequisites, skips already-completed lessons unless explicitly requested for revisit, uses content duration estimates (never claiming measured focus time), supports multi-session spanning when an item's estimated minutes exceed a single day's slot without marking it complete, and returns `sessions`, `unscheduledItemIds`, `deadlineConflict`, `baseVersion`, `previewForDate`, and `curriculumVersion`.
+
+### POST /api/goal/workspace/plan/apply — authenticated
+Atomically save an accepted study plan under `goal.state.studyWorkspace.studyPlan`.
+```json
+{
+  "expectedVersion": 5,
+  "previewForDate": "2026-10-17",
+  "curriculumVersion": "atlas-proof-v1",
+  "availability": { "mon": 30, "tue": 0, "wed": 30, "thu": 0, "fri": 30, "sat": 0, "sun": 0 },
+  "selectedItemIds": ["les_hashing_01", "les_hashing_02", "prac_hashing_01"],
+  "targetDate": "2026-10-31"
+}
+```
+- Recomputes deterministically on the server, rejects stale `expectedVersion`, stale `previewForDate`, or mismatched `curriculumVersion` with 409, and saves `studyWorkspace.studyPlan` without modifying the starter track schedule (`goal.schedule`) or starter availability.

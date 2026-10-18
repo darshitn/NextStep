@@ -463,3 +463,26 @@ Post-publish: bbab876 pushed to audit branch and main. Vercel success and new li
 - Boundary & Safety:
   - Verified against synthetic fixtures in local isolation.
   - No database migration, no external network calls, zero credential leakage.
+
+## Atlas + Proof + Practice Study Workspace — 2026-10-18
+
+- Milestone: ATLAS + PROOF + PRACTICE WORKSPACE / STAGES 0–5 COMPLETED & LOCALLY VERIFIED
+- Summary:
+  1. Implemented versioned curriculum schema (`server/src/schemas/curriculumSchemas.js`), registry (`server/src/services/curriculumRegistry.js`), offline validator (`server/scripts/validate-curriculum.mjs`), and 4 curriculum packs (`12` published topics, `48` lessons, `18` interactive trace exercises, `120` curated external practice problems, `1` draft item excluded).
+  2. Added bounded `studyWorkspace` persistence (`lessonProgress`, `exerciseAttempts`, `practiceAttempts`, `studyPlan`, `savedNotes`), capacity-aware study planner (`generateCurriculumStudyPlan`), and curriculum spaced-review scheduling (`calculateCurriculumReviewDate`) in `server/src/schemas/goalSchemas.js`, `server/src/services/scheduler.js`, `server/src/routes/catalog.js`, and `server/src/routes/goal.js`, with full client fixture parity (`client/src/fixtures/apiFixture.js`).
+  3. Integrated `AtlasView.jsx`, `ProofStudio.jsx`, `ProofTraceRenderer.jsx`, and `PracticeLibraryView.jsx` with `TodayView.jsx` (explainable next-step recommendation), `ReviewView.jsx` (unified curriculum & starter review queue), `InsightsView.jsx` (JSON export with bounded `studyWorkspace`), and preserved `RoadmapView.jsx` (`dsa-starter-v1` `m01`–`m12`).
+- Verification Commands & Results:
+  - `node server/scripts/validate-curriculum.mjs`: PASS (`12` topics, `48` lessons, `18` exercises, `120` practice problems, `1` excluded draft)
+  - `npm.cmd --prefix server test`: PASS (`69/69` tests across 6 suites)
+  - `npm.cmd --prefix client test`: PASS (`70/70` tests across 6 suites)
+  - `npm.cmd --prefix client run build`: PASS (`dist/` built cleanly)
+  - `git diff --check`: PASS (0 whitespace/formatting errors)
+  - `node scripts/verify-workspace.cjs D:/Projects/Deadline-Catcher/node_modules/playwright http://127.0.0.1:5187`: PASS (`14/14` starter regression checks)
+  - `node scripts/verify-atlas-proof.cjs D:/Projects/Deadline-Catcher/node_modules/playwright http://127.0.0.1:5187`: PASS (`9/9` checks across `1440x900`, `1024x768`, `390x844`, `320x568` & all 6 themes)
+- Evidence & Delivery Report:
+  - Full report: `docs/ATLAS-PROOF-RESULT.md`
+  - Progress ledger: `docs/ATLAS-PROOF-PROGRESS.md`
+  - Browser evidence: `.local/atlas-proof-evidence/2026-10-17T19-31-48-611Z`
+  - Local preview server left running at `http://127.0.0.1:5187` (PID `30164`).
+- Boundary & Safety:
+  - No git commit, push, deploy, `.env*` modification, secret inspection, dependency change, or database schema migration occurred.
