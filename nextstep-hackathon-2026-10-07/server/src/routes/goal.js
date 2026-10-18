@@ -18,7 +18,13 @@ import {
   workspacePlanPreviewSchema,
   workspacePlanApplySchema,
   calculateExerciseReviewDate,
-  calculatePracticeReviewDate
+  calculatePracticeReviewDate,
+  checkpointDraftSchema,
+  checkpointEvaluateSchema,
+  checkpointSkipSchema,
+  checkpointResetSchema,
+  continuationPlanPreviewSchema,
+  continuationPlanApplySchema
 } from '../schemas/goalSchemas.js';
 import {
   getTodayKolkata,
@@ -37,6 +43,11 @@ import {
   getAuthoritativeExercise,
   gradeExerciseAttempt
 } from '../services/curriculumRegistry.js';
+import {
+  FOUNDATIONS_CHECKPOINTS,
+  getStudentSafeCheckpoint,
+  gradeCheckpointAttempt
+} from '../data/foundationsCheckpoint.js';
 import { isAiConfigured, getMissingAiConfig } from '../config.js';
 import { generateGeminiGuidance, assessUnderstandingAnswer } from '../services/guidance.js';
 import { checkRateLimit } from '../services/rateLimiter.js';
@@ -2003,6 +2014,806 @@ router.post('/workspace/plan/apply', async (req, res, next) => {
     const updatedWorkspace = {
       ...workspace,
       studyPlan: savedStudyPlan,
+      updatedAt: nowIso
+    };
+
+    const updatedState = {
+      ...row.state,
+      version: newVersion,
+      studyWorkspace: updatedWorkspace,
+      updatedAt: nowIso
+    };
+
+    const { data: updatedRows, error: updateError } = await req.supabase
+      .from('nextstep_goals')
+      .update({
+        version: newVersion,
+        state: updatedState,
+        updated_at: nowIso
+      })
+      .eq('id', row.id)
+      .eq('version', row.version)
+      .select();
+
+    if (updateError) {
+      return res.status(503).json({
+        error: { code: 'DATABASE_ERROR', message: updateError.message || 'Database update failed.' }
+      });
+    }
+
+    if (!updatedRows || updatedRows.length === 0) {
+      return res.status(409).json({
+        error: {
+          code: 'VERSION_CONFLICT',
+          message: 'Goal was modified concurrently. Refresh to view latest workspace state.'
+        }
+      });
+    }
+
+    return res.status(200).json({
+      data: {
+        goal: deriveGoalStats(updatedState, catalogData),
+        studyPlan: savedStudyPlan
+      }
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// GET /api/goal/workspace/checkpoint/:checkpointId — authenticated
+router.get('/workspace/checkpoint/:checkpointId', async (req, res, next) => {
+  try {
+    const { checkpointId } = req.params;
+    const safeCheckpoint = getStudentSafeCheckpoint(checkpointId);
+    if (!safeCheckpoint) {
+      return res.status(404).json({
+        error: {
+          code: 'CHECKPOINT_NOT_FOUND',
+          message: `Checkpoint "${checkpointId}" not found.`
+        }
+      });
+    }
+
+    const { data: row, error } = await req.supabase
+      .from('nextstep_goals')
+      .select('*')
+      .maybeSingle();
+
+    if (error) {
+      return res.status(503).json({
+        error: { code: 'DATABASE_ERROR', message: error.message || 'Database error loading goal.' }
+      });
+    }
+
+    if (!row) {
+      return res.status(404).json({
+        error: { code: 'GOAL_NOT_FOUND', message: 'Create your goal first.' }
+      });
+    }
+
+    const workspace = normalizeStudyWorkspace(row.state.studyWorkspace);
+    const continuation = workspace.continuation;
+    const checkpointData = continuation.checkpoint;
+
+    return res.status(200).json({
+      data: {
+        checkpoint: safeCheckpoint,
+        draft: {
+          answers: checkpointData.draftAnswers || {},
+          savedAt: checkpointData.draftSavedAt || null
+        },
+        latestAttempt: checkpointData.latestAttempt || null
+      }
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// POST /api/goal/workspace/checkpoint/draft — authenticated
+router.post('/workspace/checkpoint/draft', async (req, res, next) => {
+  try {
+    const parsed = checkpointDraftSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(422).json({
+        error: {
+          code: 'VALIDATION_ERROR',
+          message: 'Invalid checkpoint draft payload.',
+          fields: parsed.error.flatten().fieldErrors
+        }
+      });
+    }
+
+    const { expectedVersion, checkpointId, draftAnswers } = parsed.data;
+    if (!FOUNDATIONS_CHECKPOINTS[checkpointId]) {
+      return res.status(404).json({
+        error: {
+          code: 'CHECKPOINT_NOT_FOUND',
+          message: `Checkpoint "${checkpointId}" not found.`
+        }
+      });
+    }
+
+    const { data: row, error } = await req.supabase
+      .from('nextstep_goals')
+      .select('*')
+      .maybeSingle();
+
+    if (error) {
+      return res.status(503).json({
+        error: { code: 'DATABASE_ERROR', message: error.message || 'Database error loading goal.' }
+      });
+    }
+
+    if (!row) {
+      return res.status(404).json({
+        error: { code: 'GOAL_NOT_FOUND', message: 'Create your goal first.' }
+      });
+    }
+
+    if (row.version !== expectedVersion) {
+      return res.status(409).json({
+        error: {
+          code: 'VERSION_CONFLICT',
+          message: 'Goal version changed. Refresh to view latest workspace state.'
+        }
+      });
+    }
+
+    const nowIso = new Date().toISOString();
+    const workspace = normalizeStudyWorkspace(row.state.studyWorkspace);
+    const updatedContinuation = {
+      ...workspace.continuation,
+      status: workspace.continuation.status === 'completed' ? 'completed' : 'in_progress',
+      checkpoint: {
+        ...workspace.continuation.checkpoint,
+        checkpointId,
+        status: workspace.continuation.checkpoint.status === 'completed' ? 'completed' : 'in_progress',
+        draftAnswers,
+        draftSavedAt: nowIso
+      }
+    };
+
+    const updatedWorkspace = {
+      ...workspace,
+      continuation: updatedContinuation,
+      updatedAt: nowIso
+    };
+
+    const newVersion = row.version + 1;
+    const updatedState = {
+      ...row.state,
+      version: newVersion,
+      studyWorkspace: updatedWorkspace,
+      updatedAt: nowIso
+    };
+
+    const { data: updatedRows, error: updateError } = await req.supabase
+      .from('nextstep_goals')
+      .update({
+        version: newVersion,
+        state: updatedState,
+        updated_at: nowIso
+      })
+      .eq('id', row.id)
+      .eq('version', row.version)
+      .select();
+
+    if (updateError) {
+      return res.status(503).json({
+        error: { code: 'DATABASE_ERROR', message: updateError.message || 'Database update failed.' }
+      });
+    }
+
+    if (!updatedRows || updatedRows.length === 0) {
+      return res.status(409).json({
+        error: {
+          code: 'VERSION_CONFLICT',
+          message: 'Goal was modified concurrently. Refresh to view latest workspace state.'
+        }
+      });
+    }
+
+    return res.status(200).json({
+      data: {
+        goal: deriveGoalStats(updatedState, catalogData),
+        draftSavedAt: nowIso
+      }
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// POST /api/goal/workspace/checkpoint/evaluate — authenticated
+router.post('/workspace/checkpoint/evaluate', async (req, res, next) => {
+  try {
+    const parsed = checkpointEvaluateSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(422).json({
+        error: {
+          code: 'VALIDATION_ERROR',
+          message: 'Invalid checkpoint evaluation payload.',
+          fields: parsed.error.flatten().fieldErrors
+        }
+      });
+    }
+
+    const { expectedVersion, attemptId, checkpointId, answers, selfReportedAssistance, reflection } = parsed.data;
+    if (!FOUNDATIONS_CHECKPOINTS[checkpointId]) {
+      return res.status(404).json({
+        error: {
+          code: 'CHECKPOINT_NOT_FOUND',
+          message: `Checkpoint "${checkpointId}" not found.`
+        }
+      });
+    }
+
+    const { data: row, error } = await req.supabase
+      .from('nextstep_goals')
+      .select('*')
+      .maybeSingle();
+
+    if (error) {
+      return res.status(503).json({
+        error: { code: 'DATABASE_ERROR', message: error.message || 'Database error loading goal.' }
+      });
+    }
+
+    if (!row) {
+      return res.status(404).json({
+        error: { code: 'GOAL_NOT_FOUND', message: 'Create your goal first.' }
+      });
+    }
+
+    const workspace = normalizeStudyWorkspace(row.state.studyWorkspace);
+    const continuation = workspace.continuation;
+    const checkpointData = continuation.checkpoint;
+
+    // Idempotency check: inspect latestAttempt and history
+    const allAttempts = [
+      ...(checkpointData.latestAttempt ? [checkpointData.latestAttempt] : []),
+      ...(checkpointData.history || [])
+    ];
+    const existing = allAttempts.find((a) => a.attemptId === attemptId);
+    if (existing) {
+      // Check if answers match
+      const existingAnswers = {};
+      for (const tr of Object.values(existing.topicResults || {})) {
+        if (tr.questionId && tr.selected) {
+          existingAnswers[tr.questionId] = tr.selected;
+        }
+      }
+      const isIdentical =
+        Object.keys(answers).length === Object.keys(existingAnswers).length &&
+        Object.entries(answers).every(([qId, optId]) => existingAnswers[qId] === optId);
+
+      if (isIdentical) {
+        return res.status(200).json({
+          data: {
+            goal: deriveGoalStats(row.state, catalogData),
+            evaluation: existing
+          }
+        });
+      }
+
+      return res.status(409).json({
+        error: {
+          code: 'ATTEMPT_CONFLICT',
+          message: 'An evaluation attempt with this attemptId already exists with different data.'
+        }
+      });
+    }
+
+    // Version CAS check
+    if (row.version !== expectedVersion) {
+      return res.status(409).json({
+        error: {
+          code: 'VERSION_CONFLICT',
+          message: 'Goal version changed. Refresh to view latest workspace state.'
+        }
+      });
+    }
+
+    // Authoritative server-side grading
+    const evaluation = gradeCheckpointAttempt({
+      checkpointId,
+      attemptId,
+      answers,
+      selfReportedAssistance,
+      reflection
+    });
+
+    const nowIso = new Date().toISOString();
+    const history = [...(checkpointData.history || []), evaluation].slice(-5);
+
+    const updatedContinuation = {
+      ...continuation,
+      status: 'completed',
+      checkpoint: {
+        ...checkpointData,
+        checkpointId,
+        status: 'completed',
+        draftAnswers: {},
+        draftSavedAt: null,
+        latestAttempt: evaluation,
+        history
+      }
+    };
+
+    const updatedWorkspace = {
+      ...workspace,
+      continuation: updatedContinuation,
+      updatedAt: nowIso
+    };
+
+    const newVersion = row.version + 1;
+    const updatedState = {
+      ...row.state,
+      version: newVersion,
+      studyWorkspace: updatedWorkspace,
+      updatedAt: nowIso
+    };
+
+    const { data: updatedRows, error: updateError } = await req.supabase
+      .from('nextstep_goals')
+      .update({
+        version: newVersion,
+        state: updatedState,
+        updated_at: nowIso
+      })
+      .eq('id', row.id)
+      .eq('version', row.version)
+      .select();
+
+    if (updateError) {
+      return res.status(503).json({
+        error: { code: 'DATABASE_ERROR', message: updateError.message || 'Database update failed.' }
+      });
+    }
+
+    if (!updatedRows || updatedRows.length === 0) {
+      return res.status(409).json({
+        error: {
+          code: 'VERSION_CONFLICT',
+          message: 'Goal was modified concurrently. Refresh to view latest workspace state.'
+        }
+      });
+    }
+
+    return res.status(200).json({
+      data: {
+        goal: deriveGoalStats(updatedState, catalogData),
+        evaluation
+      }
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// POST /api/goal/workspace/checkpoint/skip — authenticated
+router.post('/workspace/checkpoint/skip', async (req, res, next) => {
+  try {
+    const parsed = checkpointSkipSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(422).json({
+        error: {
+          code: 'VALIDATION_ERROR',
+          message: 'Invalid checkpoint skip payload.',
+          fields: parsed.error.flatten().fieldErrors
+        }
+      });
+    }
+
+    const { expectedVersion, checkpointId } = parsed.data;
+    const { data: row, error } = await req.supabase
+      .from('nextstep_goals')
+      .select('*')
+      .maybeSingle();
+
+    if (error) {
+      return res.status(503).json({
+        error: { code: 'DATABASE_ERROR', message: error.message || 'Database error loading goal.' }
+      });
+    }
+
+    if (!row) {
+      return res.status(404).json({
+        error: { code: 'GOAL_NOT_FOUND', message: 'Create your goal first.' }
+      });
+    }
+
+    if (row.version !== expectedVersion) {
+      return res.status(409).json({
+        error: {
+          code: 'VERSION_CONFLICT',
+          message: 'Goal version changed. Refresh to view latest workspace state.'
+        }
+      });
+    }
+
+    const nowIso = new Date().toISOString();
+    const workspace = normalizeStudyWorkspace(row.state.studyWorkspace);
+    const updatedContinuation = {
+      ...workspace.continuation,
+      status: 'skipped',
+      checkpoint: {
+        ...workspace.continuation.checkpoint,
+        checkpointId,
+        status: 'skipped'
+      }
+    };
+
+    const updatedWorkspace = {
+      ...workspace,
+      continuation: updatedContinuation,
+      updatedAt: nowIso
+    };
+
+    const newVersion = row.version + 1;
+    const updatedState = {
+      ...row.state,
+      version: newVersion,
+      studyWorkspace: updatedWorkspace,
+      updatedAt: nowIso
+    };
+
+    const { data: updatedRows, error: updateError } = await req.supabase
+      .from('nextstep_goals')
+      .update({
+        version: newVersion,
+        state: updatedState,
+        updated_at: nowIso
+      })
+      .eq('id', row.id)
+      .eq('version', row.version)
+      .select();
+
+    if (updateError) {
+      return res.status(503).json({
+        error: { code: 'DATABASE_ERROR', message: updateError.message || 'Database update failed.' }
+      });
+    }
+
+    if (!updatedRows || updatedRows.length === 0) {
+      return res.status(409).json({
+        error: {
+          code: 'VERSION_CONFLICT',
+          message: 'Goal was modified concurrently. Refresh to view latest workspace state.'
+        }
+      });
+    }
+
+    return res.status(200).json({
+      data: {
+        goal: deriveGoalStats(updatedState, catalogData)
+      }
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// POST /api/goal/workspace/checkpoint/reset — authenticated
+router.post('/workspace/checkpoint/reset', async (req, res, next) => {
+  try {
+    const parsed = checkpointResetSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(422).json({
+        error: {
+          code: 'VALIDATION_ERROR',
+          message: 'Invalid checkpoint reset payload.',
+          fields: parsed.error.flatten().fieldErrors
+        }
+      });
+    }
+
+    const { expectedVersion, checkpointId } = parsed.data;
+    const { data: row, error } = await req.supabase
+      .from('nextstep_goals')
+      .select('*')
+      .maybeSingle();
+
+    if (error) {
+      return res.status(503).json({
+        error: { code: 'DATABASE_ERROR', message: error.message || 'Database error loading goal.' }
+      });
+    }
+
+    if (!row) {
+      return res.status(404).json({
+        error: { code: 'GOAL_NOT_FOUND', message: 'Create your goal first.' }
+      });
+    }
+
+    if (row.version !== expectedVersion) {
+      return res.status(409).json({
+        error: {
+          code: 'VERSION_CONFLICT',
+          message: 'Goal version changed. Refresh to view latest workspace state.'
+        }
+      });
+    }
+
+    const nowIso = new Date().toISOString();
+    const workspace = normalizeStudyWorkspace(row.state.studyWorkspace);
+    const updatedContinuation = {
+      ...workspace.continuation,
+      status: 'in_progress',
+      checkpoint: {
+        ...workspace.continuation.checkpoint,
+        checkpointId,
+        status: 'in_progress',
+        draftAnswers: {},
+        draftSavedAt: null
+      }
+    };
+
+    const updatedWorkspace = {
+      ...workspace,
+      continuation: updatedContinuation,
+      updatedAt: nowIso
+    };
+
+    const newVersion = row.version + 1;
+    const updatedState = {
+      ...row.state,
+      version: newVersion,
+      studyWorkspace: updatedWorkspace,
+      updatedAt: nowIso
+    };
+
+    const { data: updatedRows, error: updateError } = await req.supabase
+      .from('nextstep_goals')
+      .update({
+        version: newVersion,
+        state: updatedState,
+        updated_at: nowIso
+      })
+      .eq('id', row.id)
+      .eq('version', row.version)
+      .select();
+
+    if (updateError) {
+      return res.status(503).json({
+        error: { code: 'DATABASE_ERROR', message: updateError.message || 'Database update failed.' }
+      });
+    }
+
+    if (!updatedRows || updatedRows.length === 0) {
+      return res.status(409).json({
+        error: {
+          code: 'VERSION_CONFLICT',
+          message: 'Goal was modified concurrently. Refresh to view latest workspace state.'
+        }
+      });
+    }
+
+    return res.status(200).json({
+      data: {
+        goal: deriveGoalStats(updatedState, catalogData)
+      }
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// POST /api/goal/workspace/continuation/plan/preview — authenticated (read-only)
+router.post('/workspace/continuation/plan/preview', async (req, res, next) => {
+  try {
+    const parsed = continuationPlanPreviewSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(422).json({
+        error: {
+          code: 'VALIDATION_ERROR',
+          message: 'Invalid plan preview payload.',
+          fields: parsed.error.flatten().fieldErrors
+        }
+      });
+    }
+
+    const { expectedVersion, availability, targetDate } = parsed.data;
+    let selectedItemIds = parsed.data.selectedItemIds;
+
+    const { data: row, error } = await req.supabase
+      .from('nextstep_goals')
+      .select('*')
+      .maybeSingle();
+
+    if (error) {
+      return res.status(503).json({
+        error: { code: 'DATABASE_ERROR', message: error.message || 'Database error loading goal.' }
+      });
+    }
+
+    if (!row) {
+      return res.status(404).json({
+        error: { code: 'GOAL_NOT_FOUND', message: 'Create your goal first.' }
+      });
+    }
+
+    if (row.version !== expectedVersion) {
+      return res.status(409).json({
+        error: {
+          code: 'VERSION_CONFLICT',
+          message: 'Goal version changed. Refresh to view latest workspace state.'
+        }
+      });
+    }
+
+    const workspace = normalizeStudyWorkspace(row.state.studyWorkspace);
+    const curriculum = getPublishedCurriculum();
+
+    // If no explicit items, derive evidence-based recommendations
+    if (!selectedItemIds || selectedItemIds.length === 0) {
+      const derived = [];
+      const continuation = workspace.continuation;
+      const latestAttempt = continuation.checkpoint?.latestAttempt;
+
+      // 1. Revisit any failed checkpoint topics
+      if (latestAttempt?.topicResults) {
+        for (const tr of Object.values(latestAttempt.topicResults)) {
+          if (tr.revisitRecommended && tr.recommendedAction?.lessonId) {
+            derived.push(tr.recommendedAction.lessonId);
+          }
+        }
+      }
+
+      // 2. Next uncompleted lesson in topological curriculum order
+      const completedLessons = new Set(
+        Object.entries(workspace.lessonProgress || {})
+          .filter(([k, lp]) => lp && (lp.status === 'completed' || lp.completedAt))
+          .map(([k, lp]) => lp.lessonId || k)
+      );
+
+      for (const lesson of curriculum.lessons || []) {
+        if (!completedLessons.has(lesson.id) && !derived.includes(lesson.id)) {
+          const prereqsMet = (lesson.prerequisites || []).every((p) => completedLessons.has(p));
+          if (prereqsMet) {
+            derived.push(lesson.id);
+            break;
+          }
+        }
+      }
+
+      // 3. Fallback: if empty, pick first topic's first lesson
+      if (derived.length === 0 && curriculum.lessons?.length > 0) {
+        derived.push(curriculum.lessons[0].id);
+      }
+
+      selectedItemIds = derived;
+    }
+
+    const today = getTodayKolkata();
+    const plan = calculateWorkspaceStudyPlan({
+      startDate: today,
+      targetDate: targetDate || row.state.targetDate,
+      availability,
+      selectedItemIds,
+      curriculum,
+      studyWorkspace: workspace
+    });
+
+    const previewId = crypto.randomUUID();
+    const activeCurriculumVersion = workspace.curriculumVersion || DEFAULT_CURRICULUM_VERSION;
+
+    return res.status(200).json({
+      data: {
+        previewId,
+        previewForDate: today,
+        curriculumVersion: activeCurriculumVersion,
+        baseVersion: row.version,
+        ...plan
+      }
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// POST /api/goal/workspace/continuation/plan/apply — authenticated
+router.post('/workspace/continuation/plan/apply', async (req, res, next) => {
+  try {
+    const parsed = continuationPlanApplySchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(422).json({
+        error: {
+          code: 'VALIDATION_ERROR',
+          message: 'Invalid plan apply payload.',
+          fields: parsed.error.flatten().fieldErrors
+        }
+      });
+    }
+
+    const { expectedVersion, previewForDate, curriculumVersion, availability, selectedItemIds, targetDate } = parsed.data;
+
+    const { data: row, error } = await req.supabase
+      .from('nextstep_goals')
+      .select('*')
+      .maybeSingle();
+
+    if (error) {
+      return res.status(503).json({
+        error: { code: 'DATABASE_ERROR', message: error.message || 'Database error loading goal.' }
+      });
+    }
+
+    if (!row) {
+      return res.status(404).json({
+        error: { code: 'GOAL_NOT_FOUND', message: 'Create your goal first.' }
+      });
+    }
+
+    const today = getTodayKolkata();
+    if (previewForDate !== today) {
+      return res.status(409).json({
+        error: {
+          code: 'PREVIEW_EXPIRED',
+          message: 'Calendar day changed since preview was generated. Please preview your plan again.'
+        }
+      });
+    }
+
+    if (row.version !== expectedVersion) {
+      return res.status(409).json({
+        error: {
+          code: 'VERSION_CONFLICT',
+          message: 'Goal version changed since preview. Please preview and apply again.'
+        }
+      });
+    }
+
+    const workspace = normalizeStudyWorkspace(row.state.studyWorkspace);
+    const activeCurriculumVersion = workspace.curriculumVersion || DEFAULT_CURRICULUM_VERSION;
+    if (curriculumVersion !== activeCurriculumVersion) {
+      return res.status(409).json({
+        error: {
+          code: 'CURRICULUM_VERSION_CONFLICT',
+          message: 'Curriculum version changed since preview. Please preview again.'
+        }
+      });
+    }
+
+    const curriculum = getPublishedCurriculum();
+    const plan = calculateWorkspaceStudyPlan({
+      startDate: today,
+      targetDate: targetDate || row.state.targetDate,
+      availability,
+      selectedItemIds,
+      curriculum,
+      studyWorkspace: workspace
+    });
+
+    const nowIso = new Date().toISOString();
+    const planId = crypto.randomUUID();
+    const savedStudyPlan = {
+      planId,
+      createdAt: nowIso,
+      baseVersion: row.version + 1,
+      curriculumVersion: activeCurriculumVersion,
+      ...plan
+    };
+
+    const updatedContinuation = {
+      ...workspace.continuation,
+      suggestedPlan: {
+        previewId: planId,
+        generatedAt: nowIso,
+        items: plan.selectedItemIds,
+        weeklyCommitmentHours: Object.values(availability).reduce((a, b) => a + b, 0) / 60,
+        accepted: true,
+        acceptedAt: nowIso
+      }
+    };
+
+    const newVersion = row.version + 1;
+    const updatedWorkspace = {
+      ...workspace,
+      studyPlan: savedStudyPlan,
+      continuation: updatedContinuation,
       updatedAt: nowIso
     };
 

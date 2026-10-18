@@ -221,3 +221,47 @@ export function calculatePracticeReviewDate(dateOrIso, outcome, needsReview = fa
   if (outcome === 'with_hint') return addDays(dateKolkata, 2);
   return addDays(dateKolkata, 7);
 }
+
+export const checkpointDraftSchema = z.object({
+  expectedVersion: z.number().int().positive(),
+  checkpointId: z.string().min(3).max(80),
+  draftAnswers: z.record(z.string().min(1).max(80), z.string().min(1).max(80))
+}).strict();
+
+export const checkpointEvaluateSchema = z.object({
+  expectedVersion: z.number().int().positive(),
+  attemptId: z.string().uuid(),
+  checkpointId: z.string().min(3).max(80),
+  answers: z.record(z.string().min(1).max(80), z.string().min(1).max(80)),
+  selfReportedAssistance: z.record(
+    z.string().min(1).max(80),
+    z.object({ usedHint: z.boolean().optional() }).strict()
+  ).optional(),
+  reflection: z.string().max(500).optional()
+}).strict();
+
+export const checkpointSkipSchema = z.object({
+  expectedVersion: z.number().int().positive(),
+  checkpointId: z.string().min(3).max(80)
+}).strict();
+
+export const checkpointResetSchema = z.object({
+  expectedVersion: z.number().int().positive(),
+  checkpointId: z.string().min(3).max(80)
+}).strict();
+
+export const continuationPlanPreviewSchema = z.object({
+  expectedVersion: z.number().int().positive(),
+  availability: availabilitySchema,
+  selectedItemIds: z.array(z.string().min(3).max(80)).min(1).max(40).optional(),
+  targetDate: z.string().regex(isoDateRegex).optional()
+}).strict();
+
+export const continuationPlanApplySchema = z.object({
+  expectedVersion: z.number().int().positive(),
+  previewForDate: z.string().regex(isoDateRegex),
+  curriculumVersion: z.string().min(3).max(40),
+  availability: availabilitySchema,
+  selectedItemIds: z.array(z.string().min(3).max(80)).min(1).max(40),
+  targetDate: z.string().regex(isoDateRegex).optional()
+}).strict();

@@ -76,6 +76,38 @@ export function calculateSchedule(startDate, availability, missionIds, completed
 
 export const DEFAULT_CURRICULUM_VERSION = 'atlas-proof-v1';
 
+export function normalizeContinuation(rawContinuation) {
+  const base = rawContinuation && typeof rawContinuation === 'object' ? rawContinuation : {};
+  const checkpointBase = base.checkpoint && typeof base.checkpoint === 'object' ? base.checkpoint : {};
+  const suggestedBase = base.suggestedPlan && typeof base.suggestedPlan === 'object' ? base.suggestedPlan : {};
+
+  const history = Array.isArray(checkpointBase.history)
+    ? checkpointBase.history.slice(-5)
+    : [];
+
+  return {
+    schemaVersion: 1,
+    status: typeof base.status === 'string' ? base.status : 'not_started',
+    checkpoint: {
+      checkpointId: typeof checkpointBase.checkpointId === 'string' ? checkpointBase.checkpointId : 'chk_foundations_v1',
+      status: typeof checkpointBase.status === 'string' ? checkpointBase.status : 'not_started',
+      draftAnswers: checkpointBase.draftAnswers && typeof checkpointBase.draftAnswers === 'object' ? { ...checkpointBase.draftAnswers } : {},
+      draftSavedAt: checkpointBase.draftSavedAt || null,
+      latestAttempt: checkpointBase.latestAttempt && typeof checkpointBase.latestAttempt === 'object' ? { ...checkpointBase.latestAttempt } : null,
+      history
+    },
+    suggestedPlan: {
+      previewId: suggestedBase.previewId || null,
+      generatedAt: suggestedBase.generatedAt || null,
+      sourceEvidence: suggestedBase.sourceEvidence || null,
+      items: Array.isArray(suggestedBase.items) ? suggestedBase.items : [],
+      weeklyCommitmentHours: typeof suggestedBase.weeklyCommitmentHours === 'number' ? suggestedBase.weeklyCommitmentHours : 0,
+      accepted: Boolean(suggestedBase.accepted),
+      acceptedAt: suggestedBase.acceptedAt || null
+    }
+  };
+}
+
 export function normalizeStudyWorkspace(rawWorkspace) {
   const base = rawWorkspace && typeof rawWorkspace === 'object' ? rawWorkspace : {};
   return {
@@ -86,6 +118,7 @@ export function normalizeStudyWorkspace(rawWorkspace) {
     exerciseAttempts: base.exerciseAttempts && typeof base.exerciseAttempts === 'object' ? base.exerciseAttempts : {},
     practiceAttempts: base.practiceAttempts && typeof base.practiceAttempts === 'object' ? base.practiceAttempts : {},
     studyPlan: base.studyPlan && typeof base.studyPlan === 'object' ? base.studyPlan : null,
+    continuation: normalizeContinuation(base.continuation),
     updatedAt: base.updatedAt || null
   };
 }

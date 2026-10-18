@@ -9,6 +9,11 @@ import {
   getAuthoritativeLesson,
   gradeExerciseAttempt
 } from '../../../server/src/services/curriculumRegistry.js';
+import {
+  FOUNDATIONS_CHECKPOINTS,
+  getStudentSafeCheckpoint,
+  gradeCheckpointAttempt
+} from '../../../server/src/data/foundationsCheckpoint.js';
 
 const STORAGE_KEY_PREFIX = 'nextstep_fixture_goal_';
 const AUTH_KEY = 'nextstep_fixture_user';
@@ -61,6 +66,12 @@ export const DEMO_ACCOUNTS = [
     name: 'Rahul Verma (Needs Recovery)',
     description: 'Completed 2 missions; exam week reduced available time.',
     initialState: 'interrupted'
+  },
+  {
+    email: 'student.completed@nextstep.local',
+    name: 'Divya Iyer (Starter Completed)',
+    description: 'Completed all 12 starter missions; ready for foundations checkpoint.',
+    initialState: 'completed'
   }
 ];
 
@@ -89,6 +100,38 @@ function getDayOfWeek(dateStr) {
   return names[d.getUTCDay()];
 }
 
+export function normalizeContinuation(rawContinuation) {
+  const base = rawContinuation && typeof rawContinuation === 'object' ? rawContinuation : {};
+  const checkpointBase = base.checkpoint && typeof base.checkpoint === 'object' ? base.checkpoint : {};
+  const suggestedBase = base.suggestedPlan && typeof base.suggestedPlan === 'object' ? base.suggestedPlan : {};
+
+  const history = Array.isArray(checkpointBase.history)
+    ? checkpointBase.history.slice(-5)
+    : [];
+
+  return {
+    schemaVersion: 1,
+    status: typeof base.status === 'string' ? base.status : 'not_started',
+    checkpoint: {
+      checkpointId: typeof checkpointBase.checkpointId === 'string' ? checkpointBase.checkpointId : 'chk_foundations_v1',
+      status: typeof checkpointBase.status === 'string' ? checkpointBase.status : 'not_started',
+      draftAnswers: checkpointBase.draftAnswers && typeof checkpointBase.draftAnswers === 'object' ? { ...checkpointBase.draftAnswers } : {},
+      draftSavedAt: checkpointBase.draftSavedAt || null,
+      latestAttempt: checkpointBase.latestAttempt && typeof checkpointBase.latestAttempt === 'object' ? { ...checkpointBase.latestAttempt } : null,
+      history
+    },
+    suggestedPlan: {
+      previewId: suggestedBase.previewId || null,
+      generatedAt: suggestedBase.generatedAt || null,
+      sourceEvidence: suggestedBase.sourceEvidence || null,
+      items: Array.isArray(suggestedBase.items) ? suggestedBase.items : [],
+      weeklyCommitmentHours: typeof suggestedBase.weeklyCommitmentHours === 'number' ? suggestedBase.weeklyCommitmentHours : 0,
+      accepted: Boolean(suggestedBase.accepted),
+      acceptedAt: suggestedBase.acceptedAt || null
+    }
+  };
+}
+
 export function normalizeStudyWorkspace(rawWorkspace) {
   const base = rawWorkspace && typeof rawWorkspace === 'object' ? rawWorkspace : {};
   return {
@@ -99,6 +142,7 @@ export function normalizeStudyWorkspace(rawWorkspace) {
     exerciseAttempts: base.exerciseAttempts && typeof base.exerciseAttempts === 'object' ? base.exerciseAttempts : {},
     practiceAttempts: base.practiceAttempts && typeof base.practiceAttempts === 'object' ? base.practiceAttempts : {},
     studyPlan: base.studyPlan && typeof base.studyPlan === 'object' ? base.studyPlan : null,
+    continuation: normalizeContinuation(base.continuation),
     updatedAt: base.updatedAt || null
   };
 }
@@ -587,6 +631,40 @@ function createInitialSeedGoal(stateType, userEmail) {
         ]
       },
       updatedAt: yesterdayIso
+    });
+  } else if (stateType === 'completed') {
+    for (let i = 1; i <= 12; i++) {
+      const mid = `m${String(i).padStart(2, '0')}`;
+      const daysAgo = 13 - i;
+      completions[mid] = {
+        completedAt: new Date(Date.now() - daysAgo * 86400000).toISOString(),
+        outcome: i % 4 === 0 ? 'with_hint' : 'independent',
+        reflection: `Starter mission ${mid} completed with clear invariant understanding.`
+      };
+    }
+    studyWorkspace = normalizeStudyWorkspace({
+      selectedTopicId: 'topic_arrays',
+      continuation: {
+        schemaVersion: 1,
+        status: 'not_started',
+        checkpoint: {
+          checkpointId: 'chk_foundations_v1',
+          status: 'not_started',
+          draftAnswers: {},
+          draftSavedAt: null,
+          latestAttempt: null,
+          history: []
+        },
+        suggestedPlan: {
+          previewId: null,
+          generatedAt: null,
+          sourceEvidence: null,
+          items: [],
+          weeklyCommitmentHours: 0,
+          accepted: false,
+          acceptedAt: null
+        }
+      }
     });
   }
 
@@ -1659,6 +1737,415 @@ export const apiFixture = {
     goal.studyWorkspace = {
       ...workspace,
       studyPlan: savedStudyPlan,
+      updatedAt: nowIso
+    };
+    goal.updatedAt = nowIso;
+    safeStorage.setItem(storageKey, JSON.stringify(goal));
+
+    return {
+      data: {
+        goal: deriveGoalStats(goal),
+        studyPlan: savedStudyPlan
+      }
+    };
+  },
+
+  async getCheckpoint(checkpointId) {
+    if (!currentUser) throw { status: 401, code: 'UNAUTHORIZED', message: 'Sign in required.' };
+    const storageKey = STORAGE_KEY_PREFIX + currentUser.id;
+    const raw = safeStorage.getItem(storageKey);
+    if (!raw) throw { status: 404, code: 'GOAL_NOT_FOUND', message: 'No active goal found.' };
+
+    const safeCheckpoint = getStudentSafeCheckpoint(checkpointId);
+    if (!safeCheckpoint) {
+      throw { status: 404, code: 'CHECKPOINT_NOT_FOUND', message: `Checkpoint "${checkpointId}" not found.` };
+    }
+
+    const goal = JSON.parse(raw);
+    const workspace = normalizeStudyWorkspace(goal.studyWorkspace);
+    const continuation = workspace.continuation;
+
+    return {
+      data: {
+        checkpoint: safeCheckpoint,
+        draft: {
+          answers: continuation.checkpoint.draftAnswers || {},
+          savedAt: continuation.checkpoint.draftSavedAt || null
+        },
+        latestAttempt: continuation.checkpoint.latestAttempt || null
+      }
+    };
+  },
+
+  async saveCheckpointDraft({ expectedVersion, checkpointId, draftAnswers }) {
+    if (!currentUser) throw { status: 401, code: 'UNAUTHORIZED', message: 'Sign in required.' };
+    const storageKey = STORAGE_KEY_PREFIX + currentUser.id;
+    const raw = safeStorage.getItem(storageKey);
+    if (!raw) throw { status: 404, code: 'GOAL_NOT_FOUND', message: 'No active goal found.' };
+
+    if (!FOUNDATIONS_CHECKPOINTS[checkpointId]) {
+      throw { status: 404, code: 'CHECKPOINT_NOT_FOUND', message: `Checkpoint "${checkpointId}" not found.` };
+    }
+
+    const goal = JSON.parse(raw);
+    if (goal.version !== expectedVersion) {
+      const err = new Error('Goal version changed.');
+      err.code = 'VERSION_CONFLICT';
+      err.status = 409;
+      throw err;
+    }
+
+    const nowIso = new Date().toISOString();
+    const workspace = normalizeStudyWorkspace(goal.studyWorkspace);
+    const updatedContinuation = {
+      ...workspace.continuation,
+      status: workspace.continuation.status === 'completed' ? 'completed' : 'in_progress',
+      checkpoint: {
+        ...workspace.continuation.checkpoint,
+        checkpointId,
+        status: workspace.continuation.checkpoint.status === 'completed' ? 'completed' : 'in_progress',
+        draftAnswers,
+        draftSavedAt: nowIso
+      }
+    };
+
+    goal.version += 1;
+    goal.studyWorkspace = {
+      ...workspace,
+      continuation: updatedContinuation,
+      updatedAt: nowIso
+    };
+    goal.updatedAt = nowIso;
+    safeStorage.setItem(storageKey, JSON.stringify(goal));
+
+    return {
+      data: {
+        goal: deriveGoalStats(goal),
+        draftSavedAt: nowIso
+      }
+    };
+  },
+
+  async evaluateCheckpoint({ expectedVersion, attemptId, checkpointId, answers, selfReportedAssistance, reflection }) {
+    if (!currentUser) throw { status: 401, code: 'UNAUTHORIZED', message: 'Sign in required.' };
+    const storageKey = STORAGE_KEY_PREFIX + currentUser.id;
+    const raw = safeStorage.getItem(storageKey);
+    if (!raw) throw { status: 404, code: 'GOAL_NOT_FOUND', message: 'No active goal found.' };
+
+    if (!FOUNDATIONS_CHECKPOINTS[checkpointId]) {
+      throw { status: 404, code: 'CHECKPOINT_NOT_FOUND', message: `Checkpoint "${checkpointId}" not found.` };
+    }
+
+    const goal = JSON.parse(raw);
+    const workspace = normalizeStudyWorkspace(goal.studyWorkspace);
+    const checkpointData = workspace.continuation.checkpoint;
+
+    // Idempotency check
+    const allAttempts = [
+      ...(checkpointData.latestAttempt ? [checkpointData.latestAttempt] : []),
+      ...(checkpointData.history || [])
+    ];
+    const existing = allAttempts.find((a) => a.attemptId === attemptId);
+    if (existing) {
+      const existingAnswers = {};
+      for (const tr of Object.values(existing.topicResults || {})) {
+        if (tr.questionId && tr.selected) existingAnswers[tr.questionId] = tr.selected;
+      }
+      const isIdentical =
+        Object.keys(answers || {}).length === Object.keys(existingAnswers).length &&
+        Object.entries(answers || {}).every(([qId, optId]) => existingAnswers[qId] === optId);
+
+      if (isIdentical) {
+        return {
+          data: {
+            goal: deriveGoalStats(goal),
+            evaluation: existing
+          }
+        };
+      }
+
+      throw {
+        status: 409,
+        code: 'ATTEMPT_CONFLICT',
+        message: 'An evaluation attempt with this attemptId already exists with different data.'
+      };
+    }
+
+    if (goal.version !== expectedVersion) {
+      const err = new Error('Goal version changed.');
+      err.code = 'VERSION_CONFLICT';
+      err.status = 409;
+      throw err;
+    }
+
+    const evaluation = gradeCheckpointAttempt({
+      checkpointId,
+      attemptId,
+      answers,
+      selfReportedAssistance,
+      reflection
+    });
+
+    const nowIso = new Date().toISOString();
+    const history = [...(checkpointData.history || []), evaluation].slice(-5);
+
+    const updatedContinuation = {
+      ...workspace.continuation,
+      status: 'completed',
+      checkpoint: {
+        ...checkpointData,
+        checkpointId,
+        status: 'completed',
+        draftAnswers: {},
+        draftSavedAt: null,
+        latestAttempt: evaluation,
+        history
+      }
+    };
+
+    goal.version += 1;
+    goal.studyWorkspace = {
+      ...workspace,
+      continuation: updatedContinuation,
+      updatedAt: nowIso
+    };
+    goal.updatedAt = nowIso;
+    safeStorage.setItem(storageKey, JSON.stringify(goal));
+
+    return {
+      data: {
+        goal: deriveGoalStats(goal),
+        evaluation
+      }
+    };
+  },
+
+  async skipCheckpoint({ expectedVersion, checkpointId }) {
+    if (!currentUser) throw { status: 401, code: 'UNAUTHORIZED', message: 'Sign in required.' };
+    const storageKey = STORAGE_KEY_PREFIX + currentUser.id;
+    const raw = safeStorage.getItem(storageKey);
+    if (!raw) throw { status: 404, code: 'GOAL_NOT_FOUND', message: 'No active goal found.' };
+
+    const goal = JSON.parse(raw);
+    if (goal.version !== expectedVersion) {
+      const err = new Error('Goal version changed.');
+      err.code = 'VERSION_CONFLICT';
+      err.status = 409;
+      throw err;
+    }
+
+    const nowIso = new Date().toISOString();
+    const workspace = normalizeStudyWorkspace(goal.studyWorkspace);
+    const updatedContinuation = {
+      ...workspace.continuation,
+      status: 'skipped',
+      checkpoint: {
+        ...workspace.continuation.checkpoint,
+        checkpointId,
+        status: 'skipped'
+      }
+    };
+
+    goal.version += 1;
+    goal.studyWorkspace = {
+      ...workspace,
+      continuation: updatedContinuation,
+      updatedAt: nowIso
+    };
+    goal.updatedAt = nowIso;
+    safeStorage.setItem(storageKey, JSON.stringify(goal));
+
+    return {
+      data: {
+        goal: deriveGoalStats(goal)
+      }
+    };
+  },
+
+  async resetCheckpoint({ expectedVersion, checkpointId }) {
+    if (!currentUser) throw { status: 401, code: 'UNAUTHORIZED', message: 'Sign in required.' };
+    const storageKey = STORAGE_KEY_PREFIX + currentUser.id;
+    const raw = safeStorage.getItem(storageKey);
+    if (!raw) throw { status: 404, code: 'GOAL_NOT_FOUND', message: 'No active goal found.' };
+
+    const goal = JSON.parse(raw);
+    if (goal.version !== expectedVersion) {
+      const err = new Error('Goal version changed.');
+      err.code = 'VERSION_CONFLICT';
+      err.status = 409;
+      throw err;
+    }
+
+    const nowIso = new Date().toISOString();
+    const workspace = normalizeStudyWorkspace(goal.studyWorkspace);
+    const updatedContinuation = {
+      ...workspace.continuation,
+      status: 'in_progress',
+      checkpoint: {
+        ...workspace.continuation.checkpoint,
+        checkpointId,
+        status: 'in_progress',
+        draftAnswers: {},
+        draftSavedAt: null
+      }
+    };
+
+    goal.version += 1;
+    goal.studyWorkspace = {
+      ...workspace,
+      continuation: updatedContinuation,
+      updatedAt: nowIso
+    };
+    goal.updatedAt = nowIso;
+    safeStorage.setItem(storageKey, JSON.stringify(goal));
+
+    return {
+      data: {
+        goal: deriveGoalStats(goal)
+      }
+    };
+  },
+
+  async previewContinuationPlan({ expectedVersion, availability, selectedItemIds, targetDate }) {
+    if (!currentUser) throw { status: 401, code: 'UNAUTHORIZED', message: 'Sign in required.' };
+    const storageKey = STORAGE_KEY_PREFIX + currentUser.id;
+    const raw = safeStorage.getItem(storageKey);
+    if (!raw) throw { status: 404, code: 'GOAL_NOT_FOUND', message: 'No active goal found.' };
+
+    const goal = JSON.parse(raw);
+    if (goal.version !== expectedVersion) {
+      const err = new Error('Goal version changed.');
+      err.code = 'VERSION_CONFLICT';
+      err.status = 409;
+      throw err;
+    }
+
+    const workspace = normalizeStudyWorkspace(goal.studyWorkspace);
+    let itemsToSchedule = selectedItemIds;
+
+    if (!itemsToSchedule || itemsToSchedule.length === 0) {
+      const derived = [];
+      const continuation = workspace.continuation;
+      const latestAttempt = continuation.checkpoint?.latestAttempt;
+
+      if (latestAttempt?.topicResults) {
+        for (const tr of Object.values(latestAttempt.topicResults)) {
+          if (tr.revisitRecommended && tr.recommendedAction?.lessonId) {
+            derived.push(tr.recommendedAction.lessonId);
+          }
+        }
+      }
+
+      const completedLessons = new Set(
+        Object.entries(workspace.lessonProgress || {})
+          .filter(([k, lp]) => lp && (lp.status === 'completed' || lp.completedAt))
+          .map(([k, lp]) => lp.lessonId || k)
+      );
+
+      for (const lesson of curriculumData.lessons || []) {
+        if (!completedLessons.has(lesson.id) && !derived.includes(lesson.id)) {
+          const prereqsMet = (lesson.prerequisites || []).every((p) => completedLessons.has(p));
+          if (prereqsMet) {
+            derived.push(lesson.id);
+            break;
+          }
+        }
+      }
+
+      if (derived.length === 0 && curriculumData.lessons?.length > 0) {
+        derived.push(curriculumData.lessons[0].id);
+      }
+
+      itemsToSchedule = derived;
+    }
+
+    const today = getTodayKolkata();
+    const plan = calculateWorkspaceStudyPlan({
+      startDate: today,
+      targetDate: targetDate || goal.targetDate,
+      availability,
+      selectedItemIds: itemsToSchedule,
+      curriculum: curriculumData,
+      studyWorkspace: workspace
+    });
+
+    return {
+      data: {
+        previewId: 'prev-' + Math.random().toString(36).slice(2, 10),
+        previewForDate: today,
+        baseVersion: goal.version,
+        curriculumVersion: workspace.curriculumVersion || DEFAULT_CURRICULUM_VERSION,
+        ...plan
+      }
+    };
+  },
+
+  async applyContinuationPlan({
+    expectedVersion,
+    previewForDate,
+    curriculumVersion,
+    availability,
+    selectedItemIds,
+    targetDate
+  }) {
+    if (!currentUser) throw { status: 401, code: 'UNAUTHORIZED', message: 'Sign in required.' };
+    const storageKey = STORAGE_KEY_PREFIX + currentUser.id;
+    const raw = safeStorage.getItem(storageKey);
+    if (!raw) throw { status: 404, code: 'GOAL_NOT_FOUND', message: 'No active goal found.' };
+
+    const today = getTodayKolkata();
+    if (previewForDate !== today) {
+      const err = new Error('This continuation plan preview was generated for a different day.');
+      err.code = 'STALE_PREVIEW';
+      err.status = 409;
+      throw err;
+    }
+
+    const goal = JSON.parse(raw);
+    if (goal.version !== expectedVersion) {
+      const err = new Error('Goal version changed.');
+      err.code = 'VERSION_CONFLICT';
+      err.status = 409;
+      throw err;
+    }
+
+    const workspace = normalizeStudyWorkspace(goal.studyWorkspace);
+    const plan = calculateWorkspaceStudyPlan({
+      startDate: today,
+      targetDate: targetDate || goal.targetDate,
+      availability,
+      selectedItemIds,
+      curriculum: curriculumData,
+      studyWorkspace: workspace
+    });
+
+    const nowIso = new Date().toISOString();
+    const planId = 'cplan-' + Math.random().toString(36).slice(2, 10);
+    const savedStudyPlan = {
+      planId,
+      createdAt: nowIso,
+      baseVersion: goal.version + 1,
+      curriculumVersion: workspace.curriculumVersion || DEFAULT_CURRICULUM_VERSION,
+      ...plan
+    };
+
+    const updatedContinuation = {
+      ...workspace.continuation,
+      suggestedPlan: {
+        previewId: planId,
+        generatedAt: nowIso,
+        items: plan.selectedItemIds,
+        weeklyCommitmentHours: Object.values(availability).reduce((a, b) => a + b, 0) / 60,
+        accepted: true,
+        acceptedAt: nowIso
+      }
+    };
+
+    goal.version += 1;
+    goal.studyWorkspace = {
+      ...workspace,
+      studyPlan: savedStudyPlan,
+      continuation: updatedContinuation,
       updatedAt: nowIso
     };
     goal.updatedAt = nowIso;

@@ -439,3 +439,177 @@ Atomically save an accepted study plan under `goal.state.studyWorkspace.studyPla
 }
 ```
 - Recomputes deterministically on the server, rejects stale `expectedVersion`, stale `previewForDate`, or mismatched `curriculumVersion` with 409, and saves `studyWorkspace.studyPlan` without modifying the starter track schedule (`goal.schedule`) or starter availability.
+
+---
+
+## Continuation & Foundations Checkpoint Extensions (Track A)
+
+### Additive State Structure: `goal.state.studyWorkspace.continuation`
+Saved under `goal.state.studyWorkspace.continuation`. If absent on older goals, defaults to initial unstarted state upon normalization:
+```json
+{
+  "schemaVersion": 1,
+  "status": "not_started",
+  "checkpoint": {
+    "checkpointId": "chk_foundations_v1",
+    "status": "not_started",
+    "draftAnswers": {},
+    "draftSavedAt": null,
+    "latestAttempt": null,
+    "history": []
+  },
+  "suggestedPlan": {
+    "previewId": null,
+    "generatedAt": null,
+    "sourceEvidence": null,
+    "items": [],
+    "weeklyCommitmentHours": 0,
+    "accepted": false,
+    "acceptedAt": null
+  }
+}
+```
+- **Bounds & Retention**:
+  - `draftAnswers`: map of `questionId -> optionId`, limited to current checkpoint questions.
+  - `latestAttempt`: object describing score, topic results, feedback, and category.
+  - `history`: capped at the 5 most recent attempts per user.
+  - Text fields (`reflection`, `note`) trimmed to max 500 characters.
+
+### GET /api/goal/workspace/checkpoint/:checkpointId — authenticated
+Retrieves student-safe checkpoint details, current user draft, and latest attempt.
+- **Parameters**: `checkpointId` (must match supported definition, e.g. `chk_foundations_v1`).
+- **Privacy & Safety**: Answer keys, correct choices, and grading logic are NEVER returned on this route.
+- **Response**: HTTP 200
+```json
+{
+  "data": {
+    "checkpoint": {
+      "id": "chk_foundations_v1",
+      "version": 1,
+      "title": "DSA Foundations Checkpoint",
+      "description": "A quick 3-topic check covering arrays, hashing, and binary search boundaries.",
+      "estimatedMinutes": 10,
+      "topics": [
+        { "id": "topic_arrays", "title": "Arrays & Invariant Scanning", "questionCount": 1 },
+        { "id": "topic_hashing", "title": "Hash Sets & Complement Lookup", "questionCount": 1 },
+        { "id": "topic_binary_search", "title": "Binary Search Boundaries", "questionCount": 1 }
+      ],
+      "questions": [
+        {
+          "id": "chk_q_arrays_01",
+          "topicId": "topic_arrays",
+          "lessonId": "les_arrays_01",
+          "exerciseId": "ex_arrays_01",
+          "prompt": "When scanning an array to find maximum single-transaction profit, why must the candidate profit (prices[i] - minPrice) be evaluated before updating minPrice with prices[i]?",
+          "options": [
+            { "id": "opt_arr_1", "label": "To prevent an element at index i from pairing with itself and falsely reporting a zero-profit trade when prices are strictly descending." },
+            { "id": "opt_arr_2", "label": "Because JavaScript arrays require 1-based indexing for running minima." },
+            { "id": "opt_arr_3", "label": "Because updating minPrice first triggers an out-of-bounds exception." },
+            { "id": "opt_arr_4", "label": "Because profits can only be calculated on even indices." }
+          ],
+          "hint": "Think about what prices[i] - minPrice evaluates to if minPrice was just updated to prices[i]."
+        }
+      ]
+    },
+    "draft": {
+      "answers": { "chk_q_arrays_01": "opt_arr_1" },
+      "savedAt": "2026-10-18T18:45:00.000Z"
+    },
+    "latestAttempt": null
+  }
+}
+```
+
+### POST /api/goal/workspace/checkpoint/draft — authenticated
+Saves unsubmitted work-in-progress draft answers. Does not grade or advance attempt status.
+- **Request Body**:
+```json
+{
+  "expectedVersion": 2,
+  "checkpointId": "chk_foundations_v1",
+  "draftAnswers": {
+    "chk_q_arrays_01": "opt_arr_1"
+  }
+}
+```
+- **Response**: HTTP 200 `{"data": {"goal": Goal, "draftSavedAt": "2026-10-18T18:45:00.000Z"}}`
+- **Errors**: 404 checkpoint not found; 409 `VERSION_CONFLICT` if `expectedVersion` mismatches; 422 if invalid answer format.
+
+### POST /api/goal/workspace/checkpoint/evaluate — authenticated
+Authoritatively evaluates student answers on the server against server-side answer keys.
+- **Request Body**:
+```json
+{
+  "expectedVersion": 2,
+  "attemptId": "50000000-0000-4000-8000-000000000001",
+  "checkpointId": "chk_foundations_v1",
+  "answers": {
+    "chk_q_arrays_01": "opt_arr_1",
+    "chk_q_hashing_01": "opt_hash_1",
+    "chk_q_bs_01": "opt_bs_2"
+  },
+  "selfReportedAssistance": {
+    "chk_q_arrays_01": { "usedHint": false },
+    "chk_q_hashing_01": { "usedHint": true },
+    "chk_q_bs_01": { "usedHint": false }
+  },
+  "reflection": "Need to be more disciplined about binary search inclusive boundary conditions."
+}
+```
+- **Evaluation Logic**:
+  - Scores each question against server-side definition.
+  - Derives literal score: `{ correct: 2, total: 3 }` (never an invented percentage or job-readiness claim).
+  - Derives category:
+    - `"ready_to_continue"`: all 3 questions answered correctly without reference reveal.
+    - `"revisit_recommended"`: 1 or more questions incorrect or required hints.
+    - `"insufficient_evidence"`: fewer than 2 questions attempted.
+  - Produces `topicResults` with student-safe feedback, concrete recommended revisit lessons, and actual observed assistance.
+- **Idempotency**:
+  - Submitting identical `attemptId` with identical answers returns HTTP 200 with the existing evaluated result without incrementing goal version.
+  - Submitting identical `attemptId` with conflicting answers/payload returns HTTP 409 `ATTEMPT_CONFLICT`.
+- **Response**: HTTP 200 `{"data": {"goal": Goal, "evaluation": AttemptResult}}`
+
+### POST /api/goal/workspace/checkpoint/skip — authenticated
+Allows student to optionally bypass the foundations checkpoint and move directly to continuation planning.
+- **Request Body**:
+```json
+{
+  "expectedVersion": 2,
+  "checkpointId": "chk_foundations_v1"
+}
+```
+- **Response**: HTTP 200 `{"data": {"goal": Goal}}` (sets `continuation.status = "skipped"`).
+
+### POST /api/goal/workspace/checkpoint/reset — authenticated
+Resets checkpoint status back to `in_progress` to permit a fresh, clean evaluation attempt.
+- **Request Body**:
+```json
+{
+  "expectedVersion": 3,
+  "checkpointId": "chk_foundations_v1"
+}
+```
+- **Response**: HTTP 200 `{"data": {"goal": Goal}}`
+
+### POST /api/goal/workspace/continuation/plan/preview — authenticated (read-only)
+Computes a capacity-aware next-week study plan derived from real student evidence (checkpoint results, failed concepts, due reviews, and next eligible curriculum lessons).
+- **Request Body**:
+```json
+{
+  "expectedVersion": 3,
+  "availability": { "mon": 60, "tue": 0, "wed": 60, "thu": 0, "fri": 60, "sat": 0, "sun": 0 },
+  "selectedItemIds": ["les_binary_search_01", "les_two_pointers_01"],
+  "targetDate": "2026-10-31"
+}
+```
+- If `selectedItemIds` is omitted, the server deterministically generates recommendations based on:
+  1. Targeted revisit for any checkpoint topic where evidence shows difficulty (`revisitRecommended === true`).
+  2. First incomplete eligible lesson in prerequisite order from Atlas.
+  3. Any active reviews due today in `Asia/Kolkata`.
+- Does NOT mutate database state.
+- **Response**: HTTP 200 with `previewId`, `previewForDate` (`Asia/Kolkata`), `sessions`, `unscheduledItemIds`, `deadlineConflict`, `baseVersion`, and `curriculumVersion`.
+
+### POST /api/goal/workspace/continuation/plan/apply — authenticated
+Atomically accepts and persists the previewed continuation plan into `goal.state.studyWorkspace.studyPlan` and marks `goal.state.studyWorkspace.continuation.suggestedPlan.accepted = true`.
+- **Validation**: Rejects with 409 if `expectedVersion`, `previewForDate`, or `curriculumVersion` do not match saved state.
+- **Response**: HTTP 200 `{"data": {"goal": Goal, "studyPlan": SavedStudyPlan}}`

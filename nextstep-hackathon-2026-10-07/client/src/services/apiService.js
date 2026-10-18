@@ -218,5 +218,61 @@ export const apiService = {
     } catch (err) {
       return handleApiError(err);
     }
+  },
+
+  async getCheckpoint(checkpointId) {
+    try {
+      return await liveApi.getCheckpoint(checkpointId);
+    } catch (err) {
+      return handleApiError(err);
+    }
+  },
+
+  async saveCheckpointDraft(payload) {
+    try {
+      return await liveApi.saveCheckpointDraft(payload);
+    } catch (err) {
+      return handleApiError(err);
+    }
+  },
+
+  async evaluateCheckpoint(payload) {
+    try {
+      return await liveApi.evaluateCheckpoint(payload);
+    } catch (err) {
+      return handleApiError(err);
+    }
+  },
+
+  async skipCheckpoint(payload) {
+    try {
+      return await liveApi.skipCheckpoint(payload);
+    } catch (err) {
+      return handleApiError(err);
+    }
+  },
+
+  async resetCheckpoint(payload) {
+    try {
+      return await liveApi.resetCheckpoint(payload);
+    } catch (err) {
+      return handleApiError(err);
+    }
+  },
+
+  async previewContinuationPlan(payload) {
+    try {
+      return await liveApi.previewContinuationPlan(payload);
+    } catch (err) {
+      return handleApiError(err);
+    }
+  },
+
+  async applyContinuationPlan(payload) {
+    try {
+      return await liveApi.applyContinuationPlan(payload);
+    } catch (err) {
+      return handleApiError(err);
+    }
   }
 };
