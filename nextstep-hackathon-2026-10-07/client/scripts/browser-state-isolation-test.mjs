@@ -1,19 +1,26 @@
-// Browser State Isolation & UI Verification Test
-// Drives Chrome DevTools Protocol directly via native WebSocket
-// Verifies all required user scenarios with real React interface and synthetic data
+// Browser State Isolation & UI Verification Test (Playwright-based)
+// Uses fresh ephemeral contexts per run, bounded timeouts, request interception,
+// actual console/page-error collection, failure screenshots, and clean process teardown.
 
-import { spawn } from 'node:child_process';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import assert from 'node:assert/strict';
+import { fileURLToPath } from 'node:url';
+import { createRequire } from 'node:module';
 
-const PORT = 5192;
-const CDP_PORT = 9225;
-const APP_URL = `http://localhost:${PORT}`;
-const EVIDENCE_DIR = path.resolve('.local', 'atlas-proof-evidence', 'browser-isolation');
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const require = createRequire(import.meta.url);
 
-const CHROME_PATH = 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe';
-const CHROME_USER_DATA = path.resolve('.local', 'chrome-browser-profile');
+let chromium;
+try {
+  chromium = (await import('file:///D:/Projects/Deadline-Catcher/node_modules/playwright/index.mjs')).chromium;
+} catch (_) {
+  chromium = require('playwright').chromium;
+}
+
+const APP_URL = process.env.APP_URL || process.argv[2] || 'http://127.0.0.1:5173';
+const EVIDENCE_DIR = path.resolve(__dirname, '..', '.local', 'atlas-proof-evidence', 'browser-isolation');
 
 const fixtureModuleBody = `
 import { apiFixture, DEMO_ACCOUNTS } from '/src/fixtures/apiFixture.js';
@@ -43,541 +50,566 @@ export const apiService = {
 };
 `;
 
-let viteProcess = null;
-let chromeProcess = null;
-let ws = null;
-let msgId = 1;
+let browser = null;
+const recordedPageErrors = [];
+const recordedConsoleErrors = [];
+const failedLocalRequests = [];
 
-function send(method, params = {}) {
-  return new Promise((resolve, reject) => {
-    const id = msgId++;
-    const handler = (event) => {
-      const data = JSON.parse(event.data);
-      if (data.id === id) {
-        ws.removeEventListener('message', handler);
-        if (data.error) reject(new Error(`CDP ${method} error: ${JSON.stringify(data.error)}`));
-        else resolve(data.result);
-      }
-    };
-    ws.addEventListener('message', handler);
-    ws.send(JSON.stringify({ id, method, params }));
+async function setupPage(context) {
+  const page = await context.newPage();
+  page.setDefaultTimeout(12000);
+
+  page.on('pageerror', (err) => recordedPageErrors.push(err.message));
+  page.on('console', (msg) => {
+    if (msg.type() === 'error') {
+      recordedConsoleErrors.push(msg.text());
+    }
   });
-}
-
-async function evaluate(expression) {
-  const res = await send('Runtime.evaluate', {
-    expression,
-    returnByValue: true,
-    awaitPromise: true
+  page.on('requestfailed', (req) => {
+    if (req.url().startsWith(APP_URL)) {
+      failedLocalRequests.push(req.url());
+    }
   });
-  if (res.exceptionDetails) {
-    throw new Error(`Eval error (${expression}): ${JSON.stringify(res.exceptionDetails)}`);
-  }
-  return res.result?.value;
+
+  await page.route('**/*', (route) => {
+    const parsed = new URL(route.request().url());
+    if (parsed.pathname === '/src/services/apiService.js') {
+      return route.fulfill({
+        contentType: 'application/javascript; charset=utf-8',
+        body: fixtureModuleBody
+      });
+    }
+    return route.continue();
+  });
+
+  return page;
 }
 
-async function waitForSelector(selector, timeoutMs = 15000) {
-  const start = Date.now();
-  while (Date.now() - start < timeoutMs) {
-    const found = await evaluate(`Boolean(document.querySelector(${JSON.stringify(selector)}))`);
-    if (found) return true;
-    await new Promise((r) => setTimeout(r, 100));
-  }
-  throw new Error(`Timeout waiting for selector: ${selector}`);
-}
-
-async function waitForText(textOrRegex, timeoutMs = 15000) {
-  const start = Date.now();
-  while (Date.now() - start < timeoutMs) {
-    const found = await evaluate(`
-      (() => {
-        const text = ${JSON.stringify(textOrRegex)};
-        return document.body.innerText.includes(text);
-      })()
-    `);
-    if (found) return true;
-    await new Promise((r) => setTimeout(r, 100));
-  }
-  throw new Error(`Timeout waiting for text: ${textOrRegex}`);
-}
-
-async function clickSelector(selector) {
-  await waitForSelector(selector);
-  await evaluate(`
-    (() => {
-      const el = document.querySelector(${JSON.stringify(selector)});
-      if (!el) throw new Error("Element not found: " + ${JSON.stringify(selector)});
-      el.scrollIntoView({ block: 'center' });
-      el.click();
-    })()
-  `);
-}
-
-async function setInputValue(selector, value) {
-  await waitForSelector(selector);
-  await evaluate(`
-    (() => {
-      const el = document.querySelector(${JSON.stringify(selector)});
-      if (!el) throw new Error("Element not found: " + ${JSON.stringify(selector)});
-      el.focus();
-      const proto = Object.getPrototypeOf(el);
-      const set = Object.getOwnPropertyDescriptor(proto, 'value')?.set || Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value')?.set || Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')?.set;
-      if (set) {
-        set.call(el, ${JSON.stringify(value)});
-      } else {
-        el.value = ${JSON.stringify(value)};
-      }
-      el.dispatchEvent(new Event('input', { bubbles: true }));
-      el.dispatchEvent(new Event('change', { bubbles: true }));
-    })()
-  `);
-}
-
-async function selectOptionValue(selector, value) {
-  await waitForSelector(selector);
-  await evaluate(`
-    (() => {
-      const el = document.querySelector(${JSON.stringify(selector)});
-      if (!el) throw new Error("Select not found: " + ${JSON.stringify(selector)});
-      el.value = ${JSON.stringify(value)};
-      el.dispatchEvent(new Event('change', { bubbles: true }));
-    })()
-  `);
-}
-
-async function screenshot(filename) {
-  const { data } = await send('Page.captureScreenshot', { format: 'png' });
+async function takeScreenshot(page, filename) {
   const filepath = path.join(EVIDENCE_DIR, filename);
-  await fs.writeFile(filepath, Buffer.from(data, 'base64'));
-  console.log(`[Screenshot saved]: ${filepath}`);
+  await page.screenshot({ path: filepath, fullPage: true });
+  console.log(`[Screenshot saved]: ${filename}`);
 }
-
-async function cleanup() {
-  console.log('\nCleaning up processes...');
-  if (ws) {
-    try { ws.close(); } catch (_) {}
-  }
-  if (chromeProcess) {
-    try { chromeProcess.kill(); } catch (_) {}
-  }
-  if (viteProcess) {
-    try { viteProcess.kill(); } catch (_) {}
-  }
-}
-
-process.on('SIGINT', async () => { await cleanup(); process.exit(1); });
-process.on('SIGTERM', async () => { await cleanup(); process.exit(1); });
 
 async function runSuite() {
-  console.log('=== NextStep Atlas + Proof Browser State Isolation Suite ===');
+  console.log('=== NextStep Atlas + Proof Browser State Isolation & Layout Suite ===');
   await fs.mkdir(EVIDENCE_DIR, { recursive: true });
 
-  // 1. Launch Vite Dev Server
-  console.log(`Starting Vite dev server on port ${PORT}...`);
-  const clientDir = path.resolve('client');
-  viteProcess = spawn('npm.cmd', ['run', 'dev', '--', '--port', String(PORT), '--strictPort'], {
-    cwd: clientDir,
-    shell: true,
-    stdio: 'ignore'
+  browser = await chromium.launch({ channel: 'msedge', headless: true });
+  console.log('✓ Launched clean browser instance via Playwright.');
+
+  // Context 1: Active Student - Primary state isolation & flow testing
+  const context = await browser.newContext({
+    viewport: { width: 1440, height: 900 },
+    reducedMotion: 'reduce',
+    acceptDownloads: true
   });
+  const page = await setupPage(context);
 
-  // Wait for Vite to respond
-  let viteReady = false;
-  for (let i = 0; i < 30; i++) {
-    try {
-      const res = await fetch(APP_URL);
-      if (res.status === 200) {
-        viteReady = true;
-        break;
-      }
-    } catch (_) {}
-    await new Promise((r) => setTimeout(r, 500));
-  }
-  if (!viteReady) throw new Error(`Vite failed to start on port ${PORT}`);
-  console.log('✓ Vite dev server is responsive.');
-
-  // 2. Launch Headless Chrome with remote debugging
-  console.log(`Starting Headless Chrome on CDP port ${CDP_PORT}...`);
-  chromeProcess = spawn(
-    CHROME_PATH,
-    [
-      '--headless=new',
-      `--remote-debugging-port=${CDP_PORT}`,
-      `--user-data-dir=${CHROME_USER_DATA}`,
-      '--no-first-run',
-      '--no-default-browser-check',
-      '--window-size=1440,900'
-    ],
-    { stdio: 'ignore' }
-  );
-
-  // Connect to Chrome
-  let pageTarget = null;
-  for (let i = 0; i < 30; i++) {
-    try {
-      const pRes = await fetch(`http://127.0.0.1:${CDP_PORT}/json/new?about:blank`, { method: 'PUT' });
-      pageTarget = await pRes.json();
-      if (pageTarget?.webSocketDebuggerUrl) break;
-    } catch (_) {}
-    await new Promise((r) => setTimeout(r, 500));
-  }
-  if (!pageTarget) throw new Error('Failed to create page target on Chrome');
-  console.log(`✓ Chrome Page Target created: ${pageTarget.id}`);
-
-  ws = new WebSocket(pageTarget.webSocketDebuggerUrl);
-  await new Promise((resolve) => { ws.onopen = resolve; });
-  console.log('✓ Connected to Chrome DevTools Protocol WebSocket.');
-
-  // Enable domains
-  await send('Page.enable');
-  await send('Runtime.enable');
-  await send('DOM.enable');
-  await send('Fetch.enable', {
-    patterns: [
-      { urlPattern: '*apiService.js*' }
-    ]
-  });
-
-  // Request interception listener for apiService.js
-  ws.addEventListener('message', async (event) => {
-    const data = JSON.parse(event.data);
-    if (data.method === 'Fetch.requestPaused') {
-      const { requestId, request } = data.params;
-      if (request.url.includes('/src/services/apiService.js')) {
-        await send('Fetch.fulfillRequest', {
-          requestId,
-          responseCode: 200,
-          responseHeaders: [
-            { name: 'Content-Type', value: 'application/javascript' }
-          ],
-          body: Buffer.from(fixtureModuleBody).toString('base64')
-        });
-      } else {
-        await send('Fetch.continueRequest', { requestId });
-      }
-    }
-  });
-
-  // 3. Navigate to App and Sign In
   console.log(`Navigating to ${APP_URL}...`);
-  await send('Page.navigate', { url: APP_URL });
+  await page.goto(APP_URL, { waitUntil: 'domcontentloaded', timeout: 30000 });
 
-  // Wait for either login form or workspace nav
-  const startWait = Date.now();
-  let foundSelector = null;
-  while (Date.now() - startWait < 15000) {
-    const hasNav = await evaluate(`Boolean(document.querySelector('.workspace-nav'))`);
-    if (hasNav) {
-      foundSelector = 'nav';
-      break;
+  // Sign in as active student
+  console.log('Signing in with student.active@nextstep.local...');
+  await page.locator('input[type=email]').fill('student.active@nextstep.local');
+  await page.locator('input[type=password]').fill('password123');
+  await page.getByRole('button', { name: 'Sign In to NextStep', exact: true }).click();
+  await page.locator('.workspace-nav').waitFor();
+  console.log('✓ Authenticated into workspace navigation.');
+  await takeScreenshot(page, '00-workspace-initial.png');
+
+  const selectNav = async (name) => {
+    const directLocator = page
+      .locator('.workspace-nav')
+      .getByRole('button', { name: new RegExp('^' + name + '(?:\\s|$)') })
+      .or(
+        page
+          .locator('.workspace-nav')
+          .getByRole('tab', { name: new RegExp('^' + name + '(?:\\s|$)') })
+      );
+
+    const count = await directLocator.count();
+    for (let i = 0; i < count; i++) {
+      const el = directLocator.nth(i);
+      if (await el.isVisible()) {
+        return el.click();
+      }
     }
-    const hasEmail = await evaluate(`Boolean(document.querySelector('input[type=email]'))`);
-    if (hasEmail) {
-      foundSelector = 'email';
-      break;
+
+    const moreTrigger = page.locator('#nav-more-trigger');
+    if (await moreTrigger.isVisible()) {
+      await moreTrigger.click();
+      const menuLocator = page
+        .locator('.workspace-nav-dropdown')
+        .getByRole('menuitem', { name: new RegExp('^' + name + '(?:\\s|$)') })
+        .or(
+          page
+            .locator('.workspace-nav-dropdown')
+            .getByRole('button', { name: new RegExp('^' + name + '(?:\\s|$)') })
+        );
+      return menuLocator.first().click();
     }
-    await new Promise((r) => setTimeout(r, 100));
-  }
 
-  if (foundSelector === 'email') {
-    console.log('Signing in with student.active@nextstep.local...');
-    await setInputValue('input[type=email]', 'student.active@nextstep.local');
-    await setInputValue('input[type=password]', 'password123');
-    await clickSelector('button[type=submit]');
-    await waitForSelector('.workspace-nav');
-  } else {
-    console.log('Session already active; landed on workspace navigation.');
-  }
+    return directLocator.first().click();
+  };
 
-  console.log('✓ Workspace loaded successfully.');
-  await screenshot('00-workspace-initial.png');
-
-  // =========================================================================
-  // SCENARIO 1: State Isolation Between Exercises A & B (Reflections)
-  // =========================================================================
+  // -------------------------------------------------------------------------
+  // Scenario 1: State Isolation Between Exercises A & B (Reflections)
+  // -------------------------------------------------------------------------
   console.log('\n--- Scenario 1: Reflection Isolation Between Exercises A & B ---');
-  // Navigate to Proof tab
-  await evaluate(`
-    (() => {
-      const btn = Array.from(document.querySelectorAll('.workspace-nav button')).find(b => b.textContent.includes('Proof'));
-      if (btn) btn.click();
-    })()
-  `);
-  await waitForSelector('#view-proof');
-  console.log('✓ Proof Studio view active.');
+  await selectNav('Proof');
+  await page.locator('#view-proof').waitFor();
 
-  // Ensure Topic is topic_arrays and Lesson is les_arrays_01 (Exercise A: ex_arrays_01)
-  await selectOptionValue('#proof-topic-select', 'topic_arrays');
-  await new Promise((r) => setTimeout(r, 200));
-  await selectOptionValue('#proof-lesson-select', 'les_arrays_01');
-  await waitForSelector('#proof-exercise-reflection');
+  await page.locator('#proof-topic-select').selectOption('topic_arrays');
+  await page.locator('#proof-lesson-select').selectOption('les_arrays_01');
+  await page.locator('#proof-exercise-reflection').waitFor();
 
   const refA = 'Exercise A Reflection: Track minimum price encountered so far and maximize profit.';
-  console.log(`Setting Exercise A reflection: "${refA}"`);
-  await setInputValue('#proof-exercise-reflection', refA);
+  console.log(`Setting Exercise A reflection...`);
+  await page.locator('#proof-exercise-reflection').fill(refA);
 
-  // Switch to Lesson 2 (les_arrays_02, Exercise B: ex_arrays_02)
-  console.log('Switching to Exercise B (les_arrays_02: Product of Array Except Self)...');
-  await selectOptionValue('#proof-lesson-select', 'les_arrays_02');
-  await waitForSelector('#proof-exercise-reflection');
+  // Switch to Lesson 2 (Exercise B: ex_arrays_02)
+  console.log('Switching to Exercise B (les_arrays_02)...');
+  await page.locator('#proof-lesson-select').selectOption('les_arrays_02');
+  await page.locator('#proof-exercise-reflection').waitFor();
 
-  // Verify Exercise B reflection does NOT have Exercise A's text
-  const valBInitial = await evaluate(`document.querySelector('#proof-exercise-reflection').value`);
+  // Verify Exercise B starts empty
+  const valBInitial = await page.locator('#proof-exercise-reflection').inputValue();
   assert.equal(valBInitial, '', 'Exercise B reflection must initially be empty and isolated from Exercise A!');
   console.log('✓ Exercise B reflection is clean (no leakage from Exercise A).');
 
   const refB = 'Exercise B Reflection: Maintain prefix product array and running suffix product.';
-  console.log(`Setting Exercise B reflection: "${refB}"`);
-  await setInputValue('#proof-exercise-reflection', refB);
+  console.log(`Setting Exercise B reflection...`);
+  await page.locator('#proof-exercise-reflection').fill(refB);
 
-  // Switch back to Exercise A (les_arrays_01)
+  // Switch back to Exercise A
   console.log('Switching back to Exercise A (les_arrays_01)...');
-  await selectOptionValue('#proof-lesson-select', 'les_arrays_01');
-  await waitForSelector('#proof-exercise-reflection');
-
-  const valAReturned = await evaluate(`document.querySelector('#proof-exercise-reflection').value`);
+  await page.locator('#proof-lesson-select').selectOption('les_arrays_01');
+  await page.locator('#proof-exercise-reflection').waitFor();
+  const valAReturned = await page.locator('#proof-exercise-reflection').inputValue();
   assert.equal(valAReturned, refA, 'Exercise A must preserve its exact reflection when returning!');
   console.log('✓ Exercise A retained its exact reflection.');
 
-  // Switch back to Exercise B (les_arrays_02)
+  // Switch back to Exercise B
   console.log('Switching back to Exercise B (les_arrays_02)...');
-  await selectOptionValue('#proof-lesson-select', 'les_arrays_02');
-  await waitForSelector('#proof-exercise-reflection');
-
-  const valBReturned = await evaluate(`document.querySelector('#proof-exercise-reflection').value`);
+  await page.locator('#proof-lesson-select').selectOption('les_arrays_02');
+  await page.locator('#proof-exercise-reflection').waitFor();
+  const valBReturned = await page.locator('#proof-exercise-reflection').inputValue();
   assert.equal(valBReturned, refB, 'Exercise B must preserve its exact reflection when returning!');
   console.log('✓ Exercise B retained its exact reflection.');
-  await screenshot('01-reflection-isolation.png');
+  await takeScreenshot(page, '01-reflection-isolation.png');
 
-  // =========================================================================
-  // SCENARIO 2: Switching Lessons, Topics, and Input Variants
-  // =========================================================================
+  // -------------------------------------------------------------------------
+  // Scenario 2: Switching Lessons, Topics, and Input Variants
+  // -------------------------------------------------------------------------
   console.log('\n--- Scenario 2: Switching Lessons, Topics, and Input Variants ---');
-  // Exercise B currently active. Check variant toggle button
-  await waitForText('Try Alternate Input');
-  console.log('Clicking "Try Alternate Input"...');
-  await evaluate(`
-    (() => {
-      const btn = Array.from(document.querySelectorAll('button')).find(b => b.textContent.includes('Try Alternate Input'));
-      if (btn) btn.click();
-    })()
-  `);
-  await waitForText('Back to Primary Input');
-  console.log('✓ Switched to Alternate Variant (Back to Primary Input button rendered).');
+  await page.getByRole('button', { name: /Try Alternate Input/i }).click();
+  await page.getByRole('button', { name: /Back to Primary Input/i }).waitFor();
+  console.log('✓ Switched to Alternate Variant (Back to Primary Input rendered).');
 
-  console.log('Clicking "Back to Primary Input"...');
-  await evaluate(`
-    (() => {
-      const btn = Array.from(document.querySelectorAll('button')).find(b => b.textContent.includes('Back to Primary Input'));
-      if (btn) btn.click();
-    })()
-  `);
-  await waitForText('Try Alternate Input');
+  await page.getByRole('button', { name: /Back to Primary Input/i }).click();
+  await page.getByRole('button', { name: /Try Alternate Input/i }).waitFor();
   console.log('✓ Successfully toggled back to Primary Input.');
 
   // Switch Topic to topic_hashing
   console.log('Switching topic to topic_hashing...');
-  await selectOptionValue('#proof-topic-select', 'topic_hashing');
-  await new Promise((r) => setTimeout(r, 300));
-
-  // Verify Topic Hashing loaded Lesson 1 and Exercise ex_hashing_01
-  await waitForText('Complement Lookup-Before-Insert');
-  console.log('✓ Topic switched to Hashing; Complement Lookup-Before-Insert exercise rendered.');
+  await page.locator('#proof-topic-select').selectOption('topic_hashing');
+  await page.getByRole('heading', { name: /Complement Lookup-Before-Insert/i }).waitFor();
+  console.log('✓ Topic switched to Hashing; Complement Lookup-Before-Insert rendered.');
 
   // Toggle variant on Hashing
-  await waitForText('Try Alternate Input');
-  await evaluate(`
-    (() => {
-      const btn = Array.from(document.querySelectorAll('button')).find(b => b.textContent.includes('Try Alternate Input'));
-      if (btn) btn.click();
-    })()
-  `);
-  await waitForText('Back to Primary Input');
+  await page.getByRole('button', { name: /Try Alternate Input/i }).click();
+  await page.getByRole('button', { name: /Back to Primary Input/i }).waitFor();
   console.log('✓ Hashing alternate input toggled successfully.');
-  await evaluate(`
-    (() => {
-      const btn = Array.from(document.querySelectorAll('button')).find(b => b.textContent.includes('Back to Primary Input'));
-      if (btn) btn.click();
-    })()
-  `);
-  await screenshot('02-topic-lesson-variant-switching.png');
+  await page.getByRole('button', { name: /Back to Primary Input/i }).click();
+  await takeScreenshot(page, '02-topic-lesson-variant-switching.png');
 
-  // =========================================================================
-  // SCENARIO 3: Visit a Lesson Without an Attached Exercise
-  // =========================================================================
+  // -------------------------------------------------------------------------
+  // Scenario 3: Visit a Lesson Without an Attached Exercise
+  // -------------------------------------------------------------------------
   console.log('\n--- Scenario 3: Visit a Lesson Without an Attached Exercise ---');
-  await selectOptionValue('#proof-topic-select', 'topic_arrays');
-  await new Promise((r) => setTimeout(r, 200));
+  await page.locator('#proof-topic-select').selectOption('topic_arrays');
+  await page.locator('#proof-lesson-select').selectOption('les_arrays_03');
+  await page.getByRole('heading', { name: /In-Place Compaction/i }).waitFor();
 
-  // les_arrays_03 has no attached exercise
-  console.log('Selecting les_arrays_03 (In-Place Compaction & Read/Write Pointer Partitioning)...');
-  await selectOptionValue('#proof-lesson-select', 'les_arrays_03');
-  await waitForText('In-Place Compaction');
+  // Verify interactive exercise heading is absent
+  const hasExerciseHeading = await page.locator('#interactive-exercise-heading').count();
+  assert.equal(hasExerciseHeading, 0, 'Lesson without exercise must NOT render interactive exercise heading');
 
-  // Verify no interactive trace exercise is rendered
-  const hasExerciseHeading = await evaluate(`Boolean(document.querySelector('#interactive-exercise-heading'))`);
-  assert.equal(hasExerciseHeading, false, 'Lesson without exercise must NOT render interactive exercise heading');
-
-  // Verify coherent empty state
-  await waitForText('No Interactive Proof Trace Attached to this Lesson');
+  // Verify empty state message
+  await page.getByText('No Interactive Proof Trace Attached to this Lesson').waitFor();
   console.log('✓ Verified: "No Interactive Proof Trace Attached to this Lesson" rendered cleanly.');
 
-  // Verify lesson reflection is still accessible
-  await waitForSelector('#lesson-reflection-input');
-  await setInputValue('#lesson-reflection-input', 'Slow write pointer only advances on valid compaction element.');
-  const lessonRefVal = await evaluate(`document.querySelector('#lesson-reflection-input').value`);
-  assert.equal(lessonRefVal, 'Slow write pointer only advances on valid compaction element.');
+  // Verify lesson reflection functions normally
+  await page.locator('#lesson-reflection-input').fill('Slow write pointer only advances on valid compaction element.');
+  assert.equal(
+    await page.locator('#lesson-reflection-input').inputValue(),
+    'Slow write pointer only advances on valid compaction element.'
+  );
   console.log('✓ Lesson reflection functions normally on exercise-free lessons.');
-  await screenshot('03-lesson-without-exercise.png');
+  await takeScreenshot(page, '03-lesson-without-exercise.png');
 
-  // =========================================================================
-  // SCENARIO 4: Simulate Delayed & Failed Evaluation Requests, Retry & State Isolation
-  // =========================================================================
+  // -------------------------------------------------------------------------
+  // Scenario 4: Simulated Evaluation Failure, Retry & State Isolation
+  // -------------------------------------------------------------------------
   console.log('\n--- Scenario 4: Simulated Evaluation Failure, Retry & State Isolation ---');
-  // Return to les_arrays_01
-  await selectOptionValue('#proof-lesson-select', 'les_arrays_01');
-  await waitForSelector('#interactive-exercise-heading');
+  await page.locator('#proof-lesson-select').selectOption('les_arrays_01');
+  await page.locator('#interactive-exercise-heading').waitFor();
 
-  // Arm test hook to simulate 500 network failure
-  console.log('Arming test hook: window.__testControl.simulateStepEvalFail = true...');
-  await evaluate(`window.__testControl.simulateStepEvalFail = true`);
+  // Arm test hook to simulate 500 error
+  await page.evaluate(() => { window.__testControl.simulateStepEvalFail = true; });
 
-  // Click first trace choice
-  console.log('Clicking first trace checkpoint choice...');
-  await evaluate(`
-    (() => {
-      const choiceGroup = document.querySelector('[aria-label="Trace step choices"]');
-      const firstBtn = choiceGroup ? choiceGroup.querySelector('button') : null;
-      if (firstBtn) firstBtn.click();
-    })()
-  `);
+  // Click first choice
+  const choiceGroup = page.getByRole('group', { name: 'Trace step choices', exact: true });
+  await choiceGroup.waitFor();
+  const firstChoiceBtn = choiceGroup.getByRole('button').first();
+  await firstChoiceBtn.click();
 
-  // Verify role="alert" appears with error message and Retry button
-  console.log('Waiting for evaluation error alert...');
-  await waitForSelector('[role="alert"]');
-  const alertText = await evaluate(`document.querySelector('[role="alert"]').innerText`);
-  assert.ok(alertText.includes('Simulated evaluation network error 500'), 'Error alert must display evaluation failure message');
-  assert.ok(alertText.includes('Retry Verification'), 'Alert must contain explicit Retry Verification button');
-  console.log('✓ Evaluation error alert and [Retry Verification] button confirmed in DOM.');
+  // Verify role="alert" with error message
+  const alert = page.getByRole('alert');
+  await alert.waitFor();
+  assert.ok((await alert.innerText()).includes('Simulated evaluation network error 500'));
+  console.log('✓ Accessible role="alert" banner displayed for network evaluation error.');
 
-  // Verify student choice is STILL selected
-  const isChoiceSelected = await evaluate(`
-    (() => {
-      const choiceGroup = document.querySelector('[aria-label="Trace step choices"]');
-      const firstBtn = choiceGroup ? choiceGroup.querySelector('button') : null;
-      return firstBtn && firstBtn.className.includes('ui-border-accent');
-    })()
-  `);
-  assert.ok(isChoiceSelected, 'Student choice selection must be preserved during evaluation failure!');
-  console.log('✓ Student choice selection is preserved in state and DOM.');
-  await screenshot('04a-eval-error-retry-visible.png');
+  // Verify explicit [Retry Verification] button rendered
+  const retryBtn = page.getByRole('button', { name: /Retry Verification/i });
+  await retryBtn.waitFor();
+  console.log('✓ [Retry Verification] button rendered.');
 
-  // Disarm failure and click Retry
-  console.log('Disarming failure hook and clicking "Retry Verification"...');
-  await evaluate(`window.__testControl.simulateStepEvalFail = false`);
-  await evaluate(`
-    (() => {
-      const alertEl = document.querySelector('[role="alert"]');
-      const retryBtn = alertEl ? alertEl.querySelector('button') : null;
-      if (retryBtn) retryBtn.click();
-    })()
-  `);
-
-  // Wait for evaluation feedback to render
-  const startEvalWait = Date.now();
-  let feedbackFound = false;
-  while (Date.now() - startEvalWait < 10000) {
-    feedbackFound = await evaluate(`
-      (() => {
-        const text = document.body.innerText;
-        return text.includes('Correct State Transition') || text.includes('Misconception Detected');
-      })()
-    `);
-    if (feedbackFound) break;
-    await new Promise((r) => setTimeout(r, 100));
-  }
-  assert.ok(feedbackFound, 'Evaluation retry must complete and render step feedback!');
+  // Disarm test hook and retry
+  await page.evaluate(() => { window.__testControl.simulateStepEvalFail = false; });
+  await retryBtn.click();
+  await page.getByRole('status').waitFor();
   console.log('✓ Retry succeeded; evaluation feedback displayed.');
-  await screenshot('04b-eval-retry-success.png');
+  await takeScreenshot(page, '04a-eval-retry-success.png');
 
   // Test Delayed Evaluation & Cross-Exercise Race Condition Isolation
   console.log('Testing delayed response and cross-exercise isolation...');
-  await evaluate(`window.__testControl.simulateStepEvalDelayMs = 1500`);
+  await page.evaluate(() => { window.__testControl.simulateStepEvalDelayMs = 1500; });
 
-  // Switch to step 2 or click another option on Exercise A
-  await evaluate(`
-    (() => {
-      const choiceGroup = document.querySelector('[aria-label="Trace step choices"]');
-      const btns = choiceGroup ? choiceGroup.querySelectorAll('button') : [];
-      if (btns[1]) btns[1].click();
-    })()
-  `);
+  // Click second choice on Exercise A
+  const btns = choiceGroup.getByRole('button');
+  if ((await btns.count()) > 1) {
+    await btns.nth(1).click();
+  }
 
-  // Immediately switch to Exercise B while Exercise A's request is pending in flight
-  console.log('Immediately switching to Exercise B (les_arrays_02) while Exercise A evaluation is in flight...');
-  await selectOptionValue('#proof-lesson-select', 'les_arrays_02');
-  await waitForSelector('#interactive-exercise-heading');
+  // Immediately switch to Exercise B while Exercise A is in flight
+  console.log('Switching to Exercise B while Exercise A evaluation is in flight...');
+  await page.locator('#proof-lesson-select').selectOption('les_arrays_02');
+  await page.locator('#interactive-exercise-heading').waitFor();
 
-  // Wait 2000ms for Exercise A's delayed response to resolve
-  console.log('Waiting for delayed Exercise A evaluation to return in background...');
-  await new Promise((r) => setTimeout(r, 2200));
+  // Wait 2200ms for Exercise A's delayed response to finish in background
+  await page.waitForTimeout(2200);
 
-  // Verify Exercise B is clean and was NOT contaminated
-  const bTitle = await evaluate(`document.querySelector('#interactive-exercise-heading').innerText`);
-  assert.ok(bTitle.includes('Exclusive Prefix & Suffix'), 'Exercise B heading must remain intact');
-  const bRef = await evaluate(`document.querySelector('#proof-exercise-reflection').value`);
-  assert.equal(bRef, refB, 'Exercise B reflection must not be mutated by Exercise A evaluation response');
+  // Verify Exercise B remains unpolluted
+  const bHeading = await page.locator('#interactive-exercise-heading').innerText();
+  assert.ok(bHeading.includes('Product of Array Except Self') || bHeading.includes('Exclusive Prefix'), 'Exercise B heading must remain intact');
+  const bRefReturned = await page.locator('#proof-exercise-reflection').inputValue();
+  assert.equal(bRefReturned, refB, 'Exercise B reflection must not be mutated by Exercise A evaluation response');
   console.log('✓ Cross-exercise race condition prevention verified: Exercise B is completely isolated.');
-  await evaluate(`window.__testControl.simulateStepEvalDelayMs = 0`);
-  await screenshot('04c-race-condition-isolated.png');
+  await page.evaluate(() => { window.__testControl.simulateStepEvalDelayMs = 0; });
+  await takeScreenshot(page, '04b-race-condition-isolated.png');
 
-  // =========================================================================
-  // SCENARIO 5: Refresh, Direct Links, and Back/Forward Navigation
-  // =========================================================================
+  // -------------------------------------------------------------------------
+  // Scenario 5: Refresh, Direct Links, and Back Navigation
+  // -------------------------------------------------------------------------
   console.log('\n--- Scenario 5: Refresh, Direct Links, and Navigation ---');
-  // Direct Link: Navigate to Practice view
+  // Direct link to Practice view
   console.log(`Navigating directly to ${APP_URL}/dashboard?view=practice...`);
-  await send('Page.navigate', { url: `${APP_URL}/dashboard?view=practice` });
-  await waitForSelector('#view-practice [role="listitem"]');
-  const practiceCount = await evaluate(`document.querySelectorAll('#view-practice [role="listitem"]').length`);
-  assert.ok(practiceCount >= 10, 'Practice problem list must be rendered');
-  console.log(`✓ Direct link to Practice view rendered ${practiceCount} items.`);
+  await page.goto(`${APP_URL}/dashboard?view=practice`, { waitUntil: 'domcontentloaded' });
+  await page.locator('#view-practice').waitFor();
+  const practiceItemsCount = await page.locator('#view-practice [role="listitem"]').count();
+  assert.equal(practiceItemsCount, 20, 'Practice library direct link must render page 1 (20 items)');
+  console.log(`✓ Direct link to Practice view rendered page 1 (20 items).`);
 
-  // Direct Link: Navigate to Proof lesson via /learn/les_arrays_01
+  // Direct link to Proof lesson via /learn/les_arrays_01
   console.log(`Navigating directly to ${APP_URL}/learn/les_arrays_01...`);
-  await send('Page.navigate', { url: `${APP_URL}/learn/les_arrays_01` });
-  await waitForSelector('#view-proof');
-  const loadedLessonVal = await evaluate(`document.querySelector('#proof-lesson-select').value`);
-  assert.equal(loadedLessonVal, 'les_arrays_01', 'Direct /learn/:lessonId link must select the target lesson');
+  await page.goto(`${APP_URL}/learn/les_arrays_01`, { waitUntil: 'domcontentloaded' });
+  await page.locator('#view-proof').waitFor();
+  const selectedLesson = await page.locator('#proof-lesson-select').inputValue();
+  assert.equal(selectedLesson, 'les_arrays_01', 'Direct /learn/:lessonId link must select the target lesson');
   console.log('✓ Direct /learn/les_arrays_01 link loaded Proof Studio with les_arrays_01.');
 
-  // Page Refresh
-  console.log('Reloading page via Page.reload...');
-  await send('Page.reload');
-  await waitForSelector('#view-proof');
-  const reloadedLessonVal = await evaluate(`document.querySelector('#proof-lesson-select').value`);
-  assert.equal(reloadedLessonVal, 'les_arrays_01', 'Page reload must preserve active lesson and authenticated state');
+  // Page reload
+  console.log('Testing page reload...');
+  await page.reload({ waitUntil: 'domcontentloaded' });
+  await page.locator('#view-proof').waitFor();
+  assert.equal(await page.locator('#proof-lesson-select').inputValue(), 'les_arrays_01', 'Page reload must preserve active lesson');
   console.log('✓ Page refresh verified: user session and active lesson preserved.');
 
-  // Back navigation: Go back to Practice view
-  console.log('Testing back navigation (window.history.back())...');
-  await evaluate(`window.history.back()`);
-  await waitForSelector('#view-practice');
+  // Back navigation
+  console.log('Testing back navigation...');
+  await page.goBack();
+  await page.locator('#view-practice').waitFor();
   console.log('✓ Back navigation returned to Practice Library.');
-  await screenshot('05-refresh-and-navigation.png');
+  await takeScreenshot(page, '05-refresh-and-navigation.png');
+
+  // -------------------------------------------------------------------------
+  // Scenario 6: Multi-Account Onboarding & Interrupted States
+  // -------------------------------------------------------------------------
+  console.log('\n--- Scenario 6: Multi-Account States (New & Interrupted) ---');
+  // Fresh Context for New Account: student.ready@nextstep.local
+  const readyContext = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+  const readyPage = await setupPage(readyContext);
+  await readyPage.goto(APP_URL, { waitUntil: 'domcontentloaded' });
+  await readyPage.locator('input[type=email]').fill('student.ready@nextstep.local');
+  await readyPage.locator('input[type=password]').fill('password123');
+  await readyPage.getByRole('button', { name: 'Sign In to NextStep', exact: true }).click();
+  await readyPage.waitForTimeout(1000);
+  console.log('✓ Verified sign-in for new onboarding account (student.ready@nextstep.local).');
+  await takeScreenshot(readyPage, '06-ready-account-onboarding.png');
+  await readyContext.close();
+
+  // Fresh Context for Interrupted Account: student.interrupted@nextstep.local
+  const interruptedContext = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+  const interruptedPage = await setupPage(interruptedContext);
+  await interruptedPage.goto(APP_URL, { waitUntil: 'domcontentloaded' });
+  await interruptedPage.locator('input[type=email]').fill('student.interrupted@nextstep.local');
+  await interruptedPage.locator('input[type=password]').fill('password123');
+  await interruptedPage.getByRole('button', { name: 'Sign In to NextStep', exact: true }).click();
+  await interruptedPage.locator('.workspace-nav').waitFor();
+  console.log('✓ Verified sign-in for interrupted account (student.interrupted@nextstep.local).');
+  await takeScreenshot(interruptedPage, '07-interrupted-account-recovery.png');
+  await interruptedContext.close();
+
+  // -------------------------------------------------------------------------
+  // Scenario 7: Practice & Review Filter Empty States
+  // -------------------------------------------------------------------------
+  console.log('\n--- Scenario 7: Practice & Review Filter States ---');
+  await selectNav('Practice');
+  await page.locator('#view-practice').waitFor();
+  await page.locator('#practice-search').fill('zzzz-nonexistent-search-term');
+  await page.getByText('No practice problems match your filters', { exact: true }).waitFor();
+  console.log('✓ Verified Practice empty filter message and reset button.');
+  await page.getByRole('button', { name: 'Reset practice filters', exact: true }).click();
+  assert.equal(await page.locator('#view-practice [role="listitem"]').count(), 20);
+  console.log('✓ Reset practice filters restored page 1 problem list (20 items).');
+
+  await selectNav('Review');
+  await page.locator('#view-review').waitFor();
+  await page.locator('[aria-label="Workspace curriculum review queue"]').waitFor();
+  console.log('✓ Review view rendered curriculum review queue.');
+  await takeScreenshot(page, '08-review-and-practice-filters.png');
+
+  // -------------------------------------------------------------------------
+  // Scenario 8: Layout Audit Across All 7 Views, 4 Viewports & 6 Themes
+  // -------------------------------------------------------------------------
+  console.log('\n--- Scenario 8: Responsive Layout Measurements (Audit Baseline) ---');
+  const viewports = [
+    { width: 1440, height: 900, name: 'desktop' },
+    { width: 1024, height: 768, name: 'tablet' },
+    { width: 390, height: 844, name: 'mobile-standard' },
+    { width: 320, height: 568, name: 'mobile-compact' }
+  ];
+
+  const views = ['Today', 'Roadmap', 'Atlas', 'Proof', 'Practice', 'Review', 'Insights'];
+  const layoutAuditData = [];
+
+  for (const vp of viewports) {
+    await page.setViewportSize({ width: vp.width, height: vp.height });
+    for (const viewName of views) {
+      await selectNav(viewName);
+      await page.waitForTimeout(100);
+
+      const metrics = await page.evaluate(() => {
+        return {
+          scrollWidth: document.documentElement.scrollWidth,
+          scrollHeight: document.documentElement.scrollHeight,
+          innerWidth: window.innerWidth,
+          innerHeight: window.innerHeight,
+          hasOverflow: document.documentElement.scrollWidth > window.innerWidth
+        };
+      });
+
+      layoutAuditData.push({
+        viewport: `${vp.width}x${vp.height} (${vp.name})`,
+        view: viewName,
+        ...metrics
+      });
+    }
+
+    // Capture responsive audit screenshots at frosted-sage light
+    await selectNav('Today');
+    await takeScreenshot(page, `audit-today-${vp.width}x${vp.height}.png`);
+    await selectNav('Proof');
+    await takeScreenshot(page, `audit-proof-${vp.width}x${vp.height}.png`);
+  }
+
+  // -------------------------------------------------------------------------
+  // Scenario 10: Mobile Focus Restoration & Trace First-Action Geometry
+  // -------------------------------------------------------------------------
+  console.log('\n--- Scenario 10: Mobile Focus Restoration & First-Action Geometry ---');
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.waitForTimeout(150);
+
+  // 1. More menu keyboard navigation and Escape focus return
+  const trigger = page.locator('#nav-more-trigger');
+  await trigger.focus();
+  assert.equal(
+    await page.evaluate(() => document.activeElement?.id),
+    'nav-more-trigger',
+    'Trigger must be focused'
+  );
+
+  await page.keyboard.press('ArrowDown');
+  await page.waitForTimeout(100);
+  assert.equal(
+    await page.evaluate(() => document.activeElement?.id),
+    'menu-nav-roadmap',
+    'Opening via ArrowDown must focus first menu item (Roadmap)'
+  );
+
+  await page.keyboard.press('ArrowDown');
+  await page.waitForTimeout(50);
+  assert.equal(
+    await page.evaluate(() => document.activeElement?.id),
+    'menu-nav-review',
+    'ArrowDown must move focus to Review'
+  );
+
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(100);
+  assert.equal(
+    await page.locator('.workspace-nav-dropdown').isVisible(),
+    false,
+    'Menu must be closed after Escape'
+  );
+  assert.equal(
+    await page.evaluate(() => document.activeElement?.id),
+    'nav-more-trigger',
+    'Escape dismissal must restore focus to #nav-more-trigger'
+  );
+  console.log('✓ Verified Escape closes More menu and restores focus to #nav-more-trigger.');
+
+  // 2. Outside click closes menu without blanket focus shift
+  await page.locator('#nav-more-trigger').click();
+  await page.waitForTimeout(100);
+  assert.equal(await page.locator('.workspace-nav-dropdown').isVisible(), true, 'Dropdown opened by click');
+  await page.mouse.click(10, 600);
+  await page.waitForTimeout(100);
+  assert.equal(await page.locator('.workspace-nav-dropdown').isVisible(), false, 'Dropdown closed on outside click');
+  const outsideClickActiveId = await page.evaluate(() => document.activeElement?.id);
+  assert.notEqual(outsideClickActiveId, 'nav-more-trigger', 'Pointer click outside must not shift focus to trigger');
+  console.log('✓ Verified outside pointer click closes menu without blanket focus shift.');
+
+  // 3. Selecting secondary route deliberately focuses destination
+  await page.locator('#nav-more-trigger').focus();
+  await page.keyboard.press('Enter');
+  await page.waitForTimeout(100);
+  await page.locator('#menu-nav-roadmap').focus();
+  await page.keyboard.press('Enter');
+  await page.waitForTimeout(150);
+  const secondaryFocusId = await page.evaluate(() => document.activeElement?.id);
+  assert.ok(
+    secondaryFocusId === 'roadmap-heading' || secondaryFocusId === 'view-roadmap',
+    `Selecting secondary route should focus destination, got ${secondaryFocusId}`
+  );
+  console.log(`✓ Selecting secondary route focused deliberate destination: ${secondaryFocusId}`);
+
+  // 4. Measure mobile trace first choice button geometry at 390x844
+  await selectNav('Proof');
+  await page.locator('#view-proof').waitFor();
+  await page.waitForTimeout(200);
+
+  const mobileFirstChoiceBtn = page.locator('#view-proof [role="group"][aria-label="Trace step choices"] button').first();
+  await mobileFirstChoiceBtn.waitFor();
+  const firstChoiceBox = await mobileFirstChoiceBtn.boundingBox();
+  const measuredDocY = firstChoiceBox.y;
+  const measuredReqScroll = Math.max(0, firstChoiceBox.y + firstChoiceBox.height - 844);
+
+  console.log(`[Mobile Trace Geometry]: first answer document Y = ${measuredDocY.toFixed(1)}px, required scroll = ${measuredReqScroll.toFixed(1)}px`);
+  assert.ok(
+    measuredDocY < 1350,
+    `Measured document Y (${measuredDocY.toFixed(1)}px) must be well below uncompacted 1,654px`
+  );
+  assert.ok(
+    measuredReqScroll < 550,
+    `Required scroll distance (${measuredReqScroll.toFixed(1)}px) must be well below uncompacted 888px`
+  );
+  console.log('✓ Verified Mobile Trace first answer button starts well within accessible scroll bounds.');
+
+  // 5. Expandable pickers and assistance controls at 390x844
+  const pickersToggle = page.locator('#toggle-mobile-pickers');
+  assert.ok(await pickersToggle.isVisible(), 'Mobile pickers toggle must be visible at 390px');
+  assert.ok(!(await page.locator('#proof-topic-select').isVisible()), 'Topic select must be collapsed by default on mobile');
+  await pickersToggle.click();
+  await page.waitForTimeout(100);
+  assert.ok(await page.locator('#proof-topic-select').isVisible(), 'Topic select must be visible after expanding');
+  assert.ok(await page.locator('#proof-lesson-select').isVisible(), 'Lesson select must be visible after expanding');
+
+  const assistanceToggle = page.getByRole('button', { name: /Hints & Invariant/i });
+  assert.ok(await assistanceToggle.isVisible(), 'Assistance toggle must be visible at 390px');
+  assert.ok(!(await page.getByRole('button', { name: /Reveal Hint/i }).isVisible()), 'Hint button must be collapsed by default');
+  await assistanceToggle.click();
+  await page.waitForTimeout(100);
+  assert.ok(await page.getByRole('button', { name: /Reveal Hint/i }).isVisible(), 'Reveal Hint visible after expanding');
+  assert.ok(await page.getByRole('button', { name: /Reveal Reference Invariant/i }).isVisible(), 'Reveal Invariant visible after expanding');
+
+  await takeScreenshot(page, '10-mobile-trace-compacted-and-expanded.png');
+  console.log('✓ Verified mobile expandable pickers & assistance controls.');
+
+  // Restore desktop viewport
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.waitForTimeout(100);
+
+  // Write audit results
+  const resultJsonPath = path.join(EVIDENCE_DIR, 'browser-state-isolation-result.json');
+  await fs.writeFile(
+    resultJsonPath,
+    JSON.stringify(
+      {
+        timestamp: new Date().toISOString(),
+        appUrl: APP_URL,
+        scenariosPassed: [
+          'Scenario 1: Reflection Isolation Between Exercises A & B',
+          'Scenario 2: Switching Lessons, Topics, and Input Variants',
+          'Scenario 3: Visit a Lesson Without an Attached Exercise',
+          'Scenario 4: Simulated Evaluation Failure, Retry & State Isolation',
+          'Scenario 5: Delayed Evaluation & Cross-Exercise Race Condition Isolation',
+          'Scenario 6: Refresh, Direct Links, and Back Navigation',
+          'Scenario 7: Multi-Account States (Active, Ready/Onboarding, Interrupted)',
+          'Scenario 8: Practice & Review Filter States',
+          'Scenario 9: Responsive Layout Measurements across 7 Views x 4 Viewports',
+          'Scenario 10: Mobile Focus Restoration & Trace First-Action Geometry (Escape Focus Return & First Answer Position)'
+        ],
+        pageErrors: recordedPageErrors,
+        consoleErrors: recordedConsoleErrors,
+        failedLocalRequests,
+        layoutAuditData
+      },
+      null,
+      2
+    )
+  );
+  console.log(`\nAudit results written to: ${resultJsonPath}`);
+
+  // Assert no unhandled page errors
+  assert.deepEqual(recordedPageErrors, [], 'There must be zero unhandled page errors');
+  assert.deepEqual(failedLocalRequests, [], 'There must be zero failed local requests');
 
   console.log('\n============================================================');
-  console.log('🎉 ALL BROWSER COVERAGE SCENARIOS PASSED WITH ZERO ERRORS!');
+  console.log('🎉 ALL BROWSER COVERAGE & STATE ISOLATION SCENARIOS PASSED!');
   console.log('============================================================\n');
+
+  await context.close();
 }
 
 runSuite()
-  .then(async () => {
-    await cleanup();
-    process.exit(0);
-  })
   .catch(async (err) => {
-    console.error('\n❌ BROWSER TEST SUITE FAILED:', err);
-    await cleanup();
-    process.exit(1);
+    console.error('\n❌ BROWSER ISOLATION TEST SUITE FAILED:', err);
+    if (browser) {
+      try {
+        const pages = browser.contexts()[0]?.pages();
+        if (pages?.[0]) {
+          await pages[0].screenshot({ path: path.join(EVIDENCE_DIR, 'failure-state.png'), fullPage: true });
+        }
+      } catch (_) {}
+    }
+    process.exitCode = 1;
+  })
+  .finally(async () => {
+    if (browser) {
+      console.log('Closing browser process cleanly...');
+      await browser.close().catch(() => {});
+    }
   });

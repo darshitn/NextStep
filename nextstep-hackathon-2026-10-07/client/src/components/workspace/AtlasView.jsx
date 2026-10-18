@@ -25,6 +25,13 @@ const DAYS = [
 ];
 const MINUTE_OPTIONS = [0, 30, 60, 90];
 
+const STAGE_TITLES = {
+  1: 'Linear Invariants & Pointers',
+  2: 'Structured Associations & Stacks',
+  3: 'Recursive Search & Trees',
+  4: 'Optimization, Intervals & Graphs'
+};
+
 export default function AtlasView({
   goal,
   catalog,
@@ -58,6 +65,7 @@ export default function AtlasView({
     return firstTopicLessons.length > 0 ? firstTopicLessons : ['les_arrays_01', 'les_arrays_02'];
   });
   const [planPreview, setPlanPreview] = useState(null);
+  const [previewedSnapshot, setPreviewedSnapshot] = useState(null);
   const [isPreviewingPlan, setIsPreviewingPlan] = useState(false);
   const [isApplyingPlan, setIsApplyingPlan] = useState(false);
   const [planError, setPlanError] = useState('');
@@ -73,8 +81,28 @@ export default function AtlasView({
 
   const savedStudyPlan = goal?.studyWorkspace?.studyPlan || null;
 
+  // Derive legacy starter track count
+  const starterCompletedCount = useMemo(() => {
+    const completions = goal?.completions || {};
+    const missions = catalog?.missions || [];
+    return Object.keys(completions).filter((id) => missions.some((m) => m.id === id)).length;
+  }, [goal?.completions, catalog?.missions]);
+  const totalStarterCount = (catalog?.missions || []).length || 12;
+
+  // Group topics by lane for structured stages
+  const groupedLanes = useMemo(() => {
+    const lanesMap = new Map();
+    for (const topic of atlas.topics) {
+      const laneNum = topic.lane || 1;
+      if (!lanesMap.has(laneNum)) lanesMap.set(laneNum, []);
+      lanesMap.get(laneNum).push(topic);
+    }
+    return Array.from(lanesMap.entries()).sort(([a], [b]) => a - b);
+  }, [atlas.topics]);
+
   const handleTogglePlanItem = (itemId) => {
     setPlanPreview(null);
+    setPreviewedSnapshot(null);
     setSelectedPlanItems((prev) =>
       prev.includes(itemId) ? prev.filter((id) => id !== itemId) : [...prev, itemId]
     );
@@ -96,6 +124,10 @@ export default function AtlasView({
         targetDate: goal?.targetDate
       });
       setPlanPreview(data);
+      setPreviewedSnapshot({
+        availability: JSON.stringify(planAvailability),
+        selectedItemIds: JSON.stringify(selectedPlanItems)
+      });
     } catch (err) {
       setPlanError(err.message || 'Could not generate study plan preview.');
     } finally {
@@ -105,6 +137,15 @@ export default function AtlasView({
 
   const handleAcceptPlan = async () => {
     if (!planPreview || !onApplyWorkspacePlan) return;
+    if (
+      !previewedSnapshot ||
+      previewedSnapshot.availability !== JSON.stringify(planAvailability) ||
+      previewedSnapshot.selectedItemIds !== JSON.stringify(selectedPlanItems)
+    ) {
+      setPlanError('Planner inputs changed since last preview. Please generate a fresh preview before accepting.');
+      return;
+    }
+
     setIsApplyingPlan(true);
     setPlanError('');
     try {
@@ -116,6 +157,7 @@ export default function AtlasView({
         targetDate: goal?.targetDate
       });
       setPlanPreview(null);
+      setPreviewedSnapshot(null);
       setPlanNotice('Study plan saved! Your sessions are now active in Today and Atlas.');
     } catch (err) {
       setPlanError(err.message || 'Could not apply study plan.');
@@ -190,10 +232,37 @@ export default function AtlasView({
         </div>
       </div>
 
-      {/* Explainable Recommendation Banner */}
+      {/* Legacy Starter Track Callout (Separated Container) */}
+      <div className="rounded-xl border ui-border-border ui-bg-surface p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div className="space-y-0.5">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-xs font-bold uppercase tracking-wider ui-text-muted">
+              Legacy Starter Track
+            </span>
+            <span className="status-badge status-neutral text-xs">
+              {starterCompletedCount}/{totalStarterCount} Missions Complete
+            </span>
+          </div>
+          <p className="text-xs ui-text-muted">
+            The foundational 12 missions remain fully preserved with scheduled dates, focus timer, and spaced recall.
+          </p>
+        </div>
+        {onSelectView && (
+          <button
+            type="button"
+            onClick={() => onSelectView('roadmap')}
+            className="secondary-button text-xs py-1.5 px-3 self-start sm:self-auto shrink-0 inline-flex items-center gap-1.5"
+          >
+            <span>View 12-Mission Roadmap</span>
+            <ArrowRight size={13} aria-hidden="true" />
+          </button>
+        )}
+      </div>
+
+      {/* Explainable Recommendation Banner (Clean Mobile Stacking) */}
       {recommendation && (
         <div
-          className="rounded-xl border ui-border-border ui-bg-surface p-4 flex items-center justify-between gap-4 flex-wrap"
+          className="rounded-xl border ui-border-border ui-bg-surface p-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4"
           aria-label="Recommended next learning step"
         >
           <div className="space-y-1 min-w-0 flex-1">
@@ -206,7 +275,7 @@ export default function AtlasView({
                 {recommendation.topicTitle} · {recommendation.estimatedMinutes}m
               </span>
             </div>
-            <h3 className="text-base font-bold ui-text-ink">{recommendation.title}</h3>
+            <h3 className="text-base font-bold ui-text-ink break-words">{recommendation.title}</h3>
             <p className="text-xs ui-text-muted">
               <strong>Why recommended:</strong> {recommendation.reason}
             </p>
@@ -221,7 +290,7 @@ export default function AtlasView({
                 recommendation.exerciseId
               )
             }
-            className="primary-button text-xs py-2 px-4"
+            className="primary-button text-xs py-2 px-4 w-full sm:w-auto shrink-0"
           >
             <Play size={14} aria-hidden="true" />
             <span>Open in Proof Studio</span>
@@ -259,6 +328,7 @@ export default function AtlasView({
                     : activeTopic.lessons.map((l) => l.id)
                 );
                 setPlanPreview(null);
+                setPreviewedSnapshot(null);
               }}
               className="secondary-button text-xs py-1.5 px-3"
             >
@@ -290,6 +360,7 @@ export default function AtlasView({
                       const val = Number(e.target.value);
                       setPlanAvailability((prev) => ({ ...prev, [d.key]: val }));
                       setPlanPreview(null);
+                      setPreviewedSnapshot(null);
                     }}
                     className="rounded border ui-border-border ui-bg-surface px-2 py-1 text-xs font-semibold ui-text-ink"
                   >
@@ -364,7 +435,10 @@ export default function AtlasView({
                 </button>
                 <button
                   type="button"
-                  onClick={() => setPlanPreview(null)}
+                  onClick={() => {
+                    setPlanPreview(null);
+                    setPreviewedSnapshot(null);
+                  }}
                   className="secondary-button text-xs py-2 px-3"
                 >
                   <span>Cancel Preview</span>
@@ -431,7 +505,7 @@ export default function AtlasView({
         </section>
       )}
 
-      {/* Active Saved Study Plan Summary (if saved and planner collapsed) */}
+      {/* Active Saved Study Plan Summary */}
       {!showPlanner && savedStudyPlan && savedStudyPlan.sessions?.length > 0 && (
         <div className="rounded-xl border ui-border-border ui-bg-surface p-4 space-y-2">
           <div className="flex items-center justify-between gap-2 flex-wrap">
@@ -462,115 +536,204 @@ export default function AtlasView({
       {/* MAP VIEW vs ACCESSIBLE LIST VIEW */}
       {displayMode === 'map' ? (
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-          {/* Topic Cards Grid (7 cols on lg) */}
+          {/* Topic Cards Container (7 cols on lg, grouped into compact prerequisite stages) */}
           <div
-            className="lg:col-span-7 grid grid-cols-1 sm:grid-cols-2 gap-4"
+            className="lg:col-span-7 space-y-6"
             role="list"
             aria-label="Curriculum topics map"
           >
-            {atlas.topics.map((topic) => {
-              const isSelected = activeTopic?.id === topic.id;
-              return (
-                <article
-                  key={topic.id}
-                  role="listitem"
-                  className={`rounded-xl border p-4 flex flex-col justify-between gap-3 transition-colors ${
-                    isSelected
-                      ? 'border-2 ui-border-accent ui-bg-surface'
-                      : 'ui-border-border ui-bg-surface hover:ui-bg-soft'
-                  }`}
-                >
-                  <div className="space-y-2">
-                    <div className="flex items-center justify-between gap-2 flex-wrap">
-                      <span className="text-xs font-bold uppercase tracking-wider ui-text-muted">
-                        Stage {topic.lane} · Topic {topic.order}
-                      </span>
-                      <span
-                        className={`status-badge text-xs ${
-                          topic.status === 'completed'
-                            ? 'status-success'
-                            : topic.status === 'needs_review'
-                            ? 'status-attention'
-                            : topic.status === 'in_progress'
-                            ? 'status-accent'
-                            : 'status-neutral'
+            {groupedLanes.map(([laneNum, laneTopics]) => (
+              <div key={laneNum} className="space-y-3">
+                <div className="flex items-center justify-between border-b ui-border-border pb-1.5">
+                  <h4 className="text-xs font-bold uppercase tracking-wider ui-text-muted">
+                    Stage {laneNum} · {STAGE_TITLES[laneNum] || `Stage ${laneNum}`}
+                  </h4>
+                  <span className="text-xs ui-text-muted font-medium">
+                    {laneTopics.length} Topics
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                  {laneTopics.map((topic) => {
+                    const isSelected = activeTopic?.id === topic.id;
+                    return (
+                      <article
+                        key={topic.id}
+                        role="listitem"
+                        className={`rounded-xl border p-4 flex flex-col justify-between gap-3 transition-colors ${
+                          isSelected
+                            ? 'border-2 ui-border-accent ui-bg-surface'
+                            : 'ui-border-border ui-bg-surface hover:ui-bg-soft'
                         }`}
                       >
-                        {topic.status.replace(/_/g, ' ')}
-                      </span>
-                    </div>
+                        <div className="space-y-2">
+                          <div className="flex items-center justify-between gap-2 flex-wrap">
+                            <span className="text-xs font-bold uppercase tracking-wider ui-text-muted">
+                              Topic {topic.order}
+                            </span>
+                            <span
+                              className={`status-badge text-xs ${
+                                topic.status === 'completed'
+                                  ? 'status-success'
+                                  : topic.status === 'needs_review'
+                                  ? 'status-attention'
+                                  : topic.status === 'in_progress'
+                                  ? 'status-accent'
+                                  : 'status-neutral'
+                              }`}
+                            >
+                              {topic.status.replace(/_/g, ' ')}
+                            </span>
+                          </div>
 
-                    <h3 className="text-base font-bold ui-text-ink">{topic.title}</h3>
-                    <p className="text-xs ui-text-muted leading-relaxed">
-                      {topic.shortDescription}
-                    </p>
+                          <h3 className="text-base font-bold ui-text-ink">{topic.title}</h3>
+                          <p className="text-xs ui-text-muted leading-relaxed">
+                            {topic.shortDescription}
+                          </p>
 
-                    {/* Prerequisite Indicator */}
-                    <div className="text-xs ui-text-muted">
-                      {topic.prerequisites.length === 0 ? (
-                        <span>Prerequisites: None (Entry Point)</span>
-                      ) : topic.prerequisitesMet ? (
-                        <span className="ui-text-accent font-semibold">
-                          ✓ Prerequisites satisfied
-                        </span>
-                      ) : (
-                        <span>
-                          Recommended after:{' '}
-                          {topic.missingPrerequisites.map((p) => p.title).join(', ')}
-                        </span>
-                      )}
-                    </div>
-                  </div>
+                          {/* Prerequisite Indicator */}
+                          <div className="text-xs ui-text-muted">
+                            {topic.prerequisites.length === 0 ? (
+                              <span>Prerequisites: None (Entry Point)</span>
+                            ) : topic.prerequisitesMet ? (
+                              <span className="ui-text-accent font-semibold">
+                                ✓ Prerequisites satisfied
+                              </span>
+                            ) : (
+                              <span>
+                                Recommended after:{' '}
+                                {topic.missingPrerequisites.map((p) => p.title).join(', ')}
+                              </span>
+                            )}
+                          </div>
+                        </div>
 
-                  <div className="pt-2 border-t ui-border-border space-y-2.5">
-                    <div className="flex items-center justify-between text-xs ui-text-ink font-medium">
-                      <span>
-                        {topic.completedLessonsCount}/{topic.totalLessonsCount} lessons
-                      </span>
-                      <span>
-                        {topic.completedExercisesCount}/{topic.totalExercisesCount} traces
-                      </span>
-                      <span>
-                        {topic.solvedPracticeCount}/{topic.totalPracticeCount} practice
-                      </span>
-                    </div>
+                        <div className="pt-2 border-t ui-border-border space-y-2.5">
+                          <div className="flex items-center justify-between text-xs ui-text-ink font-medium">
+                            <span>
+                              {topic.completedLessonsCount}/{topic.totalLessonsCount} lessons
+                            </span>
+                            <span>
+                              {topic.completedExercisesCount}/{topic.totalExercisesCount} traces
+                            </span>
+                            <span>
+                              {topic.solvedPracticeCount}/{topic.totalPracticeCount} practice
+                            </span>
+                          </div>
 
-                    <div className="flex items-center gap-2">
-                      <button
-                        type="button"
-                        onClick={() => onSelectTopic(topic.id)}
-                        className="secondary-button text-xs py-1.5 px-3 flex-1 justify-center"
-                      >
-                        <span>{isSelected ? 'Inspecting Topic' : 'Inspect Topic'}</span>
-                      </button>
-                      {topic.nextLesson && (
-                        <button
-                          type="button"
-                          onClick={() =>
-                            onOpenProofLesson(
-                              topic.id,
-                              topic.nextLesson.id,
-                              topic.nextLesson.exerciseId
-                            )
-                          }
-                          className="primary-button text-xs py-1.5 px-3"
-                        >
-                          <span>Proof</span>
-                          <ArrowRight size={12} aria-hidden="true" />
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                </article>
-              );
-            })}
+                          <div className="flex items-center gap-2">
+                            <button
+                              type="button"
+                              onClick={() => onSelectTopic(topic.id)}
+                              className="secondary-button text-xs py-1.5 px-3 flex-1 justify-center"
+                            >
+                              <span>{isSelected ? 'Inspecting Topic' : 'Inspect Topic'}</span>
+                            </button>
+                            {topic.nextLesson && (
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  onOpenProofLesson(
+                                    topic.id,
+                                    topic.nextLesson.id,
+                                    topic.nextLesson.exerciseId
+                                  )
+                                }
+                                className="primary-button text-xs py-1.5 px-3 shrink-0"
+                              >
+                                <span>Proof</span>
+                                <ArrowRight size={12} aria-hidden="true" />
+                              </button>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Immediate In-Flow Mobile Details (Visible only on mobile/tablet screens < lg) */}
+                        {isSelected && (
+                          <div
+                            className="mt-2 pt-3 border-t ui-border-border space-y-3 block lg:hidden"
+                            aria-label={`Mobile topic details: ${topic.title}`}
+                          >
+                            <div className="space-y-1">
+                              <p className="text-xs ui-text-ink leading-relaxed">
+                                <strong>Why it matters:</strong> {topic.whyItMatters}
+                              </p>
+                              <div className="flex items-center gap-1.5 flex-wrap pt-1">
+                                {topic.keyPatterns.map((pat) => (
+                                  <span
+                                    key={pat}
+                                    className="px-2 py-0.5 rounded border ui-border-border ui-bg-soft text-[11px] font-medium ui-text-ink"
+                                  >
+                                    {pat}
+                                  </span>
+                                ))}
+                              </div>
+                            </div>
+
+                            <div className="space-y-1.5">
+                              <span className="text-[11px] font-bold uppercase tracking-wider ui-text-muted block">
+                                Lessons in Topic ({topic.lessons.length})
+                              </span>
+                              <ul className="space-y-1.5" role="list">
+                                {topic.lessons.map((les) => {
+                                  const prog = goal?.studyWorkspace?.lessonProgress?.[les.id];
+                                  const st = prog?.status || 'not_started';
+                                  return (
+                                    <li
+                                      key={les.id}
+                                      className="rounded-lg border ui-border-border ui-bg-soft p-2.5 flex items-center justify-between gap-2"
+                                    >
+                                      <div className="min-w-0 flex-1">
+                                        <span className="text-xs font-semibold ui-text-ink block truncate">
+                                          {les.order}. {les.title}
+                                        </span>
+                                        <span className="text-[11px] ui-text-muted">
+                                          {les.estimatedMinutes}m ·{' '}
+                                          {les.exerciseId ? 'Interactive Trace' : 'Concept'}
+                                        </span>
+                                      </div>
+                                      <div className="flex items-center gap-1.5 shrink-0">
+                                        <button
+                                          type="button"
+                                          onClick={() =>
+                                            onOpenProofLesson(topic.id, les.id, les.exerciseId)
+                                          }
+                                          className="primary-button text-[11px] py-1 px-2.5"
+                                        >
+                                          <span>{st === 'completed' ? 'Review' : 'Open'}</span>
+                                        </button>
+                                        {les.recommendedPracticeIds?.[0] && (
+                                          <button
+                                            type="button"
+                                            onClick={() =>
+                                              onOpenPracticeProblem(les.recommendedPracticeIds[0])
+                                            }
+                                            className="secondary-button text-[11px] py-1 px-2"
+                                          >
+                                            <span>Practice</span>
+                                          </button>
+                                        )}
+                                      </div>
+                                    </li>
+                                  );
+                                })}
+                              </ul>
+                            </div>
+                          </div>
+                        )}
+                      </article>
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
           </div>
 
-          {/* Selected Topic Inspector Panel (5 cols on lg) */}
+          {/* Desktop Selected Topic Inspector Panel (5 cols on lg, sticky) */}
           {activeTopic && (
             <aside
               aria-label={`Selected topic details: ${activeTopic.title}`}
-              className="lg:col-span-5 rounded-xl border ui-border-border ui-bg-surface p-5 space-y-4"
+              className="hidden lg:block lg:col-span-5 rounded-xl border ui-border-border ui-bg-surface p-5 space-y-4 sticky top-6"
             >
               <div className="space-y-1">
                 <span className="text-xs font-bold uppercase tracking-wider ui-text-accent">

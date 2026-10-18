@@ -3,12 +3,17 @@ import {
   Search,
   ExternalLink,
   CheckCircle2,
-  RotateCcw,
   BookOpen,
   Filter,
-  X
+  X,
+  ChevronLeft,
+  ChevronRight,
+  ChevronDown,
+  ChevronUp
 } from 'lucide-react';
 import { filterPracticeProblems } from '../../services/workspace.js';
+
+const PAGE_SIZE = 20;
 
 function makeUuid() {
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
@@ -40,21 +45,18 @@ export default function PracticeLibraryView({
   const [difficultyFilter, setDifficultyFilter] = useState('all');
   const [statusFilter, setStatusFilter] = useState('all');
 
-  const [activeLoggingProblemId, setActiveLoggingProblemId] = useState(highlightedProblemId || null);
-  const [outcome, setOutcome] = useState('solved_independently');
-  const [note, setNote] = useState('');
-  const [needsReview, setNeedsReview] = useState(false);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [expandedProblemId, setExpandedProblemId] = useState(highlightedProblemId || null);
+
+  // Keyed drafts to preserve unsaved notes across page flips and filter changes
+  const [draftNotes, setDraftNotes] = useState({});
+  const [draftOutcomes, setDraftOutcomes] = useState({});
+  const [draftNeedsReview, setDraftNeedsReview] = useState({});
+
   const [attemptId, setAttemptId] = useState(() => makeUuid());
   const [isSaving, setIsSaving] = useState(false);
   const [saveNotice, setSaveNotice] = useState('');
   const [saveError, setSaveError] = useState('');
-
-  useEffect(() => {
-    if (highlightedProblemId) {
-      setActiveLoggingProblemId(highlightedProblemId);
-      setAttemptId(makeUuid());
-    }
-  }, [highlightedProblemId]);
 
   const topicMap = useMemo(() => new Map(topics.map((t) => [t.id, t])), [topics]);
   const lessonMap = useMemo(() => new Map(lessons.map((l) => [l.id, l])), [lessons]);
@@ -79,21 +81,52 @@ export default function PracticeLibraryView({
     }).length;
   }, [problems, practiceAttempts]);
 
-  const handleOpenLogForm = (problem) => {
-    const existingList = practiceAttempts[problem.id] || [];
-    const latest = existingList.length > 0 ? existingList[existingList.length - 1] : null;
-    setActiveLoggingProblemId(problem.id);
-    setOutcome(latest?.outcome || 'solved_independently');
-    setNote(latest?.note || '');
-    setNeedsReview(Boolean(latest?.needsReview));
-    setAttemptId(makeUuid());
+  // Deep-link handling: ensure highlighted problem is visible and expanded on its corresponding page
+  useEffect(() => {
+    if (highlightedProblemId) {
+      setExpandedProblemId(highlightedProblemId);
+      const index = filteredProblems.findIndex((p) => p.id === highlightedProblemId);
+      if (index !== -1) {
+        const targetPage = Math.floor(index / PAGE_SIZE) + 1;
+        setCurrentPage(targetPage);
+      }
+    }
+  }, [highlightedProblemId, filteredProblems]);
+
+  // Filter change: reset to page 1 unless highlighted problem is present
+  useEffect(() => {
+    if (highlightedProblemId) {
+      const idx = filteredProblems.findIndex((p) => p.id === highlightedProblemId);
+      if (idx !== -1) {
+        setCurrentPage(Math.floor(idx / PAGE_SIZE) + 1);
+        return;
+      }
+    }
+    setCurrentPage(1);
+  }, [query, topicFilter, difficultyFilter, statusFilter]);
+
+  const totalPages = Math.max(1, Math.ceil(filteredProblems.length / PAGE_SIZE));
+  const safePage = Math.min(Math.max(1, currentPage), totalPages);
+  const pagedProblems = filteredProblems.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
+
+  const handleToggleExpand = (problemId) => {
+    setExpandedProblemId((prev) => (prev === problemId ? null : problemId));
     setSaveNotice('');
     setSaveError('');
+    setAttemptId(makeUuid());
   };
 
   const handleSubmitAttempt = async (e, problemId) => {
     e.preventDefault();
     if (!onSavePracticeAttempt) return;
+
+    const existingList = practiceAttempts[problemId] || [];
+    const latest = existingList.length > 0 ? existingList[existingList.length - 1] : null;
+
+    const currentOutcome = draftOutcomes[problemId] ?? latest?.outcome ?? 'solved_independently';
+    const currentNote = draftNotes[problemId] ?? latest?.note ?? '';
+    const currentNeedsReview = draftNeedsReview[problemId] ?? (currentOutcome !== 'solved_independently');
+
     setIsSaving(true);
     setSaveError('');
     setSaveNotice('');
@@ -101,9 +134,9 @@ export default function PracticeLibraryView({
       const res = await onSavePracticeAttempt({
         attemptId,
         problemId,
-        outcome,
-        note: note.trim() || null,
-        needsReview
+        outcome: currentOutcome,
+        note: currentNote.trim() || null,
+        needsReview: currentNeedsReview
       });
       const due = res?.practiceAttempt?.nextReviewDate;
       setSaveNotice(
@@ -223,7 +256,46 @@ export default function PracticeLibraryView({
         </div>
       </div>
 
-      {/* Problem List */}
+      {/* Pagination & Results Header */}
+      {filteredProblems.length > 0 && (
+        <div className="flex items-center justify-between gap-3 text-xs ui-text-muted flex-wrap px-1">
+          <span>
+            Showing {(safePage - 1) * PAGE_SIZE + 1}–{Math.min(safePage * PAGE_SIZE, filteredProblems.length)} of {filteredProblems.length} problems
+          </span>
+
+          {totalPages > 1 && (
+            <div className="flex items-center gap-1.5" role="navigation" aria-label="Practice problem pagination">
+              <button
+                type="button"
+                disabled={safePage <= 1}
+                onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                aria-label="Previous page"
+                className="secondary-button text-xs py-1 px-2.5 disabled:opacity-40"
+              >
+                <ChevronLeft size={13} aria-hidden="true" />
+                <span>Prev</span>
+              </button>
+
+              <span className="font-semibold px-2 ui-text-ink">
+                Page {safePage} / {totalPages}
+              </span>
+
+              <button
+                type="button"
+                disabled={safePage >= totalPages}
+                onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                aria-label="Next page"
+                className="secondary-button text-xs py-1 px-2.5 disabled:opacity-40"
+              >
+                <span>Next</span>
+                <ChevronRight size={13} aria-hidden="true" />
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Problem List (Paged & Compact) */}
       {filteredProblems.length === 0 ? (
         <div className="workspace-empty-state">
           <h3>No practice problems match your filters</h3>
@@ -242,48 +314,53 @@ export default function PracticeLibraryView({
           </button>
         </div>
       ) : (
-        <div className="space-y-3" role="list" aria-label="Practice problem list">
-          {filteredProblems.map((prob) => {
+        <div className="space-y-2.5" role="list" aria-label="Practice problem list">
+          {pagedProblems.map((prob) => {
             const topic = topicMap.get(prob.topicId);
             const firstLesson = lessonMap.get(prob.lessonIds?.[0]);
             const history = practiceAttempts[prob.id] || [];
             const latest = history.length > 0 ? history[history.length - 1] : null;
-            const isLogging = activeLoggingProblemId === prob.id;
+
+            const isExpanded = expandedProblemId === prob.id;
+
+            const currentOutcome = draftOutcomes[prob.id] ?? latest?.outcome ?? 'solved_independently';
+            const currentNote = draftNotes[prob.id] ?? latest?.note ?? '';
+            const currentNeedsReview = draftNeedsReview[prob.id] ?? (latest ? Boolean(latest.needsReview) : false);
 
             return (
               <article
                 key={prob.id}
                 role="listitem"
-                className="rounded-xl border ui-border-border ui-bg-surface p-4 space-y-3"
+                className={`rounded-xl border transition-colors ${
+                  isExpanded
+                    ? 'ui-border-accent ui-bg-surface p-4 space-y-3'
+                    : 'ui-border-border ui-bg-surface hover:ui-bg-soft p-3.5 space-y-2'
+                }`}
               >
-                <div className="flex items-start justify-between gap-4 flex-wrap">
-                  <div className="space-y-1 min-w-0 flex-1">
+                {/* Compact Row Header */}
+                <div className="flex items-center justify-between gap-3 flex-wrap">
+                  <div className="min-w-0 flex-1 space-y-1">
                     <div className="flex items-center gap-2 flex-wrap">
-                      <span className="text-xs font-bold uppercase tracking-wider ui-text-muted">
+                      <span className="text-[11px] font-bold uppercase tracking-wider ui-text-muted">
                         {topic?.title || prob.topicId}
                       </span>
-                      <span className="status-badge status-neutral text-xs">
+                      <span className="status-badge status-neutral text-[11px] py-0.5">
                         {prob.difficulty}
                       </span>
-                      <span className="status-badge status-accent text-xs">
+                      <span className="status-badge status-accent text-[11px] py-0.5">
                         {prob.pattern}
                       </span>
-                      <span className="text-xs ui-text-muted">{prob.estimatedMinutes}m est.</span>
+                      <span className="text-[11px] ui-text-muted">{prob.estimatedMinutes}m</span>
                     </div>
 
-                    <h3 className="text-base font-bold ui-text-ink">{prob.title}</h3>
-                    <p className="text-xs ui-text-ink">
-                      <strong>Why recommended:</strong> {prob.whyRecommended}
-                    </p>
-                    <p className="text-xs ui-text-muted">
-                      <strong>Key edge case to test:</strong> {prob.keyEdgeCase}
-                    </p>
+                    <h3 className="text-sm font-bold ui-text-ink truncate">{prob.title}</h3>
                   </div>
 
+                  {/* Actions & Status Pill */}
                   <div className="flex items-center gap-2 flex-wrap">
                     {latest && (
                       <span
-                        className={`status-badge text-xs ${
+                        className={`status-badge text-[11px] py-0.5 ${
                           latest.needsReview ? 'status-attention' : 'status-success'
                         }`}
                       >
@@ -292,155 +369,209 @@ export default function PracticeLibraryView({
                       </span>
                     )}
 
-                    {firstLesson && (
-                      <button
-                        type="button"
-                        onClick={() => onOpenProofLesson(firstLesson.topicId, firstLesson.id)}
-                        className="secondary-button text-xs py-1.5 px-2.5"
-                      >
-                        <BookOpen size={13} aria-hidden="true" />
-                        <span>Lesson</span>
-                      </button>
-                    )}
-
                     <button
                       type="button"
-                      onClick={() =>
-                        isLogging ? setActiveLoggingProblemId(null) : handleOpenLogForm(prob)
-                      }
-                      className="primary-button text-xs py-1.5 px-3"
+                      onClick={() => handleToggleExpand(prob.id)}
+                      aria-expanded={isExpanded}
+                      className={isExpanded ? 'secondary-button text-xs py-1.5 px-3' : 'primary-button text-xs py-1.5 px-3'}
                     >
-                      <span>{isLogging ? 'Close Log' : latest ? 'Update Log' : 'Log Outcome'}</span>
+                      <span>{isExpanded ? 'Close Log' : latest ? 'Update Log' : 'Log Outcome'}</span>
                     </button>
 
                     <a
                       href={prob.url}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="secondary-button text-xs py-1.5 px-3 inline-flex items-center gap-1"
+                      className="secondary-button text-xs py-1.5 px-2.5 inline-flex items-center gap-1"
+                      aria-label={`Solve ${prob.title} on ${prob.provider}`}
                     >
-                      <span>Solve on {prob.provider}</span>
-                      <ExternalLink size={13} aria-hidden="true" />
+                      <span>Solve</span>
+                      <ExternalLink size={12} aria-hidden="true" />
                     </a>
                   </div>
                 </div>
 
-                {latest?.note && !isLogging && (
-                  <div className="rounded-lg border ui-border-border ui-bg-soft p-2.5 text-xs ui-text-ink">
-                    <strong>Saved note:</strong> {latest.note}{' '}
-                    <span className="ui-text-muted">
-                      (Next review: {latest.nextReviewDate})
-                    </span>
-                  </div>
+                {/* Collapsed saved note preview if not expanded */}
+                {!isExpanded && latest?.note && (
+                  <p className="text-xs ui-text-muted truncate pt-1 border-t ui-border-border">
+                    <strong className="ui-text-ink">Saved note:</strong> {latest.note}
+                  </p>
                 )}
 
-                {isLogging && (
-                  <form
-                    onSubmit={(e) => handleSubmitAttempt(e, prob.id)}
-                    className="rounded-xl border ui-border-border ui-bg-soft p-4 space-y-3"
-                  >
+                {/* Expanded In-Flow Details & Log Form */}
+                {isExpanded && (
+                  <div className="pt-2 border-t ui-border-border space-y-3">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+                      <div className="rounded-lg border ui-border-border ui-bg-soft p-2.5">
+                        <strong className="block ui-text-ink mb-0.5">Why recommended:</strong>
+                        <p className="ui-text-muted">{prob.whyRecommended}</p>
+                      </div>
+                      <div className="rounded-lg border ui-border-border ui-bg-soft p-2.5">
+                        <strong className="block ui-text-ink mb-0.5">Key edge case to test:</strong>
+                        <p className="ui-text-muted">{prob.keyEdgeCase}</p>
+                      </div>
+                    </div>
+
                     <div className="flex items-center justify-between gap-2 flex-wrap">
-                      <h4 className="text-xs font-bold uppercase tracking-wider ui-text-ink">
-                        Log Self-Reported Outcome for {prob.title}
-                      </h4>
+                      {firstLesson && (
+                        <button
+                          type="button"
+                          onClick={() => onOpenProofLesson(firstLesson.topicId, firstLesson.id)}
+                          className="secondary-button text-xs py-1.5 px-2.5 inline-flex items-center gap-1.5"
+                        >
+                          <BookOpen size={13} aria-hidden="true" />
+                          <span>Open Related Lesson ({firstLesson.title})</span>
+                        </button>
+                      )}
+
                       {highlightedProblemId === prob.id && onClearHighlightedProblem && (
                         <button
                           type="button"
                           onClick={onClearHighlightedProblem}
                           className="text-xs ui-text-muted hover:underline"
                         >
-                          Clear focus
+                          Clear focus highlight
                         </button>
                       )}
                     </div>
 
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                      <div>
-                        <label
-                          htmlFor={`prac-outcome-${prob.id}`}
-                          className="block text-xs font-semibold ui-text-muted mb-1"
-                        >
-                          Outcome (Self-Reported)
-                        </label>
-                        <select
-                          id={`prac-outcome-${prob.id}`}
-                          value={outcome}
-                          onChange={(e) => {
-                            const val = e.target.value;
-                            setOutcome(val);
-                            setNeedsReview(val !== 'solved_independently');
-                            setAttemptId(makeUuid());
-                          }}
-                          className="w-full rounded-lg border ui-border-border ui-bg-surface px-3 py-2 text-xs font-medium ui-text-ink"
-                        >
-                          <option value="solved_independently">Solved Independently</option>
-                          <option value="with_hint">Solved With Hint</option>
-                          <option value="reviewed_editorial">Reviewed Editorial / Solution</option>
-                          <option value="bookmarked">Bookmarked for Later</option>
-                        </select>
-                      </div>
+                    {/* Log Self-Reported Outcome Form */}
+                    <form
+                      onSubmit={(e) => handleSubmitAttempt(e, prob.id)}
+                      className="rounded-xl border ui-border-border ui-bg-soft p-3.5 space-y-3"
+                    >
+                      <h4 className="text-xs font-bold uppercase tracking-wider ui-text-ink">
+                        Log Self-Reported Outcome for {prob.title}
+                      </h4>
 
-                      <div className="flex items-end pb-1">
-                        <label className="inline-flex items-center gap-2 text-xs font-semibold ui-text-ink cursor-pointer">
-                          <input
-                            type="checkbox"
-                            checked={needsReview}
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <div>
+                          <label
+                            htmlFor={`prac-outcome-${prob.id}`}
+                            className="block text-xs font-semibold ui-text-muted mb-1"
+                          >
+                            Outcome (Self-Reported)
+                          </label>
+                          <select
+                            id={`prac-outcome-${prob.id}`}
+                            value={currentOutcome}
                             onChange={(e) => {
-                              setNeedsReview(e.target.checked);
+                              const val = e.target.value;
+                              setDraftOutcomes((prev) => ({ ...prev, [prob.id]: val }));
+                              setDraftNeedsReview((prev) => ({
+                                ...prev,
+                                [prob.id]: val !== 'solved_independently'
+                              }));
                               setAttemptId(makeUuid());
                             }}
-                          />
-                          <span>Queue in Review for spaced retry</span>
-                        </label>
+                            className="w-full rounded-lg border ui-border-border ui-bg-surface px-3 py-2 text-xs font-medium ui-text-ink"
+                          >
+                            <option value="solved_independently">Solved Independently</option>
+                            <option value="with_hint">Solved With Hint</option>
+                            <option value="reviewed_editorial">Reviewed Editorial / Solution</option>
+                            <option value="bookmarked">Bookmarked for Later</option>
+                          </select>
+                        </div>
+
+                        <div className="flex items-end pb-1">
+                          <label className="inline-flex items-center gap-2 text-xs font-semibold ui-text-ink cursor-pointer">
+                            <input
+                              type="checkbox"
+                              checked={currentNeedsReview}
+                              onChange={(e) => {
+                                setDraftNeedsReview((prev) => ({ ...prev, [prob.id]: e.target.checked }));
+                                setAttemptId(makeUuid());
+                              }}
+                            />
+                            <span>Queue in Review for spaced retry</span>
+                          </label>
+                        </div>
                       </div>
-                    </div>
 
-                    <div>
-                      <label
-                        htmlFor={`prac-note-${prob.id}`}
-                        className="block text-xs font-semibold ui-text-muted mb-1"
-                      >
-                        Invariant &amp; Edge-Case Note (Optional)
-                      </label>
-                      <textarea
-                        id={`prac-note-${prob.id}`}
-                        rows={2}
-                        maxLength={500}
-                        value={note}
-                        onChange={(e) => {
-                          setNote(e.target.value);
-                          setAttemptId(makeUuid());
-                        }}
-                        placeholder="What invariant or boundary check made this problem click?"
-                        className="w-full rounded-lg border ui-border-border ui-bg-surface p-2.5 text-xs ui-text-ink"
-                      />
-                    </div>
+                      <div>
+                        <label
+                          htmlFor={`prac-note-${prob.id}`}
+                          className="block text-xs font-semibold ui-text-muted mb-1"
+                        >
+                          Invariant &amp; Edge-Case Note (Optional)
+                        </label>
+                        <textarea
+                          id={`prac-note-${prob.id}`}
+                          rows={2}
+                          maxLength={500}
+                          value={currentNote}
+                          onChange={(e) => {
+                            setDraftNotes((prev) => ({ ...prev, [prob.id]: e.target.value }));
+                            setAttemptId(makeUuid());
+                          }}
+                          placeholder="What invariant or boundary check made this problem click?"
+                          className="w-full rounded-lg border ui-border-border ui-bg-surface p-2.5 text-xs ui-text-ink"
+                        />
+                      </div>
 
-                    <div className="flex items-center gap-3 flex-wrap">
-                      <button
-                        type="submit"
-                        disabled={isSaving}
-                        className="primary-button text-xs py-2 px-4"
-                      >
-                        <CheckCircle2 size={14} aria-hidden="true" />
-                        <span>{isSaving ? 'Saving...' : 'Save Practice Log'}</span>
-                      </button>
-                      {saveNotice && (
-                        <span role="status" className="text-xs font-semibold ui-text-accent">
-                          {saveNotice}
-                        </span>
-                      )}
-                      {saveError && (
-                        <span role="alert" className="text-xs font-semibold ui-text-ink">
-                          {saveError}
-                        </span>
-                      )}
-                    </div>
-                  </form>
+                      <div className="flex items-center gap-3 flex-wrap">
+                        <button
+                          type="submit"
+                          disabled={isSaving}
+                          className="primary-button text-xs py-2 px-4"
+                        >
+                          <CheckCircle2 size={14} aria-hidden="true" />
+                          <span>{isSaving ? 'Saving...' : 'Save Practice Log'}</span>
+                        </button>
+                        {saveNotice && (
+                          <span role="status" className="text-xs font-semibold ui-text-accent">
+                            {saveNotice}
+                          </span>
+                        )}
+                        {saveError && (
+                          <span role="alert" className="text-xs font-semibold ui-text-ink">
+                            {saveError}
+                          </span>
+                        )}
+                      </div>
+                    </form>
+                  </div>
                 )}
               </article>
             );
           })}
+        </div>
+      )}
+
+      {/* Bottom Pagination Controls */}
+      {filteredProblems.length > PAGE_SIZE && (
+        <div className="flex items-center justify-between gap-3 text-xs ui-text-muted flex-wrap pt-2 px-1">
+          <span>
+            Showing {(safePage - 1) * PAGE_SIZE + 1}–{Math.min(safePage * PAGE_SIZE, filteredProblems.length)} of {filteredProblems.length} problems
+          </span>
+
+          <div className="flex items-center gap-1.5" role="navigation" aria-label="Practice problem pagination footer">
+            <button
+              type="button"
+              disabled={safePage <= 1}
+              onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+              aria-label="Previous page"
+              className="secondary-button text-xs py-1 px-2.5 disabled:opacity-40"
+            >
+              <ChevronLeft size={13} aria-hidden="true" />
+              <span>Prev</span>
+            </button>
+
+            <span className="font-semibold px-2 ui-text-ink">
+              Page {safePage} / {totalPages}
+            </span>
+
+            <button
+              type="button"
+              disabled={safePage >= totalPages}
+              onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+              aria-label="Next page"
+              className="secondary-button text-xs py-1 px-2.5 disabled:opacity-40"
+            >
+              <span>Next</span>
+              <ChevronRight size={13} aria-hidden="true" />
+            </button>
+          </div>
         </div>
       )}
     </section>

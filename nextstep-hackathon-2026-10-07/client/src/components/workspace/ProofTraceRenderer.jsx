@@ -51,11 +51,11 @@ export default function ProofTraceRenderer({ rendererType, stateSnapshot }) {
 
   return (
     <div
-      className="rounded-xl border ui-border-border ui-bg-surface p-4 space-y-4"
+      className="rounded-xl border ui-border-border ui-bg-surface p-3 sm:p-4 space-y-2.5 sm:space-y-4"
       aria-label={`Interactive ${rendererType.replace(/_/g, ' ')} state diagram`}
     >
       {/* Top Annotation */}
-      <div className="flex items-center justify-between gap-2 flex-wrap">
+      <div className="flex items-center justify-between gap-1.5 sm:gap-2 flex-wrap">
         <span className="text-xs font-bold uppercase tracking-wider ui-text-accent">
           Live State Snapshot · {rendererType.replace(/_/g, ' ')}
         </span>
@@ -67,18 +67,18 @@ export default function ProofTraceRenderer({ rendererType, stateSnapshot }) {
       </div>
 
       {annotation && (
-        <p className="text-sm font-medium ui-text-ink ui-bg-soft p-3 rounded-lg border ui-border-border">
+        <p className="text-xs sm:text-sm font-medium ui-text-ink ui-bg-soft p-2.5 sm:p-3 rounded-lg border ui-border-border leading-snug">
           {annotation}
         </p>
       )}
 
       {/* Scalar state variables */}
       {scalarPointers.length > 0 && (
-        <div className="flex items-center gap-2 flex-wrap" aria-label="Tracked scalar variables">
+        <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap" aria-label="Tracked scalar variables">
           {scalarPointers.map(({ name, val }) => (
             <span
               key={name}
-              className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border ui-border-border ui-bg-soft text-xs font-mono ui-text-ink"
+              className="inline-flex items-center gap-1 px-2 py-0.5 sm:px-2.5 sm:py-1 rounded-lg border ui-border-border ui-bg-soft text-xs font-mono ui-text-ink"
             >
               <strong className="ui-text-muted">{name}:</strong>
               <span>{String(val)}</span>
@@ -89,14 +89,14 @@ export default function ProofTraceRenderer({ rendererType, stateSnapshot }) {
 
       {/* Array / Binary Search / Sliding Window / Two Pointers Cells */}
       {Array.isArray(array) && array.length > 0 && (
-        <div className="space-y-2">
+        <div className="space-y-1.5 sm:space-y-2">
           <div className="text-xs font-semibold ui-text-muted">
             Index &amp; Value Cells
           </div>
           <div
-            className="grid gap-2"
+            className="grid gap-1.5 sm:gap-2"
             style={{
-              gridTemplateColumns: 'repeat(auto-fit, minmax(64px, 1fr))'
+              gridTemplateColumns: 'repeat(auto-fit, minmax(46px, 1fr))'
             }}
             role="list"
             aria-label="Array cells"
@@ -111,7 +111,7 @@ export default function ProofTraceRenderer({ rendererType, stateSnapshot }) {
                 <div
                   key={idx}
                   role="listitem"
-                  className={`rounded-lg border p-2 flex flex-col items-center justify-between gap-1 ${
+                  className={`rounded-lg border p-1.5 sm:p-2 flex flex-col items-center justify-between gap-0.5 sm:gap-1 ${
                     isHighlighted
                       ? 'border-2 ui-border-accent ui-bg-soft'
                       : inRange
@@ -119,15 +119,15 @@ export default function ProofTraceRenderer({ rendererType, stateSnapshot }) {
                       : 'ui-border-border ui-bg-soft opacity-75'
                   }`}
                 >
-                  <span className="text-xs font-mono ui-text-muted">[{idx}]</span>
-                  <span className="text-base font-bold font-mono ui-text-ink">
+                  <span className="text-[11px] sm:text-xs font-mono ui-text-muted">[{idx}]</span>
+                  <span className="text-sm sm:text-base font-bold font-mono ui-text-ink">
                     {String(val)}
                   </span>
-                  <div className="min-h-[20px] flex items-center justify-center gap-1 flex-wrap">
+                  <div className="min-h-[16px] sm:min-h-[20px] flex items-center justify-center gap-0.5 sm:gap-1 flex-wrap">
                     {ptrs.map((pName) => (
                       <span
                         key={pName}
-                        className="status-badge status-accent text-xs font-mono py-0.5 px-1.5"
+                        className="status-badge status-accent text-[10px] sm:text-xs font-mono py-0.2 sm:py-0.5 px-1 sm:px-1.5"
                       >
                         {pName}
                       </span>
@@ -141,15 +141,15 @@ export default function ProofTraceRenderer({ rendererType, stateSnapshot }) {
             {indexPointers.has(array.length) && (
               <div
                 role="listitem"
-                className="rounded-lg border border-dashed ui-border-border ui-bg-soft p-2 flex flex-col items-center justify-between gap-1"
+                className="rounded-lg border border-dashed ui-border-border ui-bg-soft p-1.5 sm:p-2 flex flex-col items-center justify-between gap-0.5 sm:gap-1"
               >
-                <span className="text-xs font-mono ui-text-muted">[{array.length}]</span>
-                <span className="text-xs font-mono ui-text-muted">end</span>
-                <div className="min-h-[20px] flex items-center justify-center gap-1 flex-wrap">
+                <span className="text-[11px] sm:text-xs font-mono ui-text-muted">[{array.length}]</span>
+                <span className="text-[11px] sm:text-xs font-mono ui-text-muted">end</span>
+                <div className="min-h-[16px] sm:min-h-[20px] flex items-center justify-center gap-0.5 sm:gap-1 flex-wrap">
                   {indexPointers.get(array.length).map((pName) => (
                     <span
                       key={pName}
-                      className="status-badge status-accent text-xs font-mono py-0.5 px-1.5"
+                      className="status-badge status-accent text-[10px] sm:text-xs font-mono py-0.2 sm:py-0.5 px-1 sm:px-1.5"
                     >
                       {pName}
                     </span>

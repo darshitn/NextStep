@@ -60,9 +60,9 @@ export default function RoadmapView({
       {/* Roadmap Header & Toolbar */}
       <div className="roadmap-toolbar">
         <div>
-          <h2 id="roadmap-heading" className="text-xl font-bold ui-text-ink tracking-tight">Curriculum Roadmap</h2>
+          <h2 id="roadmap-heading" className="text-xl font-bold ui-text-ink tracking-tight">12-Mission Starter Roadmap</h2>
           <p className="text-sm ui-text-muted mt-1">
-            Structured DSA Foundations sequence · {missions.length} ordered 30-minute missions.
+            Structured DSA starter track · {missions.length} ordered 30-minute missions with scheduled focus sessions.
           </p>
         </div>
 

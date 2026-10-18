@@ -159,11 +159,14 @@ body { font-size: 16px; line-height: 1.6; }
   .practice-support { padding-left: 24px; }
 }
 @media(max-width:760px) {
-  .header-inner { padding: 10px 16px; min-height: 64px; gap: 8px; }
+  .header-inner { padding: 6px 14px; min-height: 48px; gap: 8px; }
   .account-name { display: none; }
   .app-brand,.header-actions { gap: 8px; }
-  .fixture-badge { position: absolute; top: 2px; left: 58px; font-size: 9px; padding: 0 4px; }
-  .app-content { padding: 24px 16px 32px; }
+  .brand-symbol { width: 30px; height: 30px; }
+  .brand-symbol svg { width: 18px; height: 18px; }
+  .brand-name { font-size: 17px; }
+  .fixture-badge { position: absolute; top: 2px; left: 52px; font-size: 9px; padding: 0 4px; }
+  .app-content { padding: 16px 14px 28px; }
   .app-footer { width: calc(100% - 32px); flex-direction: column; gap: 4px; }
   .goal-heading { flex-direction: column; align-items: flex-start; gap: 14px; }
   .progress-strip { padding: 18px; gap: 18px; align-items: flex-start; }

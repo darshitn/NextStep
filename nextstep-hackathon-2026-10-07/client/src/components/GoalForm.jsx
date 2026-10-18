@@ -84,14 +84,14 @@ export default function GoalForm({ onSubmit, isLoading = false, error = null }) 
           <div>
             <label htmlFor="goal-name" className="block text-sm font-semibold ui-text-ink mb-2">What are you working toward?</label>
             <input id="goal-name" required maxLength={80} value={goalName} onChange={e => setGoalName(e.target.value)} pattern=".*\S.*" className="w-full rounded-xl ui-bg-surface border ui-border-border px-4 py-3 ui-text-ink" />
-            <p className="text-xs ui-text-muted mt-2">Your goal name is personal. This MVP provides DSA Foundations missions; other learning tracks are not available yet.</p>
+            <p className="text-xs ui-text-muted mt-2">Your goal name is personal. Your plan begins with 12 foundational DSA starter missions, with complete access to the full curriculum library in Atlas and Proof Studio.</p>
           </div>
           {/* Selected Track Banner */}
           <div className="p-4 rounded-xl ui-bg-surface-a90 border ui-border-border flex items-center justify-between">
             <div>
               <span className="text-[10px] font-bold uppercase tracking-wider ui-text-ink">Selected Track</span>
-              <h3 className="font-bold text-sm ui-text-ink">DSA Foundations Starter (v1)</h3>
-              <p className="text-xs ui-text-muted mt-0.5">12 structured 30-minute missions (6 hours total)</p>
+              <h3 className="font-bold text-sm ui-text-ink">DSA Foundations Starter Plan</h3>
+              <p className="text-xs ui-text-muted mt-0.5">12 structured 30-minute missions with scheduled focus sessions</p>
             </div>
             <span className="px-2.5 py-1 text-xs font-semibold ui-bg-soft-a20 ui-text-ink rounded-lg border ui-border-border-a30">
               360 mins
