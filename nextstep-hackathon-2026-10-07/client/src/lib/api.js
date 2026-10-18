@@ -186,6 +186,67 @@ export const liveApi = {
       method: 'POST',
       body: payload
     });
+  },
+
+  async saveLessonProgress(payload) {
+    return request('/goal/workspace/lesson', {
+      method: 'POST',
+      body: payload
+    });
+  },
+
+  async saveExerciseAttempt(payload) {
+    return request('/goal/workspace/exercise', {
+      method: 'POST',
+      body: payload
+    });
+  },
+
+  async savePracticeAttempt(payload) {
+    return request('/goal/workspace/practice', {
+      method: 'POST',
+      body: payload
+    });
+  },
+
+  async previewWorkspacePlan(payload) {
+    return request('/goal/workspace/plan/preview', {
+      method: 'POST',
+      body: payload
+    });
+  },
+
+  async applyWorkspacePlan(payload) {
+    return request('/goal/workspace/plan/apply', {
+      method: 'POST',
+      body: payload
+    });
+  },
+
+  async evaluateTraceStep(payload) {
+    return request('/catalog/exercise/evaluate-step', {
+      method: 'POST',
+      body: payload
+    });
+  },
+
+  async evaluateEdgeCheck(payload) {
+    return request('/catalog/exercise/evaluate-edge', {
+      method: 'POST',
+      body: payload
+    });
+  },
+
+  async evaluateLessonCheck(payload) {
+    return request('/catalog/lesson/evaluate-check', {
+      method: 'POST',
+      body: payload
+    });
+  },
+
+  async getExerciseReference(exerciseId) {
+    return request(`/catalog/exercise/${exerciseId}/reference`, {
+      method: 'GET'
+    });
   }
 };
-

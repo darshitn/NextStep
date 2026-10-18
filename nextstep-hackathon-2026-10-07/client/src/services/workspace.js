@@ -577,6 +577,7 @@ export function buildGoalExportData(goal, catalog, now = new Date()) {
       schedule: goal.schedule,
       completions: goal.completions,
       learning: goal.learning,
+      studyWorkspace: goal.studyWorkspace || null,
       xp: goal.xp,
       level: goal.level,
       remainingMinutes: goal.remainingMinutes,
@@ -584,4 +585,452 @@ export function buildGoalExportData(goal, catalog, now = new Date()) {
       updatedAt: goal.updatedAt
     }
   };
+}
+
+/**
+ * Derives topic-level progress, prerequisite readiness, and evidence summary for Atlas.
+ */
+export function deriveTopicAtlasModel(goal, catalog, now = new Date()) {
+  const curriculum = catalog?.curriculum;
+  if (!curriculum || !Array.isArray(curriculum.topics)) {
+    return {
+      topics: [],
+      prerequisiteEdges: [],
+      completedTopicsCount: 0,
+      completedLessonsCount: 0,
+      totalLessonsCount: 0,
+      completedExercisesCount: 0,
+      totalExercisesCount: 0,
+      solvedPracticeCount: 0,
+      totalPracticeCount: 0
+    };
+  }
+
+  const ws = goal?.studyWorkspace || {};
+  const lessonProgress = ws.lessonProgress || {};
+  const exerciseAttempts = ws.exerciseAttempts || {};
+  const practiceAttempts = ws.practiceAttempts || {};
+  const todayIST = localDay(now);
+
+  const lessonsByTopic = new Map();
+  for (const lesson of curriculum.lessons || []) {
+    if (!lessonsByTopic.has(lesson.topicId)) lessonsByTopic.set(lesson.topicId, []);
+    lessonsByTopic.get(lesson.topicId).push(lesson);
+  }
+
+  const exercisesByTopic = new Map();
+  for (const ex of curriculum.exercises || []) {
+    if (!exercisesByTopic.has(ex.topicId)) exercisesByTopic.set(ex.topicId, []);
+    exercisesByTopic.get(ex.topicId).push(ex);
+  }
+
+  const practiceByTopic = new Map();
+  for (const prac of curriculum.practiceProblems || []) {
+    if (!practiceByTopic.has(prac.topicId)) practiceByTopic.set(prac.topicId, []);
+    practiceByTopic.get(prac.topicId).push(prac);
+  }
+
+  const topicCompletionMap = new Map();
+  for (const topic of curriculum.topics) {
+    const topicLessons = lessonsByTopic.get(topic.id) || [];
+    const completedLessons = topicLessons.filter((l) => lessonProgress[l.id]?.status === 'completed');
+    topicCompletionMap.set(topic.id, topicLessons.length > 0 && completedLessons.length === topicLessons.length);
+  }
+
+  const topicTitleMap = new Map(curriculum.topics.map((t) => [t.id, t.title]));
+
+  let totalCompletedLessons = 0;
+  let totalCompletedExercises = 0;
+  let totalSolvedPractice = 0;
+
+  const enrichedTopics = curriculum.topics.map((topic) => {
+    const topicLessons = (lessonsByTopic.get(topic.id) || []).sort((a, b) => a.order - b.order);
+    const topicExercises = exercisesByTopic.get(topic.id) || [];
+    const topicPractice = practiceByTopic.get(topic.id) || [];
+
+    const completedLessons = topicLessons.filter((l) => lessonProgress[l.id]?.status === 'completed');
+    const inProgressLessons = topicLessons.filter((l) => lessonProgress[l.id]?.status === 'in_progress');
+    totalCompletedLessons += completedLessons.length;
+
+    const completedExercises = topicExercises.filter(
+      (ex) => Array.isArray(exerciseAttempts[ex.id]) && exerciseAttempts[ex.id].length > 0
+    );
+    totalCompletedExercises += completedExercises.length;
+
+    const solvedPractice = topicPractice.filter((p) => {
+      const list = practiceAttempts[p.id];
+      return Array.isArray(list) && list.some((a) => a.outcome === 'solved_independently' || a.outcome === 'with_hint');
+    });
+    totalSolvedPractice += solvedPractice.length;
+
+    let dueReviewCount = 0;
+    for (const ex of topicExercises) {
+      const list = exerciseAttempts[ex.id];
+      const latest = Array.isArray(list) && list.length > 0 ? list[list.length - 1] : null;
+      if (latest && (latest.nextReviewDate <= todayIST || latest.outcome !== 'independent')) {
+        dueReviewCount += 1;
+      }
+    }
+    for (const p of topicPractice) {
+      const list = practiceAttempts[p.id];
+      const latest = Array.isArray(list) && list.length > 0 ? list[list.length - 1] : null;
+      if (latest && (latest.needsReview || latest.nextReviewDate <= todayIST)) {
+        dueReviewCount += 1;
+      }
+    }
+
+    const missingPrerequisites = (topic.prerequisites || [])
+      .filter((prereqId) => !topicCompletionMap.get(prereqId))
+      .map((prereqId) => ({
+        id: prereqId,
+        title: topicTitleMap.get(prereqId) || prereqId
+      }));
+
+    const prerequisitesMet = missingPrerequisites.length === 0;
+
+    let status = 'not_started';
+    if (topicLessons.length > 0 && completedLessons.length === topicLessons.length) {
+      status = dueReviewCount > 0 ? 'needs_review' : 'completed';
+    } else if (
+      completedLessons.length > 0 ||
+      inProgressLessons.length > 0 ||
+      completedExercises.length > 0 ||
+      solvedPractice.length > 0
+    ) {
+      status = dueReviewCount > 0 ? 'needs_review' : 'in_progress';
+    }
+
+    const nextLesson =
+      inProgressLessons[0] ||
+      topicLessons.find((l) => lessonProgress[l.id]?.status !== 'completed') ||
+      topicLessons[0] ||
+      null;
+
+    return {
+      ...topic,
+      status,
+      prerequisitesMet,
+      missingPrerequisites,
+      lessons: topicLessons,
+      exercises: topicExercises,
+      practiceProblems: topicPractice,
+      completedLessonsCount: completedLessons.length,
+      totalLessonsCount: topicLessons.length,
+      completedExercisesCount: completedExercises.length,
+      totalExercisesCount: topicExercises.length,
+      solvedPracticeCount: solvedPractice.length,
+      totalPracticeCount: topicPractice.length,
+      dueReviewCount,
+      nextLesson
+    };
+  });
+
+  return {
+    topics: enrichedTopics,
+    topicMap: Object.fromEntries(enrichedTopics.map((t) => [t.id, t])),
+    prerequisiteEdges: curriculum.prerequisiteEdges || [],
+    sources: curriculum.sources || [],
+    completedTopicsCount: enrichedTopics.filter((t) => t.status === 'completed').length,
+    completedLessonsCount: totalCompletedLessons,
+    totalLessonsCount: (curriculum.lessons || []).length,
+    completedExercisesCount: totalCompletedExercises,
+    totalExercisesCount: (curriculum.exercises || []).length,
+    solvedPracticeCount: totalSolvedPractice,
+    totalPracticeCount: (curriculum.practiceProblems || []).length
+  };
+}
+
+/**
+ * Derives workspace review items from Proof exercise attempts, external practice logs,
+ * and lesson reflections so Review connects directly with Atlas + Proof evidence.
+ */
+export function deriveWorkspaceReviewQueue(goal, catalog, now = new Date()) {
+  const curriculum = catalog?.curriculum;
+  if (!curriculum) return [];
+
+  const ws = goal?.studyWorkspace || {};
+  const exerciseAttempts = ws.exerciseAttempts || {};
+  const practiceAttempts = ws.practiceAttempts || {};
+  const todayIST = localDay(now);
+
+  const exerciseById = new Map((curriculum.exercises || []).map((e) => [e.id, e]));
+  const lessonById = new Map((curriculum.lessons || []).map((l) => [l.id, l]));
+  const practiceById = new Map((curriculum.practiceProblems || []).map((p) => [p.id, p]));
+  const topicById = new Map((curriculum.topics || []).map((t) => [t.id, t]));
+
+  const queue = [];
+
+  for (const [exerciseId, attempts] of Object.entries(exerciseAttempts)) {
+    const exercise = exerciseById.get(exerciseId);
+    if (!exercise || !Array.isArray(attempts) || attempts.length === 0) continue;
+    const latest = attempts[attempts.length - 1];
+    const isDue = Boolean(latest.nextReviewDate && latest.nextReviewDate <= todayIST);
+    const usedSupport = latest.outcome !== 'independent' || latest.mistakeCount > 0;
+    if (!isDue && !usedSupport) continue;
+
+    const topic = topicById.get(exercise.topicId);
+    const lesson = lessonById.get(exercise.lessonId);
+    let reason = '';
+    if (isDue) {
+      reason = `Proof trace review due (${latest.nextReviewDate}) after ${
+        latest.outcome === 'needed_reference'
+          ? 'revealing the reference invariant'
+          : latest.outcome === 'with_hint'
+          ? 'using a trace hint'
+          : 'completing the trace'
+      }.`;
+    } else {
+      reason = `Completed Proof trace with ${
+        latest.outcome === 'needed_reference'
+          ? 'reference reveal'
+          : latest.outcome === 'with_hint'
+          ? 'a hint'
+          : `${latest.mistakeCount} step retry`
+      } — recommended for unassisted trace verification.`;
+    }
+
+    queue.push({
+      id: `ws-ex-${exerciseId}`,
+      kind: 'exercise',
+      itemType: 'exercise',
+      itemId: exerciseId,
+      exerciseId,
+      lessonId: exercise.lessonId,
+      topicId: exercise.topicId,
+      topicTitle: topic?.title || exercise.topicId,
+      title: exercise.title,
+      lessonTitle: lesson?.title || exercise.lessonId,
+      outcome: latest.outcome,
+      mistakeCount: latest.mistakeCount,
+      reflection: latest.reflection,
+      savedAt: latest.savedAt,
+      nextReviewDate: latest.nextReviewDate,
+      isDue,
+      attemptCount: attempts.length,
+      attemptsCount: attempts.length,
+      reason
+    });
+  }
+
+  for (const [problemId, attempts] of Object.entries(practiceAttempts)) {
+    const problem = practiceById.get(problemId);
+    if (!problem || !Array.isArray(attempts) || attempts.length === 0) continue;
+    const latest = attempts[attempts.length - 1];
+    const isDue = Boolean(latest.nextReviewDate && latest.nextReviewDate <= todayIST);
+    const flagged = Boolean(
+      latest.needsReview || latest.outcome === 'with_hint' || latest.outcome === 'reviewed_editorial'
+    );
+    if (!isDue && !flagged) continue;
+
+    const topic = topicById.get(problem.topicId);
+    const linkedLessonId = problem.lessonIds?.[0] || null;
+    let reason = '';
+    if (latest.needsReview) {
+      reason = `Flagged for review in your external practice log${isDue ? ` (due ${latest.nextReviewDate})` : ''}.`;
+    } else if (isDue) {
+      reason = `External practice review scheduled for ${latest.nextReviewDate} is due.`;
+    } else {
+      reason = `Self-reported as "${latest.outcome.replace(/_/g, ' ')}" — suggested for independent retry.`;
+    }
+
+    queue.push({
+      id: `ws-prac-${problemId}`,
+      kind: 'practice',
+      itemType: 'practice',
+      itemId: problemId,
+      problemId,
+      lessonId: linkedLessonId,
+      topicId: problem.topicId,
+      topicTitle: topic?.title || problem.topicId,
+      title: problem.title,
+      provider: problem.provider,
+      url: problem.url,
+      difficulty: problem.difficulty,
+      outcome: latest.outcome,
+      note: latest.note,
+      needsReview: latest.needsReview,
+      savedAt: latest.savedAt,
+      nextReviewDate: latest.nextReviewDate,
+      isDue,
+      attemptCount: attempts.length,
+      attemptsCount: attempts.length,
+      reason
+    });
+  }
+
+  queue.sort((a, b) => {
+    if (a.isDue !== b.isDue) return a.isDue ? -1 : 1;
+    return (a.nextReviewDate || '').localeCompare(b.nextReviewDate || '');
+  });
+
+  return queue;
+}
+
+/**
+ * Produces an explainable next-action recommendation for Today and Atlas.
+ */
+export function deriveExplainableRecommendation(goal, catalog, now = new Date()) {
+  const curriculum = catalog?.curriculum;
+  if (!curriculum || !Array.isArray(curriculum.lessons) || curriculum.lessons.length === 0) {
+    return null;
+  }
+
+  const ws = goal?.studyWorkspace || {};
+  const lessonProgress = ws.lessonProgress || {};
+  const todayIST = localDay(now);
+  const topicById = new Map((curriculum.topics || []).map((t) => [t.id, t]));
+  const lessonById = new Map((curriculum.lessons || []).map((l) => [l.id, l]));
+
+  // 1. Check due workspace review items first
+  const reviewQueue = deriveWorkspaceReviewQueue(goal, catalog, now);
+  const dueReview = reviewQueue.find((r) => r.isDue);
+  if (dueReview) {
+    const lesson = lessonById.get(dueReview.lessonId) || curriculum.lessons[0];
+    return {
+      kind: dueReview.itemType === 'exercise' ? 'review_exercise' : 'review_practice',
+      title: dueReview.title,
+      topicId: dueReview.topicId,
+      topicTitle: dueReview.topicTitle,
+      lessonId: lesson?.id || 'les_arrays_01',
+      exerciseId: dueReview.itemType === 'exercise' ? dueReview.itemId : lesson?.exerciseId || null,
+      problemId: dueReview.itemType === 'practice' ? dueReview.itemId : null,
+      estimatedMinutes: 15,
+      badge: 'Review Due Today',
+      reason: dueReview.reason
+    };
+  }
+
+  // 2. Check active study plan sessions for today
+  const studyPlan = ws.studyPlan;
+  if (studyPlan && Array.isArray(studyPlan.sessions)) {
+    const todaySession = studyPlan.sessions.find((s) => {
+      if (s.date > todayIST) return false;
+      if (s.itemType === 'lesson') {
+        return lessonProgress[s.itemId]?.status !== 'completed';
+      }
+      return true;
+    });
+    if (todaySession) {
+      const topic = topicById.get(todaySession.topicId);
+      const lesson =
+        todaySession.itemType === 'lesson'
+          ? lessonById.get(todaySession.itemId)
+          : curriculum.lessons.find((l) => l.topicId === todaySession.topicId) || curriculum.lessons[0];
+      return {
+        kind: 'planned_session',
+        title: todaySession.title,
+        topicId: todaySession.topicId,
+        topicTitle: topic?.title || 'Curriculum Plan',
+        lessonId: lesson?.id || 'les_arrays_01',
+        exerciseId: todaySession.itemType === 'exercise' ? todaySession.itemId : lesson?.exerciseId || null,
+        problemId: todaySession.itemType === 'practice' ? todaySession.itemId : null,
+        estimatedMinutes: todaySession.allocatedMinutes,
+        badge:
+          todaySession.totalParts > 1
+            ? `Planned Today (Part ${todaySession.partIndex}/${todaySession.totalParts})`
+            : 'Planned Today',
+        reason: `Scheduled for ${todaySession.date} in your capacity-aware study plan (${todaySession.allocatedMinutes}m allocated).`
+      };
+    }
+  }
+
+  // 3. Check in-progress lesson
+  for (const lesson of curriculum.lessons) {
+    const prog = lessonProgress[lesson.id];
+    if (prog && prog.status === 'in_progress') {
+      const topic = topicById.get(lesson.topicId);
+      return {
+        kind: 'in_progress_lesson',
+        title: lesson.title,
+        topicId: lesson.topicId,
+        topicTitle: topic?.title || lesson.topicId,
+        lessonId: lesson.id,
+        exerciseId: lesson.exerciseId,
+        problemId: lesson.recommendedPracticeIds?.[0] || null,
+        estimatedMinutes: lesson.estimatedMinutes,
+        badge: 'Resume In-Progress Lesson',
+        reason: `You started "${lesson.title}" recently — finish its worked trace and knowledge check to lock in the invariant.`
+      };
+    }
+  }
+
+  // 4. First uncompleted lesson in topic order whose prerequisites are met
+  for (const lesson of curriculum.lessons) {
+    const prog = lessonProgress[lesson.id];
+    if (prog?.status === 'completed') continue;
+    const prereqsMet = (lesson.prerequisites || []).every((pid) => lessonProgress[pid]?.status === 'completed');
+    if (prereqsMet) {
+      const topic = topicById.get(lesson.topicId);
+      return {
+        kind: 'next_unlocked_lesson',
+        title: lesson.title,
+        topicId: lesson.topicId,
+        topicTitle: topic?.title || lesson.topicId,
+        lessonId: lesson.id,
+        exerciseId: lesson.exerciseId,
+        problemId: lesson.recommendedPracticeIds?.[0] || null,
+        estimatedMinutes: lesson.estimatedMinutes,
+        badge: 'Next Unlocked Lesson',
+        reason:
+          lesson.prerequisites.length > 0
+            ? `Unlocked because you completed prerequisite lesson ${lesson.prerequisites.join(', ')}.`
+            : `Recommended starting point in ${topic?.title || 'your topic path'} with zero unmet prerequisites.`
+      };
+    }
+  }
+
+  const fallback = curriculum.lessons[0];
+  return {
+    kind: 'revision_lesson',
+    title: fallback.title,
+    topicId: fallback.topicId,
+    topicTitle: topicById.get(fallback.topicId)?.title || fallback.topicId,
+    lessonId: fallback.id,
+    exerciseId: fallback.exerciseId,
+    problemId: fallback.recommendedPracticeIds?.[0] || null,
+    estimatedMinutes: fallback.estimatedMinutes,
+    badge: 'All Lessons Completed · Revision',
+    reason: 'You have completed every published lesson! Revisit interactive Proof traces with alternate inputs.'
+  };
+}
+
+/**
+ * Filter external practice problems by search query, topic, difficulty, and attempt status.
+ */
+export function filterPracticeProblems(
+  problems = [],
+  { query = '', topicId = 'all', difficulty = 'all', statusFilter = 'all', practiceAttempts = {} } = {}
+) {
+  const q = (query || '').trim().toLowerCase();
+
+  return problems.filter((p) => {
+    if (topicId !== 'all' && p.topicId !== topicId) return false;
+    if (difficulty !== 'all' && (p.difficulty || '').toLowerCase() !== String(difficulty).toLowerCase()) return false;
+
+    const attempts = Array.isArray(practiceAttempts[p.id]) ? practiceAttempts[p.id] : [];
+    const latest = attempts.length > 0 ? attempts[attempts.length - 1] : null;
+
+    if (statusFilter === 'solved' && (!latest || (latest.outcome !== 'solved_independently' && latest.outcome !== 'with_hint'))) {
+      return false;
+    }
+    if (statusFilter === 'needs_review' && (!latest || !latest.needsReview)) {
+      return false;
+    }
+    if (statusFilter === 'unattempted' && latest) {
+      return false;
+    }
+
+    if (q) {
+      const matchTitle = (p.title || '').toLowerCase().includes(q);
+      const matchPattern = (p.pattern || '').toLowerCase().includes(q);
+      const matchWhy = (p.whyRecommended || '').toLowerCase().includes(q);
+      const matchEdge = (p.keyEdgeCase || '').toLowerCase().includes(q);
+      const matchId = (p.id || '').toLowerCase().includes(q);
+      if (!matchTitle && !matchPattern && !matchWhy && !matchEdge && !matchId) {
+        return false;
+      }
+    }
+
+    return true;
+  });
 }

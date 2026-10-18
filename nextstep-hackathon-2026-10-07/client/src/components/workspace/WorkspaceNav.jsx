@@ -1,8 +1,19 @@
 import React from 'react';
-import { Calendar, ListOrdered, RotateCcw, TrendingUp } from 'lucide-react';
+import {
+  Calendar,
+  Compass,
+  Code2,
+  ExternalLink,
+  ListOrdered,
+  RotateCcw,
+  TrendingUp
+} from 'lucide-react';
 
 const NAV_ITEMS = [
   { id: 'today', label: 'Today', icon: Calendar },
+  { id: 'atlas', label: 'Atlas', icon: Compass },
+  { id: 'proof', label: 'Proof', icon: Code2 },
+  { id: 'practice', label: 'Practice', icon: ExternalLink },
   { id: 'roadmap', label: 'Roadmap', icon: ListOrdered },
   { id: 'review', label: 'Review', icon: RotateCcw, showBadge: true },
   { id: 'insights', label: 'Insights', icon: TrendingUp }

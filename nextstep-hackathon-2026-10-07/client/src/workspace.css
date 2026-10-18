@@ -697,6 +697,7 @@
 
   .workspace-nav-list {
     flex-direction: row;
+    flex-wrap: wrap;
     width: 100%;
     gap: 6px;
   }
@@ -767,4 +768,32 @@
   .review-view-container article {
     padding: 12px 14px;
   }
+}
+
+#view-atlas *,
+#view-proof *,
+#view-practice * {
+  box-sizing: border-box;
+}
+
+#view-atlas,
+#view-proof,
+#view-practice,
+#view-atlas .grid > *,
+#view-proof .grid > *,
+#view-practice .grid > * {
+  min-width: 0;
+  max-width: 100%;
+}
+
+#view-proof pre {
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+#view-atlas select,
+#view-proof select,
+#view-practice select {
+  max-width: 100%;
+  min-width: 0;
 }

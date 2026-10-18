@@ -33,3 +33,4 @@
 .hover\:ui-border-border-a30:hover{border-color:rgb(var(--border) / 0.3)}
 .hover\:ui-text-muted:hover{color:rgb(var(--muted) / 1)}
 .hover\:ui-border-border-a40:hover{border-color:rgb(var(--border) / 0.4)}
+.ui-text-accent{color:rgb(var(--accent) / 1)}

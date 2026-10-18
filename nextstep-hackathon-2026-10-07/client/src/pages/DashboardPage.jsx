@@ -1,9 +1,12 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useNavigate, useSearchParams, useParams, useLocation } from 'react-router-dom';
 import '../workspace.css';
 
 import WorkspaceNav from '../components/workspace/WorkspaceNav.jsx';
 import TodayView from '../components/workspace/TodayView.jsx';
+import AtlasView from '../components/workspace/AtlasView.jsx';
+import ProofStudio from '../components/workspace/ProofStudio.jsx';
+import PracticeLibraryView from '../components/workspace/PracticeLibraryView.jsx';
 import RoadmapView from '../components/workspace/RoadmapView.jsx';
 import ReviewView from '../components/workspace/ReviewView.jsx';
 import InsightsView from '../components/workspace/InsightsView.jsx';
@@ -18,6 +21,8 @@ import {
   deriveReviewItems,
   deriveUpcomingMissions,
   deriveNotesLibrary,
+  deriveWorkspaceReviewQueue,
+  deriveExplainableRecommendation,
   calculateRemainingSeconds,
   startTimer,
   pauseTimer,
@@ -25,8 +30,16 @@ import {
   resetTimer
 } from '../services/workspace.js';
 
-export default function DashboardPage({ goal, onGoalUpdated, catalog, onCatalogLoaded }) {
+export default function DashboardPage({
+  goal,
+  onGoalUpdated,
+  catalog,
+  onCatalogLoaded,
+  initialView = null
+}) {
   const navigate = useNavigate();
+  const location = useLocation();
+  const params = useParams();
   const [searchParams, setSearchParams] = useSearchParams();
 
   const [isLoading, setIsLoading] = useState(!goal || !catalog);
@@ -38,12 +51,26 @@ export default function DashboardPage({ goal, onGoalUpdated, catalog, onCatalogL
   const [draftName, setDraftName] = useState('');
   const [savingName, setSavingName] = useState(false);
 
-  // Active view from URL search param
-  const rawView = searchParams.get('view') || 'today';
-  const validViews = ['today', 'roadmap', 'review', 'insights'];
+  // Selected Atlas / Proof / Practice context
+  const [selectedTopicId, setSelectedTopicId] = useState(null);
+  const [selectedLessonId, setSelectedLessonId] = useState(null);
+  const [selectedExerciseId, setSelectedExerciseId] = useState(null);
+  const [highlightedProblemId, setHighlightedProblemId] = useState(null);
+
+  // Active view from URL search param or direct route
+  const rawView = searchParams.get('view') || initialView || 'today';
+  const validViews = ['today', 'atlas', 'proof', 'practice', 'roadmap', 'review', 'insights'];
   const activeView = validViews.includes(rawView) ? rawView : 'today';
 
   const handleSelectView = (viewId) => {
+    if (location.pathname !== '/dashboard') {
+      if (viewId === 'today') {
+        navigate('/dashboard');
+      } else {
+        navigate(`/dashboard?view=${viewId}`);
+      }
+      return;
+    }
     setSearchParams((prev) => {
       const next = new URLSearchParams(prev);
       if (viewId === 'today') {
@@ -434,6 +461,96 @@ export default function DashboardPage({ goal, onGoalUpdated, catalog, onCatalogL
     }
   };
 
+  // Sync direct route params (/atlas/:topicSlug, /learn/:lessonId) into selection state
+  useEffect(() => {
+    if (!catalog?.curriculum) return;
+    if (params.topicSlug) {
+      const matchTopic = (catalog.curriculum.topics || []).find(
+        (t) => t.slug === params.topicSlug || t.id === params.topicSlug
+      );
+      if (matchTopic) setSelectedTopicId(matchTopic.id);
+    }
+    if (params.lessonId) {
+      const matchLesson = (catalog.curriculum.lessons || []).find((l) => l.id === params.lessonId);
+      if (matchLesson) {
+        setSelectedLessonId(matchLesson.id);
+        setSelectedTopicId(matchLesson.topicId);
+        if (matchLesson.exerciseId) {
+          setSelectedExerciseId(matchLesson.exerciseId);
+        } else {
+          setSelectedExerciseId(null);
+        }
+      }
+    }
+  }, [params.topicSlug, params.lessonId, catalog]);
+
+  // Workspace curriculum handlers (CAS versioned)
+  const handleSaveLessonProgress = async (payload) => {
+    const res = await apiService.saveLessonProgress({
+      ...payload,
+      expectedVersion: goal.version
+    });
+    if (res?.data?.goal) {
+      onGoalUpdated(res.data.goal);
+    }
+    return res?.data;
+  };
+
+  const handleSaveExerciseAttempt = async (payload) => {
+    const res = await apiService.saveExerciseAttempt({
+      ...payload,
+      expectedVersion: goal.version
+    });
+    if (res?.data?.goal) {
+      onGoalUpdated(res.data.goal);
+    }
+    return res?.data;
+  };
+
+  const handleSavePracticeAttempt = async (payload) => {
+    const res = await apiService.savePracticeAttempt({
+      ...payload,
+      expectedVersion: goal.version
+    });
+    if (res?.data?.goal) {
+      onGoalUpdated(res.data.goal);
+    }
+    return res?.data;
+  };
+
+  const handlePreviewWorkspacePlan = async (payload) => {
+    const res = await apiService.previewWorkspacePlan({
+      ...payload,
+      expectedVersion: goal.version
+    });
+    return res?.data;
+  };
+
+  const handleApplyWorkspacePlan = async (payload) => {
+    const res = await apiService.applyWorkspacePlan({
+      ...payload,
+      expectedVersion: goal.version
+    });
+    if (res?.data?.goal) {
+      onGoalUpdated(res.data.goal);
+      setSavedNotice('Weekly study plan applied to your workspace.');
+      setTimeout(() => setSavedNotice(''), 4000);
+    }
+    return res?.data;
+  };
+
+  const handleOpenProofLesson = ({ topicId, lessonId, exerciseId }) => {
+    if (topicId) setSelectedTopicId(topicId);
+    if (lessonId) setSelectedLessonId(lessonId);
+    setSelectedExerciseId(exerciseId || null);
+    handleSelectView('proof');
+  };
+
+  const handleOpenPracticeProblem = (problemId) => {
+    if (problemId) setHighlightedProblemId(problemId);
+    handleSelectView('practice');
+  };
+
   // Derive saved learning context to resume on Today
   const learningRecords = goal?.learning || {};
 
@@ -516,6 +633,8 @@ export default function DashboardPage({ goal, onGoalUpdated, catalog, onCatalogL
   const reviewData = useMemo(() => deriveReviewItems(goal, catalog), [goal, catalog]);
   const upcomingMissions = useMemo(() => deriveUpcomingMissions(goal, catalog, 3), [goal, catalog]);
   const notesLibrary = useMemo(() => deriveNotesLibrary(goal, catalog), [goal, catalog]);
+  const workspaceReviewQueue = useMemo(() => deriveWorkspaceReviewQueue(goal, catalog), [goal, catalog]);
+  const workspaceRecommendation = useMemo(() => deriveExplainableRecommendation(goal, catalog), [goal, catalog]);
 
   if (!isLoading && error && (!goal || !catalog)) {
     return <ErrorNotice error={error} onRetry={() => setLoadAttempt((attempt) => attempt + 1)} />;
@@ -600,6 +719,9 @@ export default function DashboardPage({ goal, onGoalUpdated, catalog, onCatalogL
               onRefresh={handleRefresh}
               isRefreshing={isRefreshing}
               savedNotice={savedNotice}
+              workspaceRecommendation={workspaceRecommendation}
+              onOpenProofLesson={handleOpenProofLesson}
+              onOpenPracticeProblem={handleOpenPracticeProblem}
               // Focus timer props
               timerState={timerState}
               remainingSeconds={remainingSeconds}
@@ -608,6 +730,48 @@ export default function DashboardPage({ goal, onGoalUpdated, catalog, onCatalogL
               onResumeTimer={handleResumeTimer}
               onResetTimer={handleResetTimer}
               onSelectTimerPreset={handleSelectTimerPreset}
+            />
+          )}
+
+          {activeView === 'atlas' && (
+            <AtlasView
+              goal={goal}
+              catalog={catalog}
+              selectedTopicId={selectedTopicId}
+              onSelectTopic={(tId) => setSelectedTopicId(tId)}
+              onOpenProofLesson={handleOpenProofLesson}
+              onOpenPracticeProblem={handleOpenPracticeProblem}
+              onPreviewWorkspacePlan={handlePreviewWorkspacePlan}
+              onApplyWorkspacePlan={handleApplyWorkspacePlan}
+              onSelectView={handleSelectView}
+            />
+          )}
+
+          {activeView === 'proof' && (
+            <ProofStudio
+              goal={goal}
+              catalog={catalog}
+              selectedTopicId={selectedTopicId}
+              selectedLessonId={selectedLessonId}
+              selectedExerciseId={selectedExerciseId}
+              onSelectTopic={(tId) => setSelectedTopicId(tId)}
+              onSelectLesson={(lId) => setSelectedLessonId(lId)}
+              onSelectExercise={(eId) => setSelectedExerciseId(eId)}
+              onSaveLessonProgress={handleSaveLessonProgress}
+              onSaveExerciseAttempt={handleSaveExerciseAttempt}
+              onOpenPracticeProblem={handleOpenPracticeProblem}
+              onSelectView={handleSelectView}
+            />
+          )}
+
+          {activeView === 'practice' && (
+            <PracticeLibraryView
+              goal={goal}
+              catalog={catalog}
+              highlightedProblemId={highlightedProblemId}
+              onClearHighlightedProblem={() => setHighlightedProblemId(null)}
+              onSavePracticeAttempt={handleSavePracticeAttempt}
+              onOpenProofLesson={handleOpenProofLesson}
             />
           )}
 
@@ -626,9 +790,12 @@ export default function DashboardPage({ goal, onGoalUpdated, catalog, onCatalogL
           <div hidden={activeView !== 'review'}>
             <ReviewView
               reviewItems={reviewData.items}
+              workspaceReviewQueue={workspaceReviewQueue}
               notesLibrary={notesLibrary}
               unresolvedCount={reviewData.unresolvedCount}
               onOpenPractice={openPractice}
+              onOpenProofLesson={handleOpenProofLesson}
+              onOpenPracticeProblem={handleOpenPracticeProblem}
               onToggleSelfReportedStatus={handleToggleSelfReportedStatus}
               onDismissResumeCard={handleDismissResumeCard}
               onSelectView={handleSelectView}

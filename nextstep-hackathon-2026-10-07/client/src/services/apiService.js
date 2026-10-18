@@ -146,6 +146,77 @@ export const apiService = {
     } catch (err) {
       return handleApiError(err);
     }
+  },
+
+  async saveLessonProgress(payload) {
+    try {
+      return await liveApi.saveLessonProgress(payload);
+    } catch (err) {
+      return handleApiError(err);
+    }
+  },
+
+  async saveExerciseAttempt(payload) {
+    try {
+      return await liveApi.saveExerciseAttempt(payload);
+    } catch (err) {
+      return handleApiError(err);
+    }
+  },
+
+  async savePracticeAttempt(payload) {
+    try {
+      return await liveApi.savePracticeAttempt(payload);
+    } catch (err) {
+      return handleApiError(err);
+    }
+  },
+
+  async previewWorkspacePlan(payload) {
+    try {
+      return await liveApi.previewWorkspacePlan(payload);
+    } catch (err) {
+      return handleApiError(err);
+    }
+  },
+
+  async applyWorkspacePlan(payload) {
+    try {
+      return await liveApi.applyWorkspacePlan(payload);
+    } catch (err) {
+      return handleApiError(err);
+    }
+  },
+
+  async evaluateTraceStep(payload) {
+    try {
+      return await liveApi.evaluateTraceStep(payload);
+    } catch (err) {
+      return handleApiError(err);
+    }
+  },
+
+  async evaluateEdgeCheck(payload) {
+    try {
+      return await liveApi.evaluateEdgeCheck(payload);
+    } catch (err) {
+      return handleApiError(err);
+    }
+  },
+
+  async evaluateLessonCheck(payload) {
+    try {
+      return await liveApi.evaluateLessonCheck(payload);
+    } catch (err) {
+      return handleApiError(err);
+    }
+  },
+
+  async getExerciseReference(exerciseId) {
+    try {
+      return await liveApi.getExerciseReference(exerciseId);
+    } catch (err) {
+      return handleApiError(err);
+    }
   }
 };
-

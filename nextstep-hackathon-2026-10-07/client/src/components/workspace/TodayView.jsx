@@ -11,7 +11,9 @@ import {
   RotateCcw,
   SlidersHorizontal,
   RefreshCw,
-  ArrowRight
+  ArrowRight,
+  Sparkles,
+  Compass
 } from 'lucide-react';
 
 export default function TodayView({
@@ -42,6 +44,9 @@ export default function TodayView({
   onRefresh,
   isRefreshing,
   savedNotice,
+  workspaceRecommendation,
+  onOpenProofLesson,
+  onOpenPracticeProblem,
   // Focus Timer props
   timerState,
   remainingSeconds,
@@ -197,6 +202,83 @@ export default function TodayView({
             onReset={onResetTimer}
             onSelectPreset={onSelectTimerPreset}
           />
+
+          {/* Atlas & Proof Curriculum Recommendation Card */}
+          {workspaceRecommendation && (
+            <div className="context-card" aria-label="Atlas and Proof recommended next step">
+              <div className="context-card-header">
+                <span className="context-card-title">
+                  <Sparkles size={16} aria-hidden="true" />
+                  <span>Atlas &amp; Proof next step</span>
+                </span>
+                <button
+                  type="button"
+                  onClick={() => onSelectView('atlas')}
+                  className="text-xs font-semibold ui-text-accent hover:underline inline-flex items-center gap-1"
+                >
+                  <span>Open Atlas</span>
+                  <ArrowRight size={13} aria-hidden="true" />
+                </button>
+              </div>
+
+              <div className="space-y-2.5">
+                <p className="text-sm font-bold ui-text-ink">
+                  {workspaceRecommendation.title}
+                </p>
+                <p className="text-xs ui-text-muted leading-relaxed">
+                  {workspaceRecommendation.reason}
+                </p>
+                <div className="flex items-center gap-2 flex-wrap pt-1">
+                  {workspaceRecommendation.lessonId ? (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        onOpenProofLesson &&
+                        onOpenProofLesson({
+                          topicId: workspaceRecommendation.topicId,
+                          lessonId: workspaceRecommendation.lessonId,
+                          exerciseId: workspaceRecommendation.exerciseId
+                        })
+                      }
+                      className="primary-button text-xs py-1.5 px-3"
+                    >
+                      <span>Open in Proof Studio</span>
+                      <ArrowRight size={13} aria-hidden="true" />
+                    </button>
+                  ) : workspaceRecommendation.problemId ? (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        onOpenPracticeProblem &&
+                        onOpenPracticeProblem(workspaceRecommendation.problemId)
+                      }
+                      className="primary-button text-xs py-1.5 px-3"
+                    >
+                      <span>Open Practice Library</span>
+                      <ArrowRight size={13} aria-hidden="true" />
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => onSelectView('atlas')}
+                      className="primary-button text-xs py-1.5 px-3"
+                    >
+                      <Compass size={13} aria-hidden="true" />
+                      <span>Explore Topic Atlas</span>
+                    </button>
+                  )}
+
+                  <button
+                    type="button"
+                    onClick={() => onSelectView('practice')}
+                    className="secondary-button text-xs py-1.5 px-3"
+                  >
+                    <span>Practice Library</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* Upcoming Missions Card */}
           <div className="context-card">

@@ -142,6 +142,72 @@ export default function App() {
           }
         />
 
+        {/* Protected Direct Atlas / Proof / Practice Routes */}
+        <Route
+          path="/atlas"
+          element={
+            !user ? (
+              <Navigate to="/login" replace />
+            ) : (
+              <DashboardPage
+                goal={goal}
+                onGoalUpdated={setGoal}
+                catalog={catalog}
+                onCatalogLoaded={setCatalog}
+                initialView="atlas"
+              />
+            )
+          }
+        />
+        <Route
+          path="/atlas/:topicSlug"
+          element={
+            !user ? (
+              <Navigate to="/login" replace />
+            ) : (
+              <DashboardPage
+                goal={goal}
+                onGoalUpdated={setGoal}
+                catalog={catalog}
+                onCatalogLoaded={setCatalog}
+                initialView="atlas"
+              />
+            )
+          }
+        />
+        <Route
+          path="/learn/:lessonId"
+          element={
+            !user ? (
+              <Navigate to="/login" replace />
+            ) : (
+              <DashboardPage
+                goal={goal}
+                onGoalUpdated={setGoal}
+                catalog={catalog}
+                onCatalogLoaded={setCatalog}
+                initialView="proof"
+              />
+            )
+          }
+        />
+        <Route
+          path="/practice"
+          element={
+            !user ? (
+              <Navigate to="/login" replace />
+            ) : (
+              <DashboardPage
+                goal={goal}
+                onGoalUpdated={setGoal}
+                catalog={catalog}
+                onCatalogLoaded={setCatalog}
+                initialView="practice"
+              />
+            )
+          }
+        />
+
         {/* Protected Recovery */}
         <Route
           path="/recovery"
