@@ -486,3 +486,37 @@ Post-publish: bbab876 pushed to audit branch and main. Vercel success and new li
   - Local preview server left running at `http://127.0.0.1:5187` (PID `30164`).
 - Boundary & Safety:
   - No git commit, push, deploy, `.env*` modification, secret inspection, dependency change, or database schema migration occurred.
+
+
+## Starter Continuation & Hardening — 2026-10-18 / 2026-10-19
+
+- Milestone: STARTER CONTINUATION & HARDENING / ALL 6 STAGES COMPLETED & VERIFIED LOCALLY
+- Summary:
+  1. **Foundations Checkpoint (Track A2)**: Created server-evaluated checkpoint (`server/src/data/foundationsCheckpoint.js`) with 3 topics (`topic_arrays`, `topic_hashing`, `topic_binary_search`). Public projection strictly strips answer keys and scoring logic (`getStudentSafeCheckpoint`). Implemented Express endpoints (`GET`, draft `POST`, evaluate `POST` with RFC 4122 idempotency and CAS `expectedVersion`, skip `POST`, reset `POST`), attempt history retention (max 5), and accessible `FoundationsCheckpointModal.jsx` with hint tracking, auto-save drafts, and retry.
+  2. **Continuation & Next-Week Plan (Track A1/A3)**: Upgraded `TodayView.jsx` completed track with 12/12 evidence strip (Total, Independent, With Hints, Notes), checkpoint status badge, and non-gated continuation actions ("Check my foundations", "Choose my next step", "Explore Atlas"). Created `ContinuationPlanModal.jsx` with evidence-based recommendations (prioritizing failed topics for targeted review), `AvailabilityPicker`, read-only preview, and atomic apply. Displayed active plan card on TodayView.
+  3. **Hardening & Accessibility (Track B)**: Implemented accessible focus trapping, body scroll lock, and Escape key focus restoration in both modals. Audited across 4 viewports (1440x900, 1024x768, 390x844, 320x568) with 0 horizontal overflow. Authored dedicated Playwright regression suite `client/scripts/verify-continuation.cjs` (9 automated journeys).
+- Verification Commands & Results:
+  - `npm.cmd --prefix server test`: PASS (119/119 tests across 11 suites, 0 failed)
+  - `npm.cmd --prefix client test`: PASS (81/81 tests across 1 suite, 0 failed)
+  - `node server/scripts/validate-curriculum.mjs`: PASS & synchronized
+  - `npm.cmd --prefix client run build`: PASS (Vite production build succeeded in 19.35s)
+  - `git diff --check`: PASS (0 whitespace/formatting errors)
+  - `node client/scripts/verify-continuation.cjs`: PASS (9/9 automated Playwright journeys)
+  - `node client/scripts/verify-preview-styling.mjs`: PASS (directory-independent styling)
+  - `node client/scripts/verify-atlas-proof.cjs`: PASS (9/9 checks across 4 viewports & 6 themes)
+  - `node client/scripts/browser-state-isolation-test.mjs`: PASS (10/10 scenarios)
+  - `node client/scripts/verify-workspace.cjs`: PASS (14/14 workspace checks)
+- Git & Checkpoint Status:
+  - Branch: `codex/starter-continuation` (derived from `origin/main` @ `ce6405d`)
+  - Commits:
+    - `2102ffe` — `feat(continuation): implement foundations checkpoint, server grading and next-week plan`
+    - `1f6b9da` — `test(continuation): add Playwright verification harness and modal focus restoration`
+- Evidence & Delivery:
+  - Progress Ledger: `docs/OVERNIGHT-CONTINUATION-PROGRESS.md`
+  - Final Report: `docs/OVERNIGHT-CONTINUATION-RESULT.md`
+  - Playwright Evidence: `client/.local/continuation-evidence/2026-10-18T18-41-43-686Z/` (12 screenshots & JSON report)
+  - Preview Server: Running on `http://127.0.0.1:5173`
+- Boundaries Observed:
+  - Zero modifications to `server/data/curriculum/**` (collaborator owned).
+  - No remote git push (`git push`), pull request merge, or production deployment overnight.
+  - Zero credentials or environment files touched.
