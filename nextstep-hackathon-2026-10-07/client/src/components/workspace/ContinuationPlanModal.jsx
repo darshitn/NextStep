@@ -20,6 +20,7 @@ export default function ContinuationPlanModal({
   onClose,
   goal,
   catalog,
+  initialPlan = null,
   onGoalUpdated,
   onPlanAccepted
 }) {
@@ -64,10 +65,22 @@ export default function ContinuationPlanModal({
     const topicById = new Map(topics.map((t) => [t.id, t]));
     const lessonById = new Map(lessons.map((l) => [l.id, l]));
 
+    // Replanning starts with the actual unfinished activities, not a fresh
+    // recommendation that might silently replace the student's chosen work.
+    for (const id of initialPlan?.itemIds || []) {
+      const item = lessonById.get(id) || curriculum?.exercises?.find(item => item.id === id) || curriculum?.practiceProblems?.find(item => item.id === id);
+      if (!item || addedIds.has(id)) continue;
+      addedIds.add(id);
+      const revisit = initialPlan.revisitItemIds?.includes(id);
+      candidates.push({ id, title: item.title, topicId: item.topicId, topicTitle: topicById.get(item.topicId)?.title || item.topicId,
+        type: revisit ? 'revisit' : 'planned', badge: revisit ? 'Planned Review' : 'Remaining Activity',
+        reason: 'Carried forward from your current study plan; no completion has been recorded.', estimatedMinutes: item.estimatedMinutes || 20 });
+    }
+
     // 1. Checkpoint revisits
     if (latestAttempt?.topicResults) {
       for (const [topicId, tr] of Object.entries(latestAttempt.topicResults)) {
-        if (tr.revisitRecommended && tr.recommendedAction?.lessonId) {
+        if (tr.revisitRecommended && tr.recommendedAction?.lessonId && !addedIds.has(tr.recommendedAction.lessonId)) {
           const lid = tr.recommendedAction.lessonId;
           const lesson = lessonById.get(lid);
           const topic = topicById.get(topicId);
@@ -181,7 +194,7 @@ export default function ContinuationPlanModal({
     }
 
     return candidates;
-  }, [catalog, latestAttempt, goal]);
+  }, [catalog, latestAttempt, goal, initialPlan]);
 
   // Sync state on open
   useEffect(() => {
@@ -190,12 +203,12 @@ export default function ContinuationPlanModal({
       setPreview(null);
       setError(null);
     } else {
-      if (goal?.availability) {
-        setAvailability(goal.availability);
+      if (initialPlan?.availability || goal?.availability) {
+        setAvailability(initialPlan?.availability || goal.availability);
       }
-      setSelectedItemIds(candidateActivities.map((c) => c.id));
+      setSelectedItemIds(candidateActivities.filter(c => !initialPlan || initialPlan.itemIds.includes(c.id)).map((c) => c.id));
     }
-  }, [isOpen, goal, candidateActivities]);
+  }, [isOpen, goal, candidateActivities, initialPlan]);
 
   // Focus trap, body scroll lock, and Escape focus restoration
   useEffect(() => {
@@ -413,6 +426,7 @@ export default function ContinuationPlanModal({
           {step === 'config' ? (
             /* ================= STEP 1: CONFIG & EDITABLE ACTIVITIES ================= */
             <div className="space-y-6">
+              {initialPlan && <p className="text-xs ui-text-muted" role="status">Replanning unfinished work. Completed activities and starter history are preserved. Split activities use their full estimated effort; no time-spent data is inferred.</p>}
               {/* Evidence-Based Context Box */}
               <div className="p-4 rounded-xl border ui-border-border ui-bg-soft/40 space-y-3">
                 <div className="flex items-center gap-2">

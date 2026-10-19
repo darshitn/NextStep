@@ -2,6 +2,72 @@
    Semantic themes: Frosted Sage, Study Journal, Quiet Focus (Light & Dark)
    Uses CSS variables: --page, --surface, --soft, --border, --ink, --muted, --accent, --inverse, --control-border */
 
+/* Weekly execution: semantic surfaces, responsive density, no implied time tracking. */
+.week-workspace { display: flex; flex-direction: column; gap: 22px; min-width: 0; }
+.week-heading, .week-toolbar, .week-date-controls, .week-section-heading { display: flex; align-items: center; justify-content: space-between; gap: 14px; flex-wrap: wrap; }
+.week-heading h1 { font-size: clamp(24px, 3vw, 32px); font-weight: 800; letter-spacing: -.035em; margin: 8px 0; line-height: 1.15; }
+.week-heading > div { max-width: 560px; }
+.week-eyebrow { display: inline-flex; align-items: center; gap: 7px; color: rgb(var(--accent)); font-size: 10px; font-weight: 750; letter-spacing: .1em; text-transform: uppercase; }
+.week-metrics { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); border: 1px solid rgb(var(--border)); border-radius: 16px; background: rgb(var(--surface)); overflow: hidden; }
+.week-metrics > div { padding: 19px 22px; display: flex; flex-direction: column; gap: 8px; }
+.week-metrics > div + div { border-left: 1px solid rgb(var(--border)); }
+.week-metrics span { font-size: 11px; color: rgb(var(--muted)); }
+.week-metrics strong { font-size: 29px; font-weight: 750; letter-spacing: -.03em; line-height: 1; }
+.week-metrics small { font-size: 12px; font-weight: 500; color: rgb(var(--muted)); }
+.week-toolbar h2 { font-size: 15px; font-weight: 750; }
+.week-date-controls { justify-content: flex-start; gap: 10px; }
+.week-date-controls > div > span { font-size: 10px; color: rgb(var(--muted)); }
+.week-date-controls > button.secondary-button { padding: 9px; min-width: 36px; min-height: 36px; }
+.week-text-button { font-size: 11px; font-weight: 650; color: rgb(var(--accent)); padding: 8px; border-radius: 7px; }
+.week-filter { display: flex; padding: 3px; background: rgb(var(--soft)); border: 1px solid rgb(var(--border)); border-radius: 10px; gap: 3px; }
+.week-filter button { padding: 7px 11px; font-size: 11px; border-radius: 7px; color: rgb(var(--muted)); }
+.week-filter button[aria-pressed="true"] { color: rgb(var(--ink)); background: rgb(var(--surface)); box-shadow: 0 1px 4px rgb(0 0 0 / .06); }
+.week-days { display: grid; gap: 14px; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; }
+.week-day { border: 1px solid rgb(var(--border)); border-radius: 14px; background: rgb(var(--surface)); min-width: 0; overflow: hidden; }
+.week-day.is-today { border-color: rgb(var(--accent)); box-shadow: 0 0 0 2px rgb(var(--accent) / .08); }
+.week-day > header { padding: 14px 16px; border-bottom: 1px solid rgb(var(--border)); background: rgb(var(--soft) / .5); }
+.week-day > header > div { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.week-day header h2 { font-size: 13px; font-weight: 750; }
+.week-day header span, .week-day header b { font-size: 10px; color: rgb(var(--muted)); }
+.week-day header b { margin-left: auto; color: rgb(var(--accent)); }
+.week-day-capacity { display: flex; align-items: center; gap: 5px; margin-top: 5px; }
+.week-session-list { display: flex; flex-direction: column; gap: 9px; padding: 12px; min-width: 0; }
+.week-session { display: flex; align-items: center; gap: 10px; padding: 11px; border: 1px solid rgb(var(--border)); border-radius: 10px; background: rgb(var(--surface)); min-width: 0; }
+.week-session-copy { min-width: 0; flex: 1; overflow-wrap: anywhere; }
+.week-session h3 { font-size: 12px; font-weight: 700; line-height: 1.5; margin: 6px 0; }
+.week-session-meta { display: flex; gap: 4px 9px; flex-wrap: wrap; color: rgb(var(--muted)); font-size: 9px; }
+.week-session-meta > span:first-child { color: rgb(var(--accent)); text-transform: uppercase; font-weight: 700; letter-spacing: .06em; }
+.week-recorded { display: flex; align-items: center; gap: 4px; color: rgb(var(--accent)); font-size: 10px; }
+.week-session.is-completed { background: rgb(var(--soft) / .4); }
+.week-rest { color: rgb(var(--muted)); padding: 8px 2px; font-size: 11px; }
+.week-missed { border: 1px solid rgb(var(--border)); border-radius: 14px; padding: 16px; background: rgb(var(--soft) / .45); }
+.week-missed h2 { font-size: 14px; font-weight: 750; }
+.week-missed p, .week-section-heading > span { font-size: 11px; color: rgb(var(--muted)); }
+.week-missed > p { margin: 8px 0 12px; line-height: 1.7; }
+.week-missed summary { font-size: 12px; font-weight: 650; cursor: pointer; padding: 3px; }
+.week-notice { display: flex; align-items: flex-start; gap: 10px; border: 1px solid rgb(var(--border)); padding: 16px; border-radius: 12px; background: rgb(var(--soft)); font-size: 12px; }
+.week-notice p { color: rgb(var(--muted)); margin-top: 4px; font-size: 11px; }
+.week-notice svg { flex-shrink: 0; color: rgb(var(--accent)); }
+.week-empty { display: flex; flex-direction: column; align-items: flex-start; gap: 14px; padding: 32px; border: 1px solid rgb(var(--border)); border-radius: 18px; background: rgb(var(--surface)); }
+.week-empty h2 { font-size: 23px; font-weight: 750; letter-spacing: -.025em; }
+.week-empty p { color: rgb(var(--muted)); font-size: 13px; max-width: 560px; line-height: 1.8; }
+.week-footnote { color: rgb(var(--muted)); font-size: 10px; line-height: 1.8; max-width: 720px; }
+.week-workspace button:focus-visible, .week-workspace summary:focus-visible { outline: 2px solid rgb(var(--accent)); outline-offset: 3px; }
+@media (max-width: 360px) { .workspace-nav-mobile-btn > svg { display: none; } }
+@media (max-width: 1050px) { .week-days { grid-template-columns: minmax(0, 1fr); } }
+@media (max-width: 500px) {
+  .week-metrics > div { padding: 13px 10px; }
+  .week-metrics strong { font-size: 24px; }
+  .week-metrics span { font-size: 10px; }
+  .week-empty { padding: 22px; }
+  .week-date-controls { gap: 6px; }
+  .week-date-controls h2 { font-size: 13px; }
+  .week-session { padding: 9px; gap: 7px; }
+  .week-day > header { padding: 13px; }
+  .week-text-button { padding: 5px; }
+  .workspace-nav-mobile-btn .workspace-nav-btn-badge { margin-left: 0; padding: 1px 3px; font-size: 9px; flex-shrink: 0; }
+}
+
 .workspace-container {
   display: flex;
   flex-direction: column;
@@ -19,6 +85,8 @@
   width: 100%;
   min-width: 0;
 }
+
+.workspace-layout > * { min-width: 0; }
 
 /* Desktop Rail / Mobile Navigation */
 .workspace-nav {
@@ -809,7 +877,7 @@
 
 @media (max-width: 768px) {
   .workspace-layout {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
     gap: 16px;
   }
 

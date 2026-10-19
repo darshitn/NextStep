@@ -455,16 +455,16 @@ async function runSuite() {
   await page.waitForTimeout(100);
   assert.equal(
     await page.evaluate(() => document.activeElement?.id),
-    'menu-nav-roadmap',
-    'Opening via ArrowDown must focus first menu item (Roadmap)'
+    'menu-nav-week',
+    'Opening via ArrowDown must focus first menu item (Week)'
   );
 
   await page.keyboard.press('ArrowDown');
   await page.waitForTimeout(50);
   assert.equal(
     await page.evaluate(() => document.activeElement?.id),
-    'menu-nav-review',
-    'ArrowDown must move focus to Review'
+    'menu-nav-roadmap',
+    'ArrowDown must move focus to Roadmap after Week'
   );
 
   await page.keyboard.press('Escape');
