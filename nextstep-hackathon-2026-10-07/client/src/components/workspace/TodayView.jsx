@@ -16,6 +16,7 @@ import {
   Compass,
   Calendar
 } from 'lucide-react';
+import { deriveActiveStudyPlanSession } from '../../services/workspace.js';
 
 export default function TodayView({
   goal,
@@ -59,6 +60,10 @@ export default function TodayView({
   onResetTimer,
   onSelectTimerPreset
 }) {
+  const planState = deriveActiveStudyPlanSession(goal?.studyWorkspace);
+  const activeSession = planState.activeSession;
+  const allPlanCompleted = planState.allCompleted;
+
   return (
     <section id="view-today" role="region" aria-labelledby="today-heading" className="workspace-content">
       {/* Optional Rename Form */}
@@ -288,7 +293,7 @@ export default function TodayView({
 
               {/* Active Next-Week Plan Banner if accepted */}
               {goal?.studyWorkspace?.studyPlan && (
-                <section className="p-5 rounded-2xl border ui-border-border ui-bg-surface space-y-3">
+                <section className="p-5 rounded-2xl border ui-border-border ui-bg-surface space-y-3" aria-label="Active next-week plan">
                   <div className="flex items-center justify-between gap-2">
                     <div className="flex items-center gap-2">
                       <Calendar className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
@@ -305,26 +310,69 @@ export default function TodayView({
                     </button>
                   </div>
 
-                  <div className="p-3.5 rounded-xl border ui-border-border ui-bg-soft/40 flex items-center justify-between gap-3">
-                    <div className="space-y-0.5">
-                      <span className="text-[11px] font-semibold text-emerald-600 dark:text-emerald-400 uppercase tracking-wider">
-                        Planned Next Step
-                      </span>
-                      <p className="text-sm font-bold ui-text-ink">
-                        {goal.studyWorkspace.studyPlan.sessions?.[0]?.title || 'Next Scheduled Session'}
+                  {allPlanCompleted ? (
+                    <div className="p-4 rounded-xl border border-emerald-300 dark:border-emerald-800 bg-emerald-50/70 dark:bg-emerald-950/20 text-xs text-emerald-800 dark:text-emerald-200 space-y-2">
+                      <div className="flex items-center gap-2 font-bold">
+                        <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+                        <span>All Scheduled Sessions Completed!</span>
+                      </div>
+                      <p className="text-xs opacity-90">
+                        You have completed all {planState.totalSessions} scheduled study sessions. Ready to plan your next progression?
                       </p>
-                      <p className="text-xs ui-text-muted">
-                        Allocated:{' '}
-                        {goal.studyWorkspace.studyPlan.sessions?.[0]?.allocatedMinutes || 30} mins · Scheduled for{' '}
-                        {goal.studyWorkspace.studyPlan.sessions?.[0]?.date || 'Upcoming'}
-                      </p>
+                      <div className="flex items-center gap-2 pt-1">
+                        <button
+                          type="button"
+                          onClick={onOpenContinuationPlan}
+                          className="primary-button text-xs py-1.5 px-3 flex items-center gap-1"
+                        >
+                          <Calendar className="w-3.5 h-3.5" />
+                          <span>Plan Next Sessions</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => onSelectView('atlas')}
+                          className="secondary-button text-xs py-1.5 px-3 flex items-center gap-1"
+                        >
+                          <Compass className="w-3.5 h-3.5" />
+                          <span>Explore Atlas</span>
+                        </button>
+                      </div>
                     </div>
+                  ) : activeSession ? (
+                    <div className="p-3.5 rounded-xl border ui-border-border ui-bg-soft/40 flex items-center justify-between gap-3">
+                      <div className="space-y-0.5 min-w-0">
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <span className="text-[11px] font-semibold text-emerald-600 dark:text-emerald-400 uppercase tracking-wider">
+                            Planned Next Step
+                          </span>
+                          {activeSession.isRevisit && (
+                            <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-800 dark:bg-amber-950/40 dark:text-amber-300 border border-amber-300 dark:border-amber-700">
+                              Intentional Review
+                            </span>
+                          )}
+                          {activeSession.totalParts > 1 && (
+                            <span className="px-1.5 py-0.5 rounded text-[10px] font-bold ui-bg-soft ui-text-muted">
+                              Part {activeSession.partIndex}/{activeSession.totalParts}
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-sm font-bold ui-text-ink truncate">
+                          {activeSession.title}
+                        </p>
+                        <p className="text-xs ui-text-muted">
+                          Allocated: {activeSession.allocatedMinutes} mins · Scheduled for {activeSession.date}
+                          {planState.totalSessions > 1 && (
+                            <span className="ml-1 opacity-80">
+                              (Session {planState.activeSessionIndex + 1} of {planState.totalSessions})
+                            </span>
+                          )}
+                        </p>
+                      </div>
 
-                    {goal.studyWorkspace.studyPlan.sessions?.[0] && (
                       <button
                         type="button"
                         onClick={() => {
-                          const s = goal.studyWorkspace.studyPlan.sessions[0];
+                          const s = activeSession;
                           if (s.itemType === 'exercise' || s.itemType === 'lesson') {
                             if (onOpenProofLesson) {
                               onOpenProofLesson({
@@ -342,8 +390,8 @@ export default function TodayView({
                         <span>Start</span>
                         <ArrowRight className="w-3.5 h-3.5" />
                       </button>
-                    )}
-                  </div>
+                    </div>
+                  ) : null}
                 </section>
               )}
 

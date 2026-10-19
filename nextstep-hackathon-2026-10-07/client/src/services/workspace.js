@@ -1034,3 +1034,146 @@ export function filterPracticeProblems(
     return true;
   });
 }
+
+/**
+ * Derives the active/pending study plan session from actual workspace progress.
+ * Does not merely return sessions[0] - inspects lessonProgress, exerciseAttempts,
+ * and practiceAttempts to find the next incomplete session, respecting multi-part
+ * sessions and intentional revisits.
+ */
+export function deriveActiveStudyPlanSession(studyWorkspace) {
+  const studyPlan = studyWorkspace?.studyPlan;
+  if (!studyPlan || !Array.isArray(studyPlan.sessions) || studyPlan.sessions.length === 0) {
+    return {
+      activeSession: null,
+      activeSessionIndex: -1,
+      allCompleted: false,
+      totalSessions: 0,
+      completedSessions: 0
+    };
+  }
+
+  const lessonProgress = studyWorkspace.lessonProgress || {};
+  const exerciseAttempts = studyWorkspace.exerciseAttempts || {};
+  const practiceAttempts = studyWorkspace.practiceAttempts || {};
+  const acceptedAt = studyWorkspace.continuation?.suggestedPlan?.acceptedAt
+    ? new Date(studyWorkspace.continuation.suggestedPlan.acceptedAt).getTime()
+    : null;
+
+  let activeSession = null;
+  let activeSessionIndex = -1;
+  let completedSessions = 0;
+
+  for (let idx = 0; idx < studyPlan.sessions.length; idx++) {
+    const session = studyPlan.sessions[idx];
+    let isSessionCompleted = false;
+
+    if (session.isRevisit) {
+      if (session.itemType === 'lesson') {
+        const lp = lessonProgress[session.itemId];
+        if (lp && lp.status === 'completed') {
+          const completedTimestamp = lp.updatedAt || lp.lastVisitedAt || lp.completedAt;
+          if (!acceptedAt || (completedTimestamp && new Date(completedTimestamp).getTime() >= acceptedAt)) {
+            isSessionCompleted = true;
+          }
+        }
+      } else if (session.itemType === 'exercise') {
+        const raw = exerciseAttempts[session.itemId];
+        const attempts = Array.isArray(raw) ? raw : raw ? [raw] : [];
+        const successfulRevisit = attempts.find((a) => {
+          const isSuccess =
+            (a.outcome === 'independent' ||
+              a.outcome === 'with_hint' ||
+              a.outcome === 'needed_reference' ||
+              a.outcome === 'correct' ||
+              a.status === 'passed' ||
+              a.passed === true) &&
+            a.status !== 'failed' &&
+            a.passed !== false;
+          if (!isSuccess) return false;
+          const attemptTime = a.savedAt || a.completedAt || a.updatedAt;
+          return !acceptedAt || (attemptTime && new Date(attemptTime).getTime() >= acceptedAt);
+        });
+        if (successfulRevisit) {
+          isSessionCompleted = true;
+        }
+      } else if (session.itemType === 'practice') {
+        const raw = practiceAttempts[session.itemId];
+        const attempts = Array.isArray(raw) ? raw : raw ? [raw] : [];
+        const successfulRevisit = attempts.find((a) => {
+          const isSolved =
+            (a.outcome === 'solved_independently' ||
+              a.outcome === 'with_hint' ||
+              a.status === 'passed') &&
+            a.status !== 'failed' &&
+            a.outcome !== 'bookmarked' &&
+            a.outcome !== 'reviewed_editorial';
+          if (!isSolved) return false;
+          const attemptTime = a.savedAt || a.completedAt || a.updatedAt;
+          return !acceptedAt || (attemptTime && new Date(attemptTime).getTime() >= acceptedAt);
+        });
+        if (successfulRevisit) {
+          isSessionCompleted = true;
+        }
+      }
+    } else {
+      if (session.itemType === 'lesson') {
+        const lp = lessonProgress[session.itemId];
+        if (lp && (lp.status === 'completed' || Boolean(lp.completedAt))) {
+          isSessionCompleted = true;
+        }
+      } else if (session.itemType === 'exercise') {
+        const raw = exerciseAttempts[session.itemId];
+        const attempts = Array.isArray(raw) ? raw : raw ? [raw] : [];
+        const isSuccess = attempts.some(
+          (a) =>
+            (a.outcome === 'independent' ||
+              a.outcome === 'with_hint' ||
+              a.outcome === 'needed_reference' ||
+              a.outcome === 'correct' ||
+              a.status === 'passed' ||
+              a.passed === true ||
+              Boolean(a.completedAt)) &&
+            a.status !== 'failed' &&
+            a.passed !== false
+        );
+        if (isSuccess) {
+          isSessionCompleted = true;
+        }
+      } else if (session.itemType === 'practice') {
+        const raw = practiceAttempts[session.itemId];
+        const attempts = Array.isArray(raw) ? raw : raw ? [raw] : [];
+        const isSolved = attempts.some(
+          (a) =>
+            (a.outcome === 'solved_independently' ||
+              a.outcome === 'with_hint' ||
+              a.status === 'passed' ||
+              Boolean(a.completedAt)) &&
+            a.status !== 'failed' &&
+            a.outcome !== 'bookmarked' &&
+            a.outcome !== 'reviewed_editorial'
+        );
+        if (isSolved) {
+          isSessionCompleted = true;
+        }
+      }
+    }
+
+    if (isSessionCompleted) {
+      completedSessions++;
+    } else if (!activeSession) {
+      activeSession = session;
+      activeSessionIndex = idx;
+    }
+  }
+
+  const allCompleted = completedSessions === studyPlan.sessions.length && studyPlan.sessions.length > 0;
+
+  return {
+    activeSession,
+    activeSessionIndex,
+    allCompleted,
+    totalSessions: studyPlan.sessions.length,
+    completedSessions
+  };
+}

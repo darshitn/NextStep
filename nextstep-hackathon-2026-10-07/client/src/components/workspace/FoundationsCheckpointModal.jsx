@@ -34,14 +34,54 @@ export default function FoundationsCheckpointModal({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isSavingDraft, setIsSavingDraft] = useState(false);
   const [draftNotice, setDraftNotice] = useState(null);
+  const [needsVersionRefresh, setNeedsVersionRefresh] = useState(false);
 
   const modalRef = useRef(null);
   const previouslyFocusedRef = useRef(null);
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
+  const wasOpenRef = useRef(false);
+  const finalizedSubmissionRef = useRef(null);
+  const submissionBusyRef = useRef(false);
+  const saveDrainRef = useRef(Promise.resolve());
+
+  const isSavingRef = useRef(false);
+  const pendingSaveRef = useRef(false);
+  const pendingDraftRef = useRef(null);
+  const saveGenerationRef = useRef(0);
+  const draftNoticeTimerRef = useRef(null);
+  const latestGoalRef = useRef(goal);
+  latestGoalRef.current = goal;
+
+  const currentDraftRef = useRef({
+    answers: {},
+    reflection: '',
+    selfReportedAssistance: {},
+    currentIndex: 0
+  });
+
+  useEffect(() => {
+    latestGoalRef.current = goal;
+  }, [goal]);
+
+  useEffect(() => {
+    currentDraftRef.current = {
+      answers,
+      reflection,
+      selfReportedAssistance,
+      currentIndex
+    };
+  }, [answers, reflection, selfReportedAssistance, currentIndex]);
 
   // Load checkpoint definition and saved draft/attempt
   useEffect(() => {
-    if (!isOpen) return;
+    if (!isOpen) {
+      saveGenerationRef.current += 1;
+      finalizedSubmissionRef.current = null;
+      return;
+    }
 
+    saveGenerationRef.current += 1;
     let mounted = true;
     setLoading(true);
     setError(null);
@@ -53,8 +93,30 @@ export default function FoundationsCheckpointModal({
 
         if (res?.data?.checkpoint) {
           setCheckpoint(res.data.checkpoint);
-          const savedAnswers = res.data.draft?.answers || {};
+          const draft = res.data.draft || {};
+          const savedAnswers = draft.answers || {};
           setAnswers(savedAnswers);
+          if (typeof draft.reflection === 'string') {
+            setReflection(draft.reflection);
+          }
+          if (draft.assistance && typeof draft.assistance === 'object') {
+            setSelfReportedAssistance(draft.assistance);
+            const hints = {};
+            for (const [qId, a] of Object.entries(draft.assistance)) {
+              if (a?.usedHint) hints[qId] = true;
+            }
+            setRevealedHints(hints);
+          }
+
+          const questionsCount = res.data.checkpoint.questions?.length || 0;
+          if (
+            typeof draft.currentIndex === 'number' &&
+            Number.isInteger(draft.currentIndex) &&
+            draft.currentIndex >= 0 &&
+            draft.currentIndex < questionsCount
+          ) {
+            setCurrentIndex(draft.currentIndex);
+          }
 
           if (res.data.latestAttempt) {
             setEvaluation(res.data.latestAttempt);
@@ -76,28 +138,41 @@ export default function FoundationsCheckpointModal({
 
     return () => {
       mounted = false;
+      saveGenerationRef.current += 1;
     };
+  }, [isOpen]);
+
+  // Initial focus on open only — prevents parent re-renders from stealing focus while typing
+  useEffect(() => {
+    if (!isOpen) {
+      wasOpenRef.current = false;
+      return;
+    }
+
+    if (!wasOpenRef.current) {
+      wasOpenRef.current = true;
+      previouslyFocusedRef.current = document.activeElement;
+      const focusTimer = setTimeout(() => {
+        const firstFocusable = modalRef.current?.querySelector(
+          'button:not(:disabled), input:not(:disabled), textarea:not(:disabled), [tabindex]:not([tabindex="-1"])'
+        );
+        firstFocusable?.focus({ preventScroll: true });
+      }, 50);
+      return () => clearTimeout(focusTimer);
+    }
   }, [isOpen]);
 
   // Focus trap, body scroll lock, and Escape focus restoration
   useEffect(() => {
     if (!isOpen) return;
 
-    previouslyFocusedRef.current = document.activeElement;
     const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
-
-    const focusTimer = setTimeout(() => {
-      const firstFocusable = modalRef.current?.querySelector(
-        'button:not(:disabled), input:not(:disabled), textarea:not(:disabled), [tabindex]:not([tabindex="-1"])'
-      );
-      firstFocusable?.focus({ preventScroll: true });
-    }, 50);
 
     const handleKeyDown = (e) => {
       if (e.key === 'Escape') {
         e.preventDefault();
-        onClose();
+        onCloseRef.current();
         return;
       }
       if (e.key === 'Tab' && modalRef.current) {
@@ -121,101 +196,217 @@ export default function FoundationsCheckpointModal({
 
     window.addEventListener('keydown', handleKeyDown);
     return () => {
-      clearTimeout(focusTimer);
       document.body.style.overflow = previousOverflow;
       window.removeEventListener('keydown', handleKeyDown);
       if (previouslyFocusedRef.current && typeof previouslyFocusedRef.current.focus === 'function') {
         previouslyFocusedRef.current.focus({ preventScroll: true });
       }
     };
-  }, [isOpen, onClose]);
+  }, [isOpen]);
+
+  const queueSaveDraft = (immediatePayload = null) => {
+    if (submissionBusyRef.current) return saveDrainRef.current;
+    const payload = immediatePayload || {
+      answers,
+      reflection,
+      selfReportedAssistance,
+      currentIndex
+    };
+    pendingDraftRef.current = payload;
+    pendingSaveRef.current = true;
+
+    if (isSavingRef.current) {
+      return saveDrainRef.current;
+    }
+    isSavingRef.current = true;
+    setIsSavingDraft(true);
+
+    const myGen = saveGenerationRef.current;
+
+    const drain = async () => {
+    try {
+      while (pendingSaveRef.current && saveGenerationRef.current === myGen) {
+        pendingSaveRef.current = false;
+        const payloadToSave = pendingDraftRef.current;
+        if (!payloadToSave) break;
+
+        const res = await apiService.saveCheckpointDraft({
+          expectedVersion: latestGoalRef.current.version,
+          checkpointId: 'chk_foundations_v1',
+          draftAnswers: payloadToSave.answers || {},
+          draftReflection: payloadToSave.reflection || '',
+          draftAssistance: payloadToSave.selfReportedAssistance || {},
+          draftCurrentIndex: typeof payloadToSave.currentIndex === 'number' ? payloadToSave.currentIndex : 0,
+          definitionVersion: checkpoint?.version || 1
+        });
+
+        if (saveGenerationRef.current !== myGen) {
+          break;
+        }
+
+        if (res?.data?.goal) {
+          latestGoalRef.current = res.data.goal;
+          onGoalUpdated(res.data.goal);
+          setDraftNotice('Draft saved');
+          if (draftNoticeTimerRef.current) clearTimeout(draftNoticeTimerRef.current);
+          draftNoticeTimerRef.current = setTimeout(() => setDraftNotice(null), 2500);
+          setError(null);
+          setNeedsVersionRefresh(false);
+        }
+      }
+    } catch (err) {
+      if (saveGenerationRef.current === myGen) {
+        console.warn('Draft auto-save notice:', err);
+        if (err.status === 409 || err.code === 'VERSION_CONFLICT') {
+          setNeedsVersionRefresh(true);
+          setError('The workspace changed. Refresh its version, review your preserved local answers, then save or submit.');
+        } else {
+          setError(err.message || 'Auto-save failed. Your local inputs are preserved.');
+        }
+      }
+    } finally {
+      isSavingRef.current = false;
+      setIsSavingDraft(false);
+    }
+    };
+    saveDrainRef.current = drain();
+    return saveDrainRef.current;
+  };
 
   if (!isOpen) return null;
 
   const questions = checkpoint?.questions || [];
   const currentQuestion = questions[currentIndex] || null;
 
-  const handleSelectOption = async (optionId) => {
+  const handleSelectOption = (optionId) => {
     if (!currentQuestion) return;
     const newAnswers = { ...answers, [currentQuestion.id]: optionId };
     setAnswers(newAnswers);
-
-    // Auto-save draft on selection
-    try {
-      setIsSavingDraft(true);
-      const res = await apiService.saveCheckpointDraft({
-        expectedVersion: goal.version,
-        checkpointId: 'chk_foundations_v1',
-        draftAnswers: newAnswers
-      });
-      if (res?.data?.goal) {
-        onGoalUpdated(res.data.goal);
-        setDraftNotice('Draft saved');
-        setTimeout(() => setDraftNotice(null), 2500);
-      }
-    } catch (err) {
-      console.warn('Draft auto-save notice:', err);
-    } finally {
-      setIsSavingDraft(false);
-    }
+    queueSaveDraft({
+      answers: newAnswers,
+      reflection,
+      selfReportedAssistance,
+      currentIndex
+    });
   };
 
   const handleToggleHint = (qId) => {
-    setRevealedHints((prev) => ({ ...prev, [qId]: !prev[qId] }));
-    setSelfReportedAssistance((prev) => ({
-      ...prev,
+    const nextRevealed = !revealedHints[qId];
+    setRevealedHints((prev) => ({ ...prev, [qId]: nextRevealed }));
+    const newAssistance = {
+      ...selfReportedAssistance,
       [qId]: { usedHint: true }
-    }));
+    };
+    setSelfReportedAssistance(newAssistance);
+    queueSaveDraft({
+      answers,
+      reflection,
+      selfReportedAssistance: newAssistance,
+      currentIndex
+    });
   };
 
-  const handleManualSaveDraft = async () => {
-    setIsSavingDraft(true);
-    setError(null);
-    try {
-      const res = await apiService.saveCheckpointDraft({
-        expectedVersion: goal.version,
-        checkpointId: 'chk_foundations_v1',
-        draftAnswers: answers
-      });
-      if (res?.data?.goal) {
-        onGoalUpdated(res.data.goal);
-        setDraftNotice('Draft saved successfully');
-        setTimeout(() => setDraftNotice(null), 3000);
-      }
-    } catch (err) {
-      setError(err.message || 'Failed to save draft.');
-    } finally {
-      setIsSavingDraft(false);
-    }
+  const handleManualSaveDraft = () => {
+    queueSaveDraft();
   };
 
   const handleSubmitEvaluation = async () => {
+    if (submissionBusyRef.current) return;
+    submissionBusyRef.current = true;
     setIsSubmitting(true);
     setError(null);
-    const attemptId = crypto.randomUUID();
+    const generation = saveGenerationRef.current;
 
     try {
-      const res = await apiService.evaluateCheckpoint({
-        expectedVersion: goal.version,
-        attemptId,
+    // A draft may have committed before its response arrives. Drain it before
+    // capturing the CAS version; invalidating its response would lose that version.
+    await saveDrainRef.current;
+    if (saveGenerationRef.current !== generation) return;
+
+    // Retain attemptId and immutable payload across retries so network errors don't alter submitted data
+    if (!finalizedSubmissionRef.current) {
+      finalizedSubmissionRef.current = {
+        expectedVersion: latestGoalRef.current?.version ?? goal?.version,
+        attemptId: crypto.randomUUID(),
         checkpointId: 'chk_foundations_v1',
-        answers,
-        selfReportedAssistance,
-        reflection
-      });
+        answers: { ...answers },
+        selfReportedAssistance: { ...selfReportedAssistance },
+        reflection: reflection || '',
+        definitionVersion: checkpoint?.version || 1
+      };
+    } else {
+      // Reconcile concurrency metadata: if workspace goal version advanced, update expectedVersion
+      // while keeping canonical answers, attemptId, reflection, and assistance strictly immutable.
+      if (latestGoalRef.current?.version && latestGoalRef.current.version > finalizedSubmissionRef.current.expectedVersion) {
+        finalizedSubmissionRef.current = {
+          ...finalizedSubmissionRef.current,
+          expectedVersion: latestGoalRef.current.version
+        };
+      }
+    }
+
+    const payload = finalizedSubmissionRef.current;
+
+      const res = await apiService.evaluateCheckpoint(payload);
+      if (saveGenerationRef.current !== generation) return;
 
       if (res?.data) {
-        if (res.data.goal) onGoalUpdated(res.data.goal);
-        if (res.data.evaluation) setEvaluation(res.data.evaluation);
+        finalizedSubmissionRef.current = null;
+        if (res.data.goal) {
+          latestGoalRef.current = res.data.goal;
+          onGoalUpdated(res.data.goal);
+        }
+        if (res.data.evaluation) {
+          setEvaluation(res.data.evaluation);
+        }
+        setError(null);
+        setNeedsVersionRefresh(false);
       }
     } catch (err) {
+      if (saveGenerationRef.current !== generation) return;
       console.error('Checkpoint evaluation error:', err);
-      if (err.status === 409 || err.code === 'VERSION_CONFLICT') {
-        setError('Goal version changed concurrently. Your draft answers are preserved; please retry.');
+      if (err.status === 409 || err.code === 'ATTEMPT_CONFLICT' || err.code === 'VERSION_CONFLICT') {
+        if (err.code === 'ATTEMPT_CONFLICT') {
+          setError('A conflicting checkpoint evaluation was already recorded for this attempt. Please reset or start a fresh attempt.');
+        } else if (err.code === 'VERSION_CONFLICT') {
+          setNeedsVersionRefresh(true);
+          setError('The workspace changed before submission. Refresh its version or retry to submit your preserved answers.');
+        } else {
+          setError(err.message || 'Evaluation conflict. Please retry.');
+        }
       } else {
         setError(err.message || 'Failed to evaluate checkpoint.');
       }
     } finally {
+      submissionBusyRef.current = false;
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleRefreshVersion = async () => {
+    if (submissionBusyRef.current) return;
+    setIsSubmitting(true);
+    submissionBusyRef.current = true;
+    const generation = saveGenerationRef.current;
+    try {
+      await saveDrainRef.current;
+      const res = await apiService.getGoal();
+      if (saveGenerationRef.current !== generation) return;
+      if (!res?.data?.goal) throw new Error('Your goal could not be loaded. Your local answers are preserved.');
+      latestGoalRef.current = res.data.goal;
+      onGoalUpdated(res.data.goal);
+      // VERSION_CONFLICT confirms that this request did not finalize an attempt.
+      // Only concurrency metadata changes; its canonical answers and ID stay fixed.
+      if (finalizedSubmissionRef.current) {
+        finalizedSubmissionRef.current = { ...finalizedSubmissionRef.current, expectedVersion: res.data.goal.version };
+      }
+      setNeedsVersionRefresh(false);
+      setError(null);
+      setDraftNotice('Workspace refreshed. Local answers preserved; review before submitting.');
+    } catch (err) {
+      if (saveGenerationRef.current === generation) setError(err.message || 'Could not refresh the workspace version.');
+    } finally {
+      submissionBusyRef.current = false;
       setIsSubmitting(false);
     }
   };
@@ -223,15 +414,20 @@ export default function FoundationsCheckpointModal({
   const handleReset = async () => {
     setIsSubmitting(true);
     setError(null);
+    finalizedSubmissionRef.current = null;
+    saveGenerationRef.current += 1;
+
     try {
       const res = await apiService.resetCheckpoint({
-        expectedVersion: goal.version,
+        expectedVersion: latestGoalRef.current.version,
         checkpointId: 'chk_foundations_v1'
       });
       if (res?.data?.goal) {
+        latestGoalRef.current = res.data.goal;
         onGoalUpdated(res.data.goal);
         setEvaluation(null);
         setAnswers({});
+        setReflection('');
         setRevealedHints({});
         setSelfReportedAssistance({});
         setCurrentIndex(0);
@@ -295,6 +491,11 @@ export default function FoundationsCheckpointModal({
               <div className="space-y-1">
                 <p className="font-semibold">{error}</p>
                 <p className="text-xs opacity-90">Your answers remain safe. You can retry submission.</p>
+                {needsVersionRefresh && (
+                  <button type="button" onClick={handleRefreshVersion} disabled={isSubmitting} className="secondary-button text-xs">
+                    Refresh workspace version
+                  </button>
+                )}
               </div>
             </div>
           )}
@@ -469,7 +670,10 @@ export default function FoundationsCheckpointModal({
                         type="button"
                         role="tab"
                         aria-selected={isCurrent}
-                        onClick={() => setCurrentIndex(idx)}
+                        onClick={() => {
+                          setCurrentIndex(idx);
+                          queueSaveDraft({ answers, reflection, selfReportedAssistance, currentIndex: idx });
+                        }}
                         className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
                           isCurrent
                             ? 'ui-bg-accent ui-text-inverse'
@@ -491,7 +695,7 @@ export default function FoundationsCheckpointModal({
                   <button
                     type="button"
                     onClick={handleManualSaveDraft}
-                    disabled={isSavingDraft}
+                    disabled={isSavingDraft || isSubmitting}
                     className="p-1.5 rounded-lg border ui-border-border hover:ui-bg-soft text-xs ui-text-muted hover:ui-text-ink transition-colors flex items-center gap-1"
                     title="Save draft"
                   >
@@ -542,6 +746,7 @@ export default function FoundationsCheckpointModal({
                         name={`question-${currentQuestion.id}`}
                         value={opt.id}
                         checked={isSelected}
+                        disabled={isSubmitting}
                         onChange={() => handleSelectOption(opt.id)}
                         className="mt-0.5 accent-emerald-600 focus:ring-emerald-500"
                       />
@@ -557,6 +762,7 @@ export default function FoundationsCheckpointModal({
                   <button
                     type="button"
                     onClick={() => handleToggleHint(currentQuestion.id)}
+                    disabled={isSubmitting}
                     className="text-xs font-semibold ui-text-muted hover:ui-text-ink flex items-center gap-1.5 transition-colors"
                   >
                     <HelpCircle className="w-3.5 h-3.5" />
@@ -581,8 +787,10 @@ export default function FoundationsCheckpointModal({
                     id="checkpoint-reflection"
                     rows={2}
                     maxLength={500}
+                    disabled={isSubmitting}
                     value={reflection}
                     onChange={(e) => setReflection(e.target.value)}
+                    onBlur={() => queueSaveDraft({ answers, reflection, selfReportedAssistance, currentIndex })}
                     placeholder="What felt solid? Where did you hesitate or need a hint?"
                     className="w-full rounded-xl border ui-border-border ui-bg-surface p-3 text-xs ui-text-ink placeholder:ui-text-muted focus:outline-none focus:ring-2 focus:ring-emerald-500"
                   />
@@ -593,8 +801,12 @@ export default function FoundationsCheckpointModal({
               <div className="flex items-center justify-between gap-3 pt-4 border-t ui-border-border">
                 <button
                   type="button"
-                  onClick={() => setCurrentIndex((idx) => Math.max(0, idx - 1))}
-                  disabled={currentIndex === 0}
+                  onClick={() => {
+                    const prevIdx = Math.max(0, currentIndex - 1);
+                    setCurrentIndex(prevIdx);
+                    queueSaveDraft({ answers, reflection, selfReportedAssistance, currentIndex: prevIdx });
+                  }}
+                  disabled={isSubmitting || currentIndex === 0}
                   className="px-3.5 py-2 rounded-xl border ui-border-border text-xs font-semibold ui-text-muted hover:ui-text-ink hover:ui-bg-soft flex items-center gap-1.5 disabled:opacity-40 transition-colors"
                 >
                   <ArrowLeft className="w-3.5 h-3.5" />
@@ -604,7 +816,11 @@ export default function FoundationsCheckpointModal({
                 {currentIndex < questions.length - 1 ? (
                   <button
                     type="button"
-                    onClick={() => setCurrentIndex((idx) => Math.min(questions.length - 1, idx + 1))}
+                    onClick={() => {
+                      const nextIdx = Math.min(questions.length - 1, currentIndex + 1);
+                      setCurrentIndex(nextIdx);
+                      queueSaveDraft({ answers, reflection, selfReportedAssistance, currentIndex: nextIdx });
+                    }}
                     className="primary-button text-xs py-2 px-4 flex items-center gap-1.5"
                   >
                     <span>Next Question</span>

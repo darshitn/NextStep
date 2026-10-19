@@ -8,7 +8,8 @@
     "build": "vite build",
     "preview": "vite preview",
     "preview:synthetic": "node scripts/start-synthetic-preview.mjs",
-    "test": "node --test src/fixtures/*.test.js"
+    "test": "node --test src/fixtures/*.test.js",
+    "verify:continuation": "node scripts/verify-continuation-integration.cjs"
   },
   "dependencies": {
     "lucide-react": "^0.468.0",

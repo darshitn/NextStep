@@ -853,6 +853,7 @@ export default function DashboardPage({
         isOpen={isContinuationPlanOpen}
         onClose={() => setIsContinuationPlanOpen(false)}
         goal={goal}
+        catalog={catalog}
         onGoalUpdated={onGoalUpdated}
         onPlanAccepted={() => {
           setSavedNotice('Next-week study plan saved and active.');

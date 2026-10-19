@@ -192,14 +192,15 @@ export function getStudentSafeCheckpoint(checkpointId) {
 }
 
 /**
- * Authoritatively grades a checkpoint attempt on the server.
+ * Validates checkpoint submission or draft payload against the defined checkpoint schema.
+ * Rejects unknown question IDs, invalid option IDs, unknown assistance keys, and version mismatches with 422.
  */
-export function gradeCheckpointAttempt({
+export function validateCheckpointData({
   checkpointId,
-  attemptId,
   answers = {},
   selfReportedAssistance = {},
-  reflection = ''
+  definitionVersion,
+  reflection
 }) {
   const cp = FOUNDATIONS_CHECKPOINTS[checkpointId];
   if (!cp) {
@@ -208,6 +209,129 @@ export function gradeCheckpointAttempt({
     err.code = 'CHECKPOINT_NOT_FOUND';
     throw err;
   }
+
+  if (definitionVersion !== undefined && definitionVersion !== null && definitionVersion !== cp.version) {
+    const err = new Error(`Unsupported checkpoint definition version ${definitionVersion}. Server supports version ${cp.version}.`);
+    err.status = 422;
+    err.code = 'UNSUPPORTED_CHECKPOINT_VERSION';
+    throw err;
+  }
+
+  const questionMap = new Map(cp.questions.map((q) => [q.id, q]));
+
+  // Validate answer keys and option IDs
+  const answerEntries = Object.entries(answers || {});
+  if (answerEntries.length > cp.questions.length) {
+    const err = new Error(`Answers record contains ${answerEntries.length} items, exceeding checkpoint question count of ${cp.questions.length}.`);
+    err.status = 422;
+    err.code = 'INVALID_CHECKPOINT_DATA';
+    throw err;
+  }
+
+  for (const [qId, optId] of answerEntries) {
+    const question = questionMap.get(qId);
+    if (!question) {
+      const err = new Error(`Unknown question ID "${qId}" for checkpoint "${checkpointId}".`);
+      err.status = 422;
+      err.code = 'INVALID_CHECKPOINT_DATA';
+      throw err;
+    }
+    const validOption = question.options.some((opt) => opt.id === optId);
+    if (!validOption) {
+      const err = new Error(`Unknown option ID "${optId}" for question "${qId}".`);
+      err.status = 422;
+      err.code = 'INVALID_CHECKPOINT_DATA';
+      throw err;
+    }
+  }
+
+  // Validate assistance keys
+  for (const qId of Object.keys(selfReportedAssistance || {})) {
+    if (!questionMap.has(qId)) {
+      const err = new Error(`Unknown question ID "${qId}" in assistance for checkpoint "${checkpointId}".`);
+      err.status = 422;
+      err.code = 'INVALID_CHECKPOINT_DATA';
+      throw err;
+    }
+  }
+
+  if (reflection && typeof reflection === 'string' && reflection.length > 500) {
+    const err = new Error('Reflection exceeds 500 characters limit.');
+    err.status = 422;
+    err.code = 'INVALID_CHECKPOINT_DATA';
+    throw err;
+  }
+
+  return cp;
+}
+
+/**
+ * Checks if an incoming evaluation submission is canonically identical to an existing recorded attempt.
+ * Accurately compares answers, reflection, hint assistance, and checkpoint identity.
+ */
+export function isIdenticalCheckpointAttempt(existing, incoming) {
+  if (!existing || !incoming) return false;
+
+  // 1. Checkpoint ID
+  if (existing.checkpointId && incoming.checkpointId && existing.checkpointId !== incoming.checkpointId) {
+    return false;
+  }
+
+  // 2. Answers match
+  const existingAnswers = {};
+  for (const tr of Object.values(existing.topicResults || {})) {
+    if (tr.questionId && tr.selected) {
+      existingAnswers[tr.questionId] = tr.selected;
+    }
+  }
+  const incomingAnswers = incoming.answers || {};
+  const existKeys = Object.keys(existingAnswers);
+  const incKeys = Object.keys(incomingAnswers);
+  if (existKeys.length !== incKeys.length) return false;
+  for (const [k, v] of Object.entries(incomingAnswers)) {
+    if (existingAnswers[k] !== v) return false;
+  }
+
+  // 3. Reflection match (trimmed)
+  const existRefl = (existing.reflection || '').trim();
+  const incRefl = (incoming.reflection || '').trim();
+  if (existRefl !== incRefl) return false;
+
+  // 4. Assistance match
+  const incomingAssistance = incoming.selfReportedAssistance || {};
+  for (const tr of Object.values(existing.topicResults || {})) {
+    const qId = tr.questionId;
+    const existHint = Boolean(tr.usedHint);
+    const incHint = Boolean(incomingAssistance[qId]?.usedHint);
+    if (existHint !== incHint) return false;
+  }
+
+  // 5. Definition version match if present on both
+  if (existing.definitionVersion && incoming.definitionVersion && existing.definitionVersion !== incoming.definitionVersion) {
+    return false;
+  }
+
+  return true;
+}
+
+/**
+ * Authoritatively grades a checkpoint attempt on the server.
+ */
+export function gradeCheckpointAttempt({
+  checkpointId,
+  attemptId,
+  answers = {},
+  selfReportedAssistance = {},
+  reflection = '',
+  definitionVersion
+}) {
+  const cp = validateCheckpointData({
+    checkpointId,
+    answers,
+    selfReportedAssistance,
+    definitionVersion,
+    reflection
+  });
 
   let correctCount = 0;
   const topicResults = {};
@@ -271,6 +395,7 @@ export function gradeCheckpointAttempt({
   return {
     attemptId,
     checkpointId,
+    definitionVersion: cp.version,
     submittedAt: new Date().toISOString(),
     score: {
       correct: correctCount,

@@ -453,7 +453,11 @@ Saved under `goal.state.studyWorkspace.continuation`. If absent on older goals, 
   "checkpoint": {
     "checkpointId": "chk_foundations_v1",
     "status": "not_started",
+    "definitionVersion": 1,
     "draftAnswers": {},
+    "draftReflection": "",
+    "draftAssistance": {},
+    "draftCurrentIndex": 0,
     "draftSavedAt": null,
     "latestAttempt": null,
     "history": []
@@ -470,13 +474,16 @@ Saved under `goal.state.studyWorkspace.continuation`. If absent on older goals, 
 }
 ```
 - **Bounds & Retention**:
-  - `draftAnswers`: map of `questionId -> optionId`, limited to current checkpoint questions.
-  - `latestAttempt`: object describing score, topic results, feedback, and category.
+  - `draftAnswers`: map of `questionId -> optionId`, limited to known checkpoint question and option IDs.
+  - `draftReflection`: trimmed student reflection string, max 500 characters.
+  - `draftAssistance`: map of `questionId -> { usedHint: boolean }` tracking self-reported assistance.
+  - `draftCurrentIndex`: 0-indexed integer for question position.
+  - `latestAttempt`: object describing score, topic results, feedback, definitionVersion, and category.
   - `history`: capped at the 5 most recent attempts per user.
   - Text fields (`reflection`, `note`) trimmed to max 500 characters.
 
 ### GET /api/goal/workspace/checkpoint/:checkpointId — authenticated
-Retrieves student-safe checkpoint details, current user draft, and latest attempt.
+Retrieves student-safe checkpoint details, current user draft (including restored answers, reflection, assistance, and position), and latest attempt.
 - **Parameters**: `checkpointId` (must match supported definition, e.g. `chk_foundations_v1`).
 - **Privacy & Safety**: Answer keys, correct choices, and grading logic are NEVER returned on this route.
 - **Response**: HTTP 200
@@ -513,6 +520,10 @@ Retrieves student-safe checkpoint details, current user draft, and latest attemp
     },
     "draft": {
       "answers": { "chk_q_arrays_01": "opt_arr_1" },
+      "reflection": "Tricky binary search bounds.",
+      "assistance": { "chk_q_arrays_01": { "usedHint": false } },
+      "currentIndex": 0,
+      "definitionVersion": 1,
       "savedAt": "2026-10-18T18:45:00.000Z"
     },
     "latestAttempt": null
@@ -521,7 +532,7 @@ Retrieves student-safe checkpoint details, current user draft, and latest attemp
 ```
 
 ### POST /api/goal/workspace/checkpoint/draft — authenticated
-Saves unsubmitted work-in-progress draft answers. Does not grade or advance attempt status.
+Saves unsubmitted work-in-progress draft state. Does not grade or advance attempt status.
 - **Request Body**:
 ```json
 {
@@ -529,9 +540,16 @@ Saves unsubmitted work-in-progress draft answers. Does not grade or advance atte
   "checkpointId": "chk_foundations_v1",
   "draftAnswers": {
     "chk_q_arrays_01": "opt_arr_1"
-  }
+  },
+  "draftReflection": "Working on question 2 reflection.",
+  "draftAssistance": {
+    "chk_q_arrays_01": { "usedHint": false }
+  },
+  "draftCurrentIndex": 1,
+  "definitionVersion": 1
 }
 ```
+- **Validation**: Rejects unknown question IDs, unknown option IDs, unknown assistance keys, or text > 500 chars with 422.
 - **Response**: HTTP 200 `{"data": {"goal": Goal, "draftSavedAt": "2026-10-18T18:45:00.000Z"}}`
 - **Errors**: 404 checkpoint not found; 409 `VERSION_CONFLICT` if `expectedVersion` mismatches; 422 if invalid answer format.
 
@@ -543,6 +561,7 @@ Authoritatively evaluates student answers on the server against server-side answ
   "expectedVersion": 2,
   "attemptId": "50000000-0000-4000-8000-000000000001",
   "checkpointId": "chk_foundations_v1",
+  "definitionVersion": 1,
   "answers": {
     "chk_q_arrays_01": "opt_arr_1",
     "chk_q_hashing_01": "opt_hash_1",
@@ -557,6 +576,7 @@ Authoritatively evaluates student answers on the server against server-side answ
 }
 ```
 - **Evaluation Logic**:
+  - Validates known question IDs, option membership, and assistance keys; returns 422 on invalid/unknown IDs.
   - Scores each question against server-side definition.
   - Derives literal score: `{ correct: 2, total: 3 }` (never an invented percentage or job-readiness claim).
   - Derives category:
@@ -564,9 +584,11 @@ Authoritatively evaluates student answers on the server against server-side answ
     - `"revisit_recommended"`: 1 or more questions incorrect or required hints.
     - `"insufficient_evidence"`: fewer than 2 questions attempted.
   - Produces `topicResults` with student-safe feedback, concrete recommended revisit lessons, and actual observed assistance.
-- **Idempotency**:
-  - Submitting identical `attemptId` with identical answers returns HTTP 200 with the existing evaluated result without incrementing goal version.
-  - Submitting identical `attemptId` with conflicting answers/payload returns HTTP 409 `ATTEMPT_CONFLICT`.
+  - Attaches `definitionVersion` to evaluation result.
+  - Clears student draft answers upon successful evaluation.
+- **Idempotency & Concurrency**:
+  - Submitting identical `attemptId` with identical answers, reflection, assistance, and definition version returns HTTP 200 with the existing evaluated result without incrementing goal version. Idempotency evaluation occurs before active checkpoint definition validation to guarantee historical attempts under older definition versions can be retried safely.
+  - Submitting identical `attemptId` with conflicting answers, reflection, or assistance returns HTTP 409 `ATTEMPT_CONFLICT`.
 - **Response**: HTTP 200 `{"data": {"goal": Goal, "evaluation": AttemptResult}}`
 
 ### POST /api/goal/workspace/checkpoint/skip — authenticated
@@ -581,7 +603,7 @@ Allows student to optionally bypass the foundations checkpoint and move directly
 - **Response**: HTTP 200 `{"data": {"goal": Goal}}` (sets `continuation.status = "skipped"`).
 
 ### POST /api/goal/workspace/checkpoint/reset — authenticated
-Resets checkpoint status back to `in_progress` to permit a fresh, clean evaluation attempt.
+Resets checkpoint status back to `in_progress` and clears draft state to permit a fresh, clean evaluation attempt.
 - **Request Body**:
 ```json
 {
@@ -592,24 +614,47 @@ Resets checkpoint status back to `in_progress` to permit a fresh, clean evaluati
 - **Response**: HTTP 200 `{"data": {"goal": Goal}}`
 
 ### POST /api/goal/workspace/continuation/plan/preview — authenticated (read-only)
-Computes a capacity-aware next-week study plan derived from real student evidence (checkpoint results, failed concepts, due reviews, and next eligible curriculum lessons).
+Computes a capacity-aware 7-day proposal derived from real student evidence (checkpoint results, failed concepts, due reviews, and next eligible curriculum lessons).
 - **Request Body**:
 ```json
 {
   "expectedVersion": 3,
   "availability": { "mon": 60, "tue": 0, "wed": 60, "thu": 0, "fri": 60, "sat": 0, "sun": 0 },
   "selectedItemIds": ["les_binary_search_01", "les_two_pointers_01"],
+  "revisitItemIds": ["les_binary_search_01"],
   "targetDate": "2026-10-31"
 }
 ```
-- If `selectedItemIds` is omitted, the server deterministically generates recommendations based on:
+- If `selectedItemIds` is omitted or empty (`[]`), the server deterministically generates recommendations based on:
   1. Targeted revisit for any checkpoint topic where evidence shows difficulty (`revisitRecommended === true`).
-  2. First incomplete eligible lesson in prerequisite order from Atlas.
-  3. Any active reviews due today in `Asia/Kolkata`.
+  2. Any due reviews from exercise and practice attempts where `nextReviewDate <= today` or `needsReview === true`.
+  3. First incomplete eligible lessons in curriculum prerequisite order.
+  4. End-of-library deliberate review: if all curriculum lessons are completed, schedules a foundational invariant revisit with `isRevisit: true` and `(Revisit)` title suffix to maintain mastery.
+- `revisitItemIds`: Optional list of activity IDs explicitly marked as revisits. Sessions for these items are generated with `isRevisit: true`.
 - Does NOT mutate database state.
-- **Response**: HTTP 200 with `previewId`, `previewForDate` (`Asia/Kolkata`), `sessions`, `unscheduledItemIds`, `deadlineConflict`, `baseVersion`, and `curriculumVersion`.
+- Generates an HMAC-SHA256 signed `previewToken` binding ownerId, baseVersion, selectedItemIds, effective revisitItemIds, availability, previewForDate, curriculumVersion, and targetDate. The response also includes the effective revisitItemIds. The signing key is private; the publishable Supabase key is never used to sign tokens. Without a configured stable signing secret, tokens are valid only for the current server process.
+- **Response**: HTTP 200 with `previewId`, `previewToken`, `previewForDate` (`Asia/Kolkata`), `horizonEndDate`, `weeklyCapacityMinutes`, `sessions`, `weekSessions`, `spilloverSessions`, `hasSpillover`, `unscheduledItemIds`, `deadlineConflict`, `baseVersion`, and `curriculumVersion`.
 
 ### POST /api/goal/workspace/continuation/plan/apply — authenticated
 Atomically accepts and persists the previewed continuation plan into `goal.state.studyWorkspace.studyPlan` and marks `goal.state.studyWorkspace.continuation.suggestedPlan.accepted = true`.
-- **Validation**: Rejects with 409 if `expectedVersion`, `previewForDate`, or `curriculumVersion` do not match saved state.
+- **Request Body**:
+```json
+{
+  "expectedVersion": 3,
+  "previewForDate": "2026-10-19",
+  "curriculumVersion": "atlas-proof-v1",
+  "availability": { "mon": 60, "tue": 0, "wed": 60, "thu": 0, "fri": 60, "sat": 0, "sun": 0 },
+  "selectedItemIds": ["les_binary_search_01", "les_two_pointers_01"],
+  "revisitItemIds": ["les_binary_search_01"],
+  "targetDate": "2026-10-31",
+  "previewToken": "eyJ..."
+}
+```
+- **Validation**:
+  - Rejects if `previewToken` signature is invalid or tampered with (409 `INVALID_PREVIEW_TOKEN`).
+  - Rejects if `previewToken` belongs to a different student account (403 `FORBIDDEN`).
+  - Rejects if `expectedVersion` does not match previewed baseVersion (409 `PREVIEW_VERSION_MISMATCH`).
+  - Rejects if `selectedItemIds`, `availability`, `previewForDate`, `curriculumVersion`, or a supplied `targetDate` differ from previewed values (409 `PREVIEW_MISMATCH`). An omitted `targetDate` uses the signed preview date.
+  - Falls back to server preview cache if `previewToken` is omitted.
+  - A supplied `revisitItemIds` must exactly match the canonical preview list, or apply returns 409 `PREVIEW_MISMATCH` without mutation. Omitting the list preserves the authenticated preview flags. Older previews without this binding require regeneration (409 `PREVIEW_REQUIRED`).
 - **Response**: HTTP 200 `{"data": {"goal": Goal, "studyPlan": SavedStudyPlan}}`

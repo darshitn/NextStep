@@ -520,3 +520,100 @@ Post-publish: bbab876 pushed to audit branch and main. Vercel success and new li
   - Zero modifications to `server/data/curriculum/**` (collaborator owned).
   - No remote git push (`git push`), pull request merge, or production deployment overnight.
   - Zero credentials or environment files touched.
+
+## Continuation Repair & Review Findings (R1–R7) — 2026-10-19
+
+- Milestone: CONTINUATION REPAIR (R1–R7) / ALL 3 STAGES COMPLETED & LOCALLY VERIFIED
+- Summary:
+  1. **Stage 1 (R1–R3) Checkpoint Save, Idempotency & Validation**:
+     - Extended draft schema and persistence across `server/src/schemas/goalSchemas.js`, `server/src/data/foundationsCheckpoint.js`, `server/src/routes/goal.js`, and `client/src/fixtures/apiFixture.js` to persist `draftAnswers`, `draftReflection`, `draftAssistance` (revealed hint tracking), `draftCurrentIndex`, and `definitionVersion`.
+     - Validated question and option memberships and text limits with `validateCheckpointData`; returns HTTP 422 on invalid/unknown IDs.
+     - Implemented canonical attempt comparison `isIdenticalCheckpointAttempt` evaluating answers, reflection, assistance, and version. Exact retries return 200 without version increment; conflicting payloads return 409 `ATTEMPT_CONFLICT`.
+     - Fixed `FoundationsCheckpointModal.jsx` focus initialization and draft restore; retained immutable attempt ID across ambiguous retries.
+  2. **Stage 2 (R4–R7) Truthful Editable Continuation & 7-Day Horizon**:
+     - Bound plan acceptance to stateless HMAC-SHA256 signed `previewToken` verifying owner, base version, selected activities, and availability; reject mismatches with 409 `PREVIEW_MISMATCH` and cross-user tokens with 403 `FORBIDDEN`.
+     - Updated `calculateWorkspaceStudyPlan` in `server/src/services/scheduler.js` to schedule failed-checkpoint concepts as explicit intentional revisits (`isRevisit: true`) even for completed lessons, maintaining prerequisite order.
+     - Added bounded selectable candidate activity checkboxes in `ContinuationPlanModal.jsx`; invalidates preview on changes; implemented honest checkpoint copy (differentiating proficient, revisit recommended, skipped, and unstarted states).
+     - Calculated 7-day Asia/Kolkata horizon dates, partitioning sessions into `weekSessions` and `spilloverSessions` with capacity warnings.
+     - Updated `TodayView.jsx` with `deriveActiveStudyPlanSession`: advances to next uncompleted session based on actual lesson/exercise/practice attempts, and renders celebratory all-done state upon plan completion.
+  3. **Stage 3 Verification & Durable Regressions**:
+     - Added durable regression tests to `server/tests/continuationCheckpoint.test.js` (CP13–CP18) and `client/src/fixtures/continuation.test.js` (C07–C09).
+     - Full automated test suite passing: 125/125 server tests, 84/84 client tests, 9/9 continuation Playwright journeys, 9/9 Atlas & Proof journeys, 10/10 browser isolation scenarios, 12/12 workspace journeys.
+- Verification Commands & Results:
+  - `npm.cmd --prefix server test`: PASS (125/125 tests passed)
+  - `npm.cmd --prefix client test`: PASS (84/84 tests passed)
+  - `node server/scripts/validate-curriculum.mjs`: PASS
+  - `npm.cmd --prefix client run build`: PASS (built in 17.92s)
+  - `git diff --check`: PASS (0 errors)
+  - `node client/scripts/verify-continuation.cjs`: PASS (9/9 automated journeys)
+  - `node client/scripts/verify-atlas-proof.cjs`: PASS (9/9 checks across 4 viewports)
+  - `node client/scripts/browser-state-isolation-test.mjs`: PASS (10/10 scenarios)
+  - `node client/scripts/verify-workspace.cjs`: PASS (12/12 checks)
+  - `node client/.local/continuation-independent-browser.cjs`: PASS (`{"answerRestored":true,"reflectionRestored":true,"hintStillMarked":1}`)
+  - `node server/.local/continuation-independent.test.mjs`: PASS (16/16 tests passed)
+- Evidence & Documentation:
+  - Result Document: `docs/CONTINUATION-REPAIR-RESULT.md`
+  - Contracts: Updated `contracts/API-V1.md`
+  - Synthetic Preview Server: Preserved running on `http://127.0.0.1:5173`
+- Boundaries Observed:
+  - Zero edits to `server/data/curriculum/**` or collaborator test files.
+  - No remote git push, merge into `main`, or production deployment.
+  - Zero secrets or environment configurations altered.
+
+## 2026-10-19 — Continuation R4 evaluation-safe follow-up
+
+- Milestone: Local correction complete; production release and live evaluator acceptance remain pending.
+- Finding: Preview tokens used a publishable or fixed signing key, and apply could accept a changed target date. Either could undermine the preview/acceptance binding.
+- Patch: `server/src/config.js`, `server/src/routes/goal.js`, `server/tests/continuationCheckpoint.test.js`, `contracts/API-V1.md`, `docs/06-deployment-and-release.md`, and `templates/server.env.example`. A private stable signing secret is supported; process-local random fallback protects local instances. Apply now uses the previewed target date. Public sign-up and login paths were not changed.
+- Checks: server tests 127/127; client tests 84/84; curriculum validator passed; client production build passed; new CP19/CP20 regressions passed. `git diff --check` passed after the handoff edit.
+- Live checks: The production frontend loaded in the in-app browser, but `/login` redirected to an existing signed-in session. An automatic approval review rejected reading the private dashboard because the authorized live check was limited to public login. No evaluator sign-up was performed, and the patch has not been deployed.
+- Remaining: Configure a private stable `PREVIEW_SIGNING_SECRET` in production, review the accumulated uncommitted diff, deploy through the release owner, then verify public registration, confirmation email, sign-in, and the continuation preview/apply flow on the deployed version.
+- Boundary: Preserve the existing uncommitted repair work; no commit, push, merge, or deployment in this follow-up.
+
+
+## 2026-10-19 — Independent Review 2 (F1–F4) Hardening
+
+- Milestone: CONTINUATION REPAIR 2 (F1–F4) COMPLETED & LOCALLY VERIFIED
+- Target Issues Addressed:
+  1. **F1 (P1) Checkpoint Save Queue CAS Version Stale Race**:
+     - Synchronously captured in-flight draft updates in `pendingDraftRef` and set `latestGoalRef.current = res.data.goal` inside queued save loop in `FoundationsCheckpointModal.jsx`.
+     - Scoped auto-saves with `saveGenerationRef` to discard late draft writes across modal reopens/resets.
+     - Verified with `node client/.local/repair-save-race.cjs` (0 alerts, reload-safe).
+  2. **F2 (P1) Next-Session Derivation Mismatched Real Persisted Shapes**:
+     - Rewrote `deriveActiveStudyPlanSession` in `client/src/services/workspace.js` to parse actual persisted array records for `exerciseAttempts` and `practiceAttempts`, checking valid outcomes (`independent`, `with_hint`, `needed_reference`, `correct`, `passed` for exercises; `solved_independently`, `with_hint` for practice; excluding `bookmarked` and `reviewed_editorial`).
+     - Checked lesson status via `status === 'completed'` and enforced revisit timing (`completionTimestamp >= acceptedAt`).
+     - Verified with `node client/.local/repair-progress-probe.mjs` (3/3 pass) and `client/src/fixtures/continuation.test.js` (`C10`).
+  3. **F3 (P1) Checkpoint Retry Submission Identity Retained Mutable Draft**:
+     - Added `finalizedSubmissionRef` in `FoundationsCheckpointModal.jsx` to freeze canonical payload snapshot on submit. Retries resubmit the exact frozen payload rather than mutable UI state.
+     - In catch block, cleanly differentiated `ATTEMPT_CONFLICT` from `VERSION_CONFLICT`.
+     - Idempotency check executed before definition validation in `server/src/routes/goal.js` to support historical retry safety across definition versions.
+     - Verified with `node client/.local/repair-ambiguous-retry.cjs` (0 alerts, 200 OK retry) and server regression `CP23` / client regression `C13`.
+  4. **F4 (P2) Position Restoration, End-of-Library Revisit & Definition Version Compatibility**:
+     - Bounded `draftCurrentIndex` restored safely within question array bounds on modal open and tab switch (`CP21`, `C11`).
+     - Propagated `isRevisit: Boolean(item.isRevisit)` in Kahn topological sort in `server/src/services/scheduler.js` and `client/src/fixtures/apiFixture.js` (`CP22`, `C12`).
+     - Supported empty array `selectedItemIds: []` for continuation preview auto-derivation in `continuationPlanPreviewSchema` (`CP22`, `CP24`).
+     - Extracted due reviews from `deriveWorkspaceReviewQueue` in `ContinuationPlanModal.jsx` (`CP24`).
+- Verification Commands & Results:
+  - `npm.cmd --prefix server test`: PASS (131/131 tests passed across 11 suites, 0 failed)
+  - `npm.cmd --prefix client test`: PASS (88/88 tests passed, 0 failed)
+  - `node server/scripts/validate-curriculum.mjs`: PASS (valid: true)
+  - `npm.cmd --prefix client run build`: PASS (Vite production build in 18.30s, 0 errors)
+  - `git diff --check`: PASS (0 errors)
+  - `node client/scripts/verify-continuation.cjs`: PASS (9/9 Playwright checks)
+  - `repair-save-race.cjs`: PASS (0 alerts, draft reloaded)
+  - `repair-ambiguous-retry.cjs`: PASS (0 alerts, identical retry 200)
+  - `repair-progress-probe.mjs`: PASS (3/3 passed)
+- Synthetic Preview Server: Running on `http://127.0.0.1:5173`
+- Boundaries Observed:
+  - Zero edits to `server/data/curriculum/**` or collaborator test files.
+  - No git push, branch merge, or production deployment.
+  - Zero secrets or production credentials altered.
+
+## 2026-10-19 — Continuation local release gate CLOSED / READY
+- Owner requested ending the repeated repair/delegation loop. Codex directly repaired the three reproduced integration defects without resuming the stalled CLI run.
+- Fixed modal catalog argument, authenticated preview revisit flags (server + fixture), and draft-drain/submission ordering with explicit version-conflict refresh preserving local content.
+- Added permanent five-scenario browser integration and one command: scripts/verify-continuation-release.ps1.
+- Gate PASS: server132/132, client89/89, build, integration5/5, continuation9/9, Atlas9/9, isolation10 scenarios, workspace14/14, whitespace check.
+- Current decision: local repair milestone COMPLETE / READY for publication checkpoint. No more implementation handoff for I1–I3. New features and non-blocking improvements are separate milestones.
+- Actual evidence and operational limitations: docs/CONTINUATION-RELEASE-CHECKPOINT-2026-10-19.md. Log: client/.local/continuation-release-gate.log.
+- No commit/push/merge/deploy, secrets/environment changes, dependency changes, migrations or production-data use. Existing dirty work preserved; no collaborator curriculum changes.

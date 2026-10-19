@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import crypto from 'node:crypto';
 import { catalogData } from './catalog.js';
 import {
   createGoalSchema,
@@ -46,14 +47,44 @@ import {
 import {
   FOUNDATIONS_CHECKPOINTS,
   getStudentSafeCheckpoint,
-  gradeCheckpointAttempt
+  gradeCheckpointAttempt,
+  validateCheckpointData,
+  isIdenticalCheckpointAttempt
 } from '../data/foundationsCheckpoint.js';
-import { isAiConfigured, getMissingAiConfig } from '../config.js';
+import { config, isAiConfigured, getMissingAiConfig } from '../config.js';
 import { generateGeminiGuidance, assessUnderstandingAnswer } from '../services/guidance.js';
 import { checkRateLimit } from '../services/rateLimiter.js';
 import { getCuratedCheckForMission } from '../services/curatedChecks.js';
 
 const router = Router();
+
+// The publishable key is public. A deployment may supply a stable private key;
+// otherwise a process-local key keeps preview tokens unforgeable.
+const PREVIEW_SIGNING_SECRET = config.PREVIEW_SIGNING_SECRET
+  ? Buffer.from(config.PREVIEW_SIGNING_SECRET)
+  : crypto.randomBytes(32);
+
+const recentPlanPreviews = new Map();
+
+function generatePreviewToken(payload) {
+  const jsonStr = JSON.stringify(payload);
+  const encoded = Buffer.from(jsonStr).toString('base64url');
+  const signature = crypto.createHmac('sha256', PREVIEW_SIGNING_SECRET).update(encoded).digest('base64url');
+  return `${encoded}.${signature}`;
+}
+
+function verifyPreviewToken(token) {
+  if (typeof token !== 'string' || !token.includes('.')) return null;
+  const [encoded, signature] = token.split('.');
+  const expectedSig = crypto.createHmac('sha256', PREVIEW_SIGNING_SECRET).update(encoded).digest('base64url');
+  if (signature.length !== expectedSig.length) return null;
+  if (!crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expectedSig))) return null;
+  try {
+    return JSON.parse(Buffer.from(encoded, 'base64url').toString('utf8'));
+  } catch {
+    return null;
+  }
+}
 
 // GET /api/goal
 router.get('/', async (req, res, next) => {
@@ -2101,6 +2132,10 @@ router.get('/workspace/checkpoint/:checkpointId', async (req, res, next) => {
         checkpoint: safeCheckpoint,
         draft: {
           answers: checkpointData.draftAnswers || {},
+          reflection: checkpointData.draftReflection || '',
+          assistance: checkpointData.draftAssistance || {},
+          currentIndex: checkpointData.draftCurrentIndex || 0,
+          definitionVersion: checkpointData.definitionVersion || 1,
           savedAt: checkpointData.draftSavedAt || null
         },
         latestAttempt: checkpointData.latestAttempt || null
@@ -2125,12 +2160,30 @@ router.post('/workspace/checkpoint/draft', async (req, res, next) => {
       });
     }
 
-    const { expectedVersion, checkpointId, draftAnswers } = parsed.data;
-    if (!FOUNDATIONS_CHECKPOINTS[checkpointId]) {
-      return res.status(404).json({
+    const {
+      expectedVersion,
+      checkpointId,
+      draftAnswers = {},
+      draftReflection = '',
+      draftAssistance = {},
+      draftCurrentIndex = 0,
+      definitionVersion = 1
+    } = parsed.data;
+
+    // Validate checkpoint data against schema/definition
+    try {
+      validateCheckpointData({
+        checkpointId,
+        answers: draftAnswers,
+        selfReportedAssistance: draftAssistance,
+        definitionVersion,
+        reflection: draftReflection
+      });
+    } catch (valErr) {
+      return res.status(valErr.status || 422).json({
         error: {
-          code: 'CHECKPOINT_NOT_FOUND',
-          message: `Checkpoint "${checkpointId}" not found.`
+          code: valErr.code || 'INVALID_CHECKPOINT_DATA',
+          message: valErr.message
         }
       });
     }
@@ -2169,8 +2222,12 @@ router.post('/workspace/checkpoint/draft', async (req, res, next) => {
       checkpoint: {
         ...workspace.continuation.checkpoint,
         checkpointId,
+        definitionVersion,
         status: workspace.continuation.checkpoint.status === 'completed' ? 'completed' : 'in_progress',
         draftAnswers,
+        draftReflection,
+        draftAssistance,
+        draftCurrentIndex,
         draftSavedAt: nowIso
       }
     };
@@ -2240,15 +2297,7 @@ router.post('/workspace/checkpoint/evaluate', async (req, res, next) => {
       });
     }
 
-    const { expectedVersion, attemptId, checkpointId, answers, selfReportedAssistance, reflection } = parsed.data;
-    if (!FOUNDATIONS_CHECKPOINTS[checkpointId]) {
-      return res.status(404).json({
-        error: {
-          code: 'CHECKPOINT_NOT_FOUND',
-          message: `Checkpoint "${checkpointId}" not found.`
-        }
-      });
-    }
+    const { expectedVersion, attemptId, checkpointId, answers, selfReportedAssistance, reflection, definitionVersion } = parsed.data;
 
     const { data: row, error } = await req.supabase
       .from('nextstep_goals')
@@ -2271,23 +2320,20 @@ router.post('/workspace/checkpoint/evaluate', async (req, res, next) => {
     const continuation = workspace.continuation;
     const checkpointData = continuation.checkpoint;
 
-    // Idempotency check: inspect latestAttempt and history
+    // Idempotency check: inspect latestAttempt and history before definition validation
     const allAttempts = [
       ...(checkpointData.latestAttempt ? [checkpointData.latestAttempt] : []),
       ...(checkpointData.history || [])
     ];
     const existing = allAttempts.find((a) => a.attemptId === attemptId);
     if (existing) {
-      // Check if answers match
-      const existingAnswers = {};
-      for (const tr of Object.values(existing.topicResults || {})) {
-        if (tr.questionId && tr.selected) {
-          existingAnswers[tr.questionId] = tr.selected;
-        }
-      }
-      const isIdentical =
-        Object.keys(answers).length === Object.keys(existingAnswers).length &&
-        Object.entries(answers).every(([qId, optId]) => existingAnswers[qId] === optId);
+      const isIdentical = isIdenticalCheckpointAttempt(existing, {
+        checkpointId,
+        answers,
+        selfReportedAssistance,
+        reflection,
+        definitionVersion
+      });
 
       if (isIdentical) {
         return res.status(200).json({
@@ -2302,6 +2348,24 @@ router.post('/workspace/checkpoint/evaluate', async (req, res, next) => {
         error: {
           code: 'ATTEMPT_CONFLICT',
           message: 'An evaluation attempt with this attemptId already exists with different data.'
+        }
+      });
+    }
+
+    // New attempt: validate payload against active checkpoint definition
+    try {
+      validateCheckpointData({
+        checkpointId,
+        answers,
+        selfReportedAssistance,
+        definitionVersion,
+        reflection
+      });
+    } catch (valErr) {
+      return res.status(valErr.status || 422).json({
+        error: {
+          code: valErr.code || 'INVALID_CHECKPOINT_DATA',
+          message: valErr.message
         }
       });
     }
@@ -2322,7 +2386,8 @@ router.post('/workspace/checkpoint/evaluate', async (req, res, next) => {
       attemptId,
       answers,
       selfReportedAssistance,
-      reflection
+      reflection,
+      definitionVersion
     });
 
     const nowIso = new Date().toISOString();
@@ -2336,6 +2401,9 @@ router.post('/workspace/checkpoint/evaluate', async (req, res, next) => {
         checkpointId,
         status: 'completed',
         draftAnswers: {},
+        draftReflection: '',
+        draftAssistance: {},
+        draftCurrentIndex: 0,
         draftSavedAt: null,
         latestAttempt: evaluation,
         history
@@ -2547,7 +2615,11 @@ router.post('/workspace/checkpoint/reset', async (req, res, next) => {
         checkpointId,
         status: 'in_progress',
         draftAnswers: {},
-        draftSavedAt: null
+        draftReflection: '',
+        draftAssistance: {},
+        draftCurrentIndex: 0,
+        draftSavedAt: null,
+        latestAttempt: null
       }
     };
 
@@ -2615,7 +2687,7 @@ router.post('/workspace/continuation/plan/preview', async (req, res, next) => {
       });
     }
 
-    const { expectedVersion, availability, targetDate } = parsed.data;
+    const { expectedVersion, availability, targetDate, revisitItemIds: reqRevisitItemIds } = parsed.data;
     let selectedItemIds = parsed.data.selectedItemIds;
 
     const { data: row, error } = await req.supabase
@@ -2646,6 +2718,15 @@ router.post('/workspace/continuation/plan/preview', async (req, res, next) => {
 
     const workspace = normalizeStudyWorkspace(row.state.studyWorkspace);
     const curriculum = getPublishedCurriculum();
+    const today = getTodayKolkata();
+
+    const completedLessons = new Set(
+      Object.entries(workspace.lessonProgress || {})
+        .filter(([k, lp]) => lp && (lp.status === 'completed' || lp.completedAt))
+        .map(([k, lp]) => lp.lessonId || k)
+    );
+
+    let effectiveRevisitIds = Array.isArray(reqRevisitItemIds) ? [...reqRevisitItemIds] : [];
 
     // If no explicit items, derive evidence-based recommendations
     if (!selectedItemIds || selectedItemIds.length === 0) {
@@ -2658,41 +2739,77 @@ router.post('/workspace/continuation/plan/preview', async (req, res, next) => {
         for (const tr of Object.values(latestAttempt.topicResults)) {
           if (tr.revisitRecommended && tr.recommendedAction?.lessonId) {
             derived.push(tr.recommendedAction.lessonId);
+            effectiveRevisitIds.push(tr.recommendedAction.lessonId);
           }
         }
       }
 
-      // 2. Next uncompleted lesson in topological curriculum order
-      const completedLessons = new Set(
-        Object.entries(workspace.lessonProgress || {})
-          .filter(([k, lp]) => lp && (lp.status === 'completed' || lp.completedAt))
-          .map(([k, lp]) => lp.lessonId || k)
-      );
+      // 2. Due reviews from workspace exercise and practice attempts
+      for (const [exerciseId, attempts] of Object.entries(workspace.exerciseAttempts || {})) {
+        if (!Array.isArray(attempts) || attempts.length === 0) continue;
+        const latest = attempts[attempts.length - 1];
+        if (latest?.nextReviewDate && latest.nextReviewDate <= today) {
+          if (!derived.includes(exerciseId)) {
+            derived.push(exerciseId);
+            effectiveRevisitIds.push(exerciseId);
+          }
+        }
+      }
+      for (const [problemId, attempts] of Object.entries(workspace.practiceAttempts || {})) {
+        if (!Array.isArray(attempts) || attempts.length === 0) continue;
+        const latest = attempts[attempts.length - 1];
+        if ((latest?.nextReviewDate && latest.nextReviewDate <= today) || latest?.needsReview) {
+          if (!derived.includes(problemId)) {
+            derived.push(problemId);
+            effectiveRevisitIds.push(problemId);
+          }
+        }
+      }
 
-      for (const lesson of curriculum.lessons || []) {
+      // 3. Next uncompleted lesson in topological curriculum order
+      const topicOrderMap = new Map((curriculum.topics || []).map((t) => [t.id, t.order]));
+      const sortedLessons = [...(curriculum.lessons || [])].sort((a, b) => {
+        const tA = topicOrderMap.get(a.topicId) ?? 99;
+        const tB = topicOrderMap.get(b.topicId) ?? 99;
+        if (tA !== tB) return tA - tB;
+        if (a.order !== b.order) return a.order - b.order;
+        return a.id.localeCompare(b.id);
+      });
+
+      for (const lesson of sortedLessons) {
         if (!completedLessons.has(lesson.id) && !derived.includes(lesson.id)) {
-          const prereqsMet = (lesson.prerequisites || []).every((p) => completedLessons.has(p));
+          const prereqsMet = (lesson.prerequisites || []).every((p) => completedLessons.has(p) || derived.includes(p));
           if (prereqsMet) {
             derived.push(lesson.id);
-            break;
+            if (derived.length >= 2) break;
           }
         }
       }
 
-      // 3. Fallback: if empty, pick first topic's first lesson
+      // 4. End-of-library / deliberate review: if all lessons completed and derived is empty,
+      // pick first foundational lesson as a deliberate mastery revisit:
       if (derived.length === 0 && curriculum.lessons?.length > 0) {
-        derived.push(curriculum.lessons[0].id);
+        const fallbackId = curriculum.lessons[0].id;
+        derived.push(fallbackId);
+        effectiveRevisitIds.push(fallbackId);
       }
 
       selectedItemIds = derived;
     }
 
-    const today = getTodayKolkata();
+    // Auto-mark any explicitly selected items that are already completed as revisits
+    for (const id of selectedItemIds) {
+      if (completedLessons.has(id) && !effectiveRevisitIds.includes(id)) {
+        effectiveRevisitIds.push(id);
+      }
+    }
+
     const plan = calculateWorkspaceStudyPlan({
       startDate: today,
       targetDate: targetDate || row.state.targetDate,
       availability,
       selectedItemIds,
+      revisitItemIds: effectiveRevisitIds,
       curriculum,
       studyWorkspace: workspace
     });
@@ -2700,9 +2817,31 @@ router.post('/workspace/continuation/plan/preview', async (req, res, next) => {
     const previewId = crypto.randomUUID();
     const activeCurriculumVersion = workspace.curriculumVersion || DEFAULT_CURRICULUM_VERSION;
 
+    const previewPayload = {
+      previewId,
+      ownerId: req.user.id,
+      baseVersion: row.version,
+      availability,
+      selectedItemIds: [...plan.selectedItemIds].sort(),
+      revisitItemIds: [...new Set([...effectiveRevisitIds, ...plan.sessions.filter((session) => session.isRevisit).map((session) => session.itemId)])]
+        .filter((id) => plan.selectedItemIds.includes(id)).sort(),
+      previewForDate: today,
+      targetDate: plan.targetDate,
+      curriculumVersion: activeCurriculumVersion
+    };
+
+    const previewToken = generatePreviewToken(previewPayload);
+    recentPlanPreviews.set(`${req.user.id}:${row.version}`, previewPayload);
+    if (recentPlanPreviews.size > 200) {
+      const oldestKey = recentPlanPreviews.keys().next().value;
+      recentPlanPreviews.delete(oldestKey);
+    }
+
     return res.status(200).json({
       data: {
         previewId,
+        previewToken,
+        revisitItemIds: previewPayload.revisitItemIds,
         previewForDate: today,
         curriculumVersion: activeCurriculumVersion,
         baseVersion: row.version,
@@ -2728,7 +2867,94 @@ router.post('/workspace/continuation/plan/apply', async (req, res, next) => {
       });
     }
 
-    const { expectedVersion, previewForDate, curriculumVersion, availability, selectedItemIds, targetDate } = parsed.data;
+    const { expectedVersion, previewForDate, curriculumVersion, availability, selectedItemIds, targetDate, previewToken, revisitItemIds: reqRevisitItemIds } = parsed.data;
+
+    let previewData = null;
+    if (previewToken) {
+      const decoded = verifyPreviewToken(previewToken);
+      if (!decoded) {
+        return res.status(409).json({
+          error: {
+            code: 'INVALID_PREVIEW_TOKEN',
+            message: 'Preview token signature is invalid or tampered with.'
+          }
+        });
+      }
+      if (decoded.ownerId !== req.user.id) {
+        return res.status(403).json({
+          error: {
+            code: 'FORBIDDEN',
+            message: 'Preview token belongs to a different student account.'
+          }
+        });
+      }
+      previewData = decoded;
+    } else {
+      const cached = recentPlanPreviews.get(`${req.user.id}:${expectedVersion}`);
+      if (!cached) {
+        return res.status(409).json({
+          error: {
+            code: 'PREVIEW_REQUIRED',
+            message: 'You must preview the plan before accepting it.'
+          }
+        });
+      }
+      previewData = cached;
+    }
+
+    if (previewData.baseVersion !== expectedVersion) {
+      return res.status(409).json({
+        error: {
+          code: 'PREVIEW_VERSION_MISMATCH',
+          message: 'Plan was previewed against a different goal version. Please preview again.'
+        }
+      });
+    }
+
+    if (previewForDate !== previewData.previewForDate ||
+        curriculumVersion !== previewData.curriculumVersion ||
+        (targetDate && targetDate !== previewData.targetDate)) {
+      return res.status(409).json({
+        error: {
+          code: 'PREVIEW_MISMATCH',
+          message: 'Submitted plan details do not match the preview. Please preview again.'
+        }
+      });
+    }
+
+    const appliedSorted = [...selectedItemIds].sort();
+    const previewSorted = [...previewData.selectedItemIds].sort();
+    const itemsMatch = appliedSorted.length === previewSorted.length &&
+      appliedSorted.every((id, idx) => id === previewSorted[idx]);
+
+    if (!itemsMatch) {
+      return res.status(409).json({
+        error: {
+          code: 'PREVIEW_MISMATCH',
+          message: 'Submitted activities do not match the previewed plan. Please preview again.'
+        }
+      });
+    }
+
+    if (!Array.isArray(previewData.revisitItemIds)) {
+      return res.status(409).json({ error: { code: 'PREVIEW_REQUIRED', message: 'Generate a fresh preview before accepting this plan.' } });
+    }
+    const signedRevisits = [...previewData.revisitItemIds].sort();
+    if (reqRevisitItemIds !== undefined &&
+        JSON.stringify([...new Set(reqRevisitItemIds)].sort()) !== JSON.stringify(signedRevisits)) {
+      return res.status(409).json({ error: { code: 'PREVIEW_MISMATCH', message: 'Review activities changed since preview. Preview the plan again.' } });
+    }
+
+    const days = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
+    const availMatch = days.every(d => (availability[d] || 0) === (previewData.availability[d] || 0));
+    if (!availMatch) {
+      return res.status(409).json({
+        error: {
+          code: 'PREVIEW_MISMATCH',
+          message: 'Submitted availability does not match the previewed plan. Please preview again.'
+        }
+      });
+    }
 
     const { data: row, error } = await req.supabase
       .from('nextstep_goals')
@@ -2777,12 +3003,15 @@ router.post('/workspace/continuation/plan/apply', async (req, res, next) => {
       });
     }
 
+    const effectiveRevisitIds = signedRevisits;
+
     const curriculum = getPublishedCurriculum();
     const plan = calculateWorkspaceStudyPlan({
       startDate: today,
-      targetDate: targetDate || row.state.targetDate,
+      targetDate: previewData.targetDate,
       availability,
       selectedItemIds,
+      revisitItemIds: effectiveRevisitIds,
       curriculum,
       studyWorkspace: workspace
     });

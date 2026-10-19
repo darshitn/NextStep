@@ -225,19 +225,27 @@ export function calculatePracticeReviewDate(dateOrIso, outcome, needsReview = fa
 export const checkpointDraftSchema = z.object({
   expectedVersion: z.number().int().positive(),
   checkpointId: z.string().min(3).max(80),
-  draftAnswers: z.record(z.string().min(1).max(80), z.string().min(1).max(80))
+  draftAnswers: z.record(z.string().min(1).max(80), z.string().min(1).max(80)).optional().default({}),
+  draftReflection: z.string().max(500).nullable().optional(),
+  draftAssistance: z.record(
+    z.string().min(1).max(80),
+    z.object({ usedHint: z.boolean().optional() }).strict()
+  ).optional().default({}),
+  draftCurrentIndex: z.number().int().min(0).max(50).optional().default(0),
+  definitionVersion: z.number().int().positive().optional().default(1)
 }).strict();
 
 export const checkpointEvaluateSchema = z.object({
   expectedVersion: z.number().int().positive(),
   attemptId: z.string().uuid(),
   checkpointId: z.string().min(3).max(80),
+  definitionVersion: z.number().int().positive().optional(),
   answers: z.record(z.string().min(1).max(80), z.string().min(1).max(80)),
   selfReportedAssistance: z.record(
     z.string().min(1).max(80),
     z.object({ usedHint: z.boolean().optional() }).strict()
-  ).optional(),
-  reflection: z.string().max(500).optional()
+  ).optional().default({}),
+  reflection: z.string().max(500).nullable().optional()
 }).strict();
 
 export const checkpointSkipSchema = z.object({
@@ -253,7 +261,8 @@ export const checkpointResetSchema = z.object({
 export const continuationPlanPreviewSchema = z.object({
   expectedVersion: z.number().int().positive(),
   availability: availabilitySchema,
-  selectedItemIds: z.array(z.string().min(3).max(80)).min(1).max(40).optional(),
+  selectedItemIds: z.array(z.string().min(3).max(80)).max(40).optional(),
+  revisitItemIds: z.array(z.string().min(3).max(80)).max(40).optional(),
   targetDate: z.string().regex(isoDateRegex).optional()
 }).strict();
 
@@ -263,5 +272,7 @@ export const continuationPlanApplySchema = z.object({
   curriculumVersion: z.string().min(3).max(40),
   availability: availabilitySchema,
   selectedItemIds: z.array(z.string().min(3).max(80)).min(1).max(40),
-  targetDate: z.string().regex(isoDateRegex).optional()
+  revisitItemIds: z.array(z.string().min(3).max(80)).max(40).optional(),
+  targetDate: z.string().regex(isoDateRegex).optional(),
+  previewToken: z.string().optional()
 }).strict();
