@@ -13,6 +13,8 @@ import InsightsView from '../components/workspace/InsightsView.jsx';
 
 import CompletionForm from '../components/CompletionForm.jsx';
 import GuidancePanel from '../components/GuidancePanel.jsx';
+import FoundationsCheckpointModal from '../components/workspace/FoundationsCheckpointModal.jsx';
+import ContinuationPlanModal from '../components/workspace/ContinuationPlanModal.jsx';
 import LoadingState from '../components/LoadingState.jsx';
 import ErrorNotice from '../components/ErrorNotice.jsx';
 import { apiService } from '../services/apiService.js';
@@ -56,6 +58,10 @@ export default function DashboardPage({
   const [selectedLessonId, setSelectedLessonId] = useState(null);
   const [selectedExerciseId, setSelectedExerciseId] = useState(null);
   const [highlightedProblemId, setHighlightedProblemId] = useState(null);
+
+  // Checkpoint & Continuation modals
+  const [isCheckpointOpen, setIsCheckpointOpen] = useState(false);
+  const [isContinuationPlanOpen, setIsContinuationPlanOpen] = useState(false);
 
   // Active view from URL search param or direct route
   const rawView = searchParams.get('view') || initialView || 'today';
@@ -722,6 +728,8 @@ export default function DashboardPage({
               workspaceRecommendation={workspaceRecommendation}
               onOpenProofLesson={handleOpenProofLesson}
               onOpenPracticeProblem={handleOpenPracticeProblem}
+              onOpenCheckpoint={() => setIsCheckpointOpen(true)}
+              onOpenContinuationPlan={() => setIsContinuationPlanOpen(true)}
               // Focus timer props
               timerState={timerState}
               remainingSeconds={remainingSeconds}
@@ -826,6 +834,31 @@ export default function DashboardPage({
           submitError={error}
         />
       )}
+
+      {/* Foundations Checkpoint Modal */}
+      <FoundationsCheckpointModal
+        isOpen={isCheckpointOpen}
+        onClose={() => setIsCheckpointOpen(false)}
+        goal={goal}
+        onGoalUpdated={onGoalUpdated}
+        onStartNextWeekPlan={() => {
+          setIsCheckpointOpen(false);
+          setIsContinuationPlanOpen(true);
+        }}
+        onOpenProofLesson={handleOpenProofLesson}
+      />
+
+      {/* Next-Week Continuation Plan Modal */}
+      <ContinuationPlanModal
+        isOpen={isContinuationPlanOpen}
+        onClose={() => setIsContinuationPlanOpen(false)}
+        goal={goal}
+        catalog={catalog}
+        onGoalUpdated={onGoalUpdated}
+        onPlanAccepted={() => {
+          setSavedNotice('Next-week study plan saved and active.');
+        }}
+      />
     </div>
   );
 }

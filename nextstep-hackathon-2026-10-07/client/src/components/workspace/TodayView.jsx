@@ -13,8 +13,10 @@ import {
   RefreshCw,
   ArrowRight,
   Sparkles,
-  Compass
+  Compass,
+  Calendar
 } from 'lucide-react';
+import { deriveActiveStudyPlanSession } from '../../services/workspace.js';
 
 export default function TodayView({
   goal,
@@ -47,6 +49,8 @@ export default function TodayView({
   workspaceRecommendation,
   onOpenProofLesson,
   onOpenPracticeProblem,
+  onOpenCheckpoint,
+  onOpenContinuationPlan,
   // Focus Timer props
   timerState,
   remainingSeconds,
@@ -56,6 +60,10 @@ export default function TodayView({
   onResetTimer,
   onSelectTimerPreset
 }) {
+  const planState = deriveActiveStudyPlanSession(goal?.studyWorkspace);
+  const activeSession = planState.activeSession;
+  const allPlanCompleted = planState.allCompleted;
+
   return (
     <section id="view-today" role="region" aria-labelledby="today-heading" className="workspace-content">
       {/* Optional Rename Form */}
@@ -171,12 +179,223 @@ export default function TodayView({
               }
             />
           ) : (
-            <section className="mission-card completed-track">
-              <CheckCircle2 size={32} />
-              <h2>DSA starter completed!</h2>
-              <p>
-                {missions.length} missions completed across {activeDaysCount} active days. Your reflections and practice history are preserved.
-              </p>
+            <div className="space-y-4">
+              <section className="p-6 rounded-2xl border ui-border-border ui-bg-surface space-y-5 shadow-sm">
+                <div className="flex items-start gap-4">
+                  <div className="p-3 rounded-2xl bg-emerald-100 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400 shrink-0">
+                    <CheckCircle2 className="w-8 h-8" />
+                  </div>
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-bold uppercase tracking-wider px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300">
+                        Starter Track Completed
+                      </span>
+                      <span className="text-xs ui-text-muted">12 of 12 Missions</span>
+                    </div>
+                    <h2 className="text-xl sm:text-2xl font-extrabold ui-text-ink tracking-tight">
+                      DSA Starter Completed!
+                    </h2>
+                    <p className="text-xs sm:text-sm ui-text-muted leading-relaxed">
+                      You completed all twelve starter missions across {activeDaysCount} active days. Your self-reported practice and reflections are preserved without claiming placement readiness.
+                    </p>
+                  </div>
+                </div>
+
+                {/* Evidence Metrics Strip */}
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 p-3.5 rounded-xl border ui-border-border ui-bg-soft/40 text-xs">
+                  <div>
+                    <span className="text-[10px] uppercase font-bold ui-text-muted">Total Missions</span>
+                    <p className="text-base font-extrabold ui-text-ink">{missions.length}</p>
+                  </div>
+                  <div>
+                    <span className="text-[10px] uppercase font-bold ui-text-muted">Independent</span>
+                    <p className="text-base font-extrabold ui-text-ink">
+                      {Object.values(goal?.completions || {}).filter((c) => c.outcome === 'independent').length}
+                    </p>
+                  </div>
+                  <div>
+                    <span className="text-[10px] uppercase font-bold ui-text-muted">With Hints</span>
+                    <p className="text-base font-extrabold ui-text-ink">
+                      {Object.values(goal?.completions || {}).filter((c) => c.outcome === 'with_hint').length}
+                    </p>
+                  </div>
+                  <div>
+                    <span className="text-[10px] uppercase font-bold ui-text-muted">Saved Notes</span>
+                    <p className="text-base font-extrabold ui-text-ink">
+                      {Object.values(goal?.completions || {}).filter((c) => c.reflection?.trim()).length}
+                    </p>
+                  </div>
+                </div>
+
+                {/* Checkpoint Status Banner if completed */}
+                {goal?.studyWorkspace?.continuation?.checkpoint?.latestAttempt && (
+                  <div className="p-4 rounded-xl border ui-border-border ui-bg-soft/30 flex items-center justify-between gap-3 flex-wrap">
+                    <div className="space-y-0.5">
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs font-bold ui-text-ink">Foundations Checkpoint:</span>
+                        <span className="text-xs font-bold text-emerald-600 dark:text-emerald-400">
+                          {goal.studyWorkspace.continuation.checkpoint.latestAttempt.score.correct} /{' '}
+                          {goal.studyWorkspace.continuation.checkpoint.latestAttempt.score.total} Correct
+                        </span>
+                        <span className="text-[11px] px-2 py-0.5 rounded-full ui-bg-soft ui-text-muted uppercase font-semibold">
+                          {goal.studyWorkspace.continuation.checkpoint.latestAttempt.category.replace(/_/g, ' ')}
+                        </span>
+                      </div>
+                      <p className="text-xs ui-text-muted">Authoritative server evaluation recorded.</p>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={onOpenCheckpoint}
+                      className="text-xs font-semibold ui-text-accent hover:underline flex items-center gap-1"
+                    >
+                      <span>Review Details</span>
+                      <ArrowRight className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                )}
+
+                {/* Dominant Continuation Actions */}
+                <div className="pt-2 border-t ui-border-border flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5">
+                  <button
+                    type="button"
+                    onClick={onOpenCheckpoint}
+                    className="primary-button text-xs py-2.5 px-4 flex items-center justify-center gap-2"
+                  >
+                    <Sparkles className="w-4 h-4" />
+                    <span>
+                      {goal?.studyWorkspace?.continuation?.checkpoint?.latestAttempt
+                        ? 'Review Foundations Checkpoint'
+                        : 'Check My Foundations (10 min)'}
+                    </span>
+                    <ArrowRight className="w-4 h-4" />
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={onOpenContinuationPlan}
+                    className="px-4 py-2.5 rounded-xl border ui-border-border ui-bg-surface hover:ui-bg-soft text-xs font-semibold ui-text-ink flex items-center justify-center gap-2 transition-colors"
+                  >
+                    <Calendar className="w-4 h-4" />
+                    <span>Choose My Next Step</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => onSelectView('atlas')}
+                    className="px-4 py-2.5 rounded-xl text-xs font-semibold ui-text-muted hover:ui-text-ink hover:ui-bg-soft flex items-center justify-center gap-1.5 transition-colors"
+                  >
+                    <Compass className="w-4 h-4" />
+                    <span>Explore Atlas</span>
+                  </button>
+                </div>
+              </section>
+
+              {/* Active Next-Week Plan Banner if accepted */}
+              {goal?.studyWorkspace?.studyPlan && (
+                <section className="p-5 rounded-2xl border ui-border-border ui-bg-surface space-y-3" aria-label="Active next-week plan">
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-2">
+                      <Calendar className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+                      <span className="text-xs font-bold ui-text-ink uppercase tracking-wider">
+                        Active Next-Week Plan
+                      </span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={onOpenContinuationPlan}
+                      className="text-xs font-semibold ui-text-accent hover:underline flex items-center gap-1"
+                    >
+                      <span>Adjust schedule</span>
+                    </button>
+                  </div>
+
+                  {allPlanCompleted ? (
+                    <div className="p-4 rounded-xl border border-emerald-300 dark:border-emerald-800 bg-emerald-50/70 dark:bg-emerald-950/20 text-xs text-emerald-800 dark:text-emerald-200 space-y-2">
+                      <div className="flex items-center gap-2 font-bold">
+                        <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+                        <span>All Scheduled Sessions Completed!</span>
+                      </div>
+                      <p className="text-xs opacity-90">
+                        You have completed all {planState.totalSessions} scheduled study sessions. Ready to plan your next progression?
+                      </p>
+                      <div className="flex items-center gap-2 pt-1">
+                        <button
+                          type="button"
+                          onClick={onOpenContinuationPlan}
+                          className="primary-button text-xs py-1.5 px-3 flex items-center gap-1"
+                        >
+                          <Calendar className="w-3.5 h-3.5" />
+                          <span>Plan Next Sessions</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => onSelectView('atlas')}
+                          className="secondary-button text-xs py-1.5 px-3 flex items-center gap-1"
+                        >
+                          <Compass className="w-3.5 h-3.5" />
+                          <span>Explore Atlas</span>
+                        </button>
+                      </div>
+                    </div>
+                  ) : activeSession ? (
+                    <div className="p-3.5 rounded-xl border ui-border-border ui-bg-soft/40 flex items-center justify-between gap-3">
+                      <div className="space-y-0.5 min-w-0">
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <span className="text-[11px] font-semibold text-emerald-600 dark:text-emerald-400 uppercase tracking-wider">
+                            Planned Next Step
+                          </span>
+                          {activeSession.isRevisit && (
+                            <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-800 dark:bg-amber-950/40 dark:text-amber-300 border border-amber-300 dark:border-amber-700">
+                              Intentional Review
+                            </span>
+                          )}
+                          {activeSession.totalParts > 1 && (
+                            <span className="px-1.5 py-0.5 rounded text-[10px] font-bold ui-bg-soft ui-text-muted">
+                              Part {activeSession.partIndex}/{activeSession.totalParts}
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-sm font-bold ui-text-ink truncate">
+                          {activeSession.title}
+                        </p>
+                        <p className="text-xs ui-text-muted">
+                          Allocated: {activeSession.allocatedMinutes} mins · Scheduled for {activeSession.date}
+                          {planState.totalSessions > 1 && (
+                            <span className="ml-1 opacity-80">
+                              (Session {planState.activeSessionIndex + 1} of {planState.totalSessions})
+                            </span>
+                          )}
+                        </p>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const s = activeSession;
+                          if (s.itemType === 'exercise' || s.itemType === 'lesson') {
+                            if (onOpenProofLesson) {
+                              onOpenProofLesson({
+                                topicId: s.topicId,
+                                lessonId: s.itemId.startsWith('les_') ? s.itemId : undefined,
+                                exerciseId: s.itemId.startsWith('ex_') ? s.itemId : undefined
+                              });
+                            }
+                          } else if (onOpenPracticeProblem) {
+                            onOpenPracticeProblem(s.itemId);
+                          }
+                        }}
+                        className="primary-button text-xs py-2 px-3.5 flex items-center gap-1.5 shrink-0"
+                      >
+                        <span>Start</span>
+                        <ArrowRight className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  ) : null}
+                </section>
+              )}
+
+              {/* Preserved ResumePracticeCard if student had an in-progress mission */}
               {resumeContext && (
                 <ResumePracticeCard
                   resumeContext={resumeContext}
@@ -186,7 +405,7 @@ export default function TodayView({
                   isSaving={isSavingLearningContext}
                 />
               )}
-            </section>
+            </div>
           )}
         </div>
 

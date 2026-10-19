@@ -11,6 +11,7 @@ const envSchema = z.object({
   ALLOWED_ORIGINS: z.string().default('http://localhost:5173'),
   SUPABASE_URL: z.string().url().optional(),
   SUPABASE_PUBLISHABLE_KEY: z.string().min(1).optional(),
+  PREVIEW_SIGNING_SECRET: z.string().min(32).optional(),
   AI_API_KEY: z.string().min(1).optional(),
   AI_MODEL: z.string().min(1).optional()
 });

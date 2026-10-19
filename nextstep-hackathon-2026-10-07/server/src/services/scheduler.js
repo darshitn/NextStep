@@ -76,6 +76,42 @@ export function calculateSchedule(startDate, availability, missionIds, completed
 
 export const DEFAULT_CURRICULUM_VERSION = 'atlas-proof-v1';
 
+export function normalizeContinuation(rawContinuation) {
+  const base = rawContinuation && typeof rawContinuation === 'object' ? rawContinuation : {};
+  const checkpointBase = base.checkpoint && typeof base.checkpoint === 'object' ? base.checkpoint : {};
+  const suggestedBase = base.suggestedPlan && typeof base.suggestedPlan === 'object' ? base.suggestedPlan : {};
+
+  const history = Array.isArray(checkpointBase.history)
+    ? checkpointBase.history.slice(-5)
+    : [];
+
+  return {
+    schemaVersion: 1,
+    status: typeof base.status === 'string' ? base.status : 'not_started',
+    checkpoint: {
+      checkpointId: typeof checkpointBase.checkpointId === 'string' ? checkpointBase.checkpointId : 'chk_foundations_v1',
+      status: typeof checkpointBase.status === 'string' ? checkpointBase.status : 'not_started',
+      definitionVersion: typeof checkpointBase.definitionVersion === 'number' ? checkpointBase.definitionVersion : 1,
+      draftAnswers: checkpointBase.draftAnswers && typeof checkpointBase.draftAnswers === 'object' ? { ...checkpointBase.draftAnswers } : {},
+      draftReflection: typeof checkpointBase.draftReflection === 'string' ? checkpointBase.draftReflection : '',
+      draftAssistance: checkpointBase.draftAssistance && typeof checkpointBase.draftAssistance === 'object' ? { ...checkpointBase.draftAssistance } : {},
+      draftCurrentIndex: typeof checkpointBase.draftCurrentIndex === 'number' ? checkpointBase.draftCurrentIndex : 0,
+      draftSavedAt: checkpointBase.draftSavedAt || null,
+      latestAttempt: checkpointBase.latestAttempt && typeof checkpointBase.latestAttempt === 'object' ? { ...checkpointBase.latestAttempt } : null,
+      history
+    },
+    suggestedPlan: {
+      previewId: suggestedBase.previewId || null,
+      generatedAt: suggestedBase.generatedAt || null,
+      sourceEvidence: suggestedBase.sourceEvidence || null,
+      items: Array.isArray(suggestedBase.items) ? suggestedBase.items : [],
+      weeklyCommitmentHours: typeof suggestedBase.weeklyCommitmentHours === 'number' ? suggestedBase.weeklyCommitmentHours : 0,
+      accepted: Boolean(suggestedBase.accepted),
+      acceptedAt: suggestedBase.acceptedAt || null
+    }
+  };
+}
+
 export function normalizeStudyWorkspace(rawWorkspace) {
   const base = rawWorkspace && typeof rawWorkspace === 'object' ? rawWorkspace : {};
   return {
@@ -86,6 +122,7 @@ export function normalizeStudyWorkspace(rawWorkspace) {
     exerciseAttempts: base.exerciseAttempts && typeof base.exerciseAttempts === 'object' ? base.exerciseAttempts : {},
     practiceAttempts: base.practiceAttempts && typeof base.practiceAttempts === 'object' ? base.practiceAttempts : {},
     studyPlan: base.studyPlan && typeof base.studyPlan === 'object' ? base.studyPlan : null,
+    continuation: normalizeContinuation(base.continuation),
     updatedAt: base.updatedAt || null
   };
 }
@@ -99,6 +136,7 @@ export function calculateWorkspaceStudyPlan({
   targetDate,
   availability,
   selectedItemIds,
+  revisitItemIds = [],
   curriculum,
   studyWorkspace
 }) {
@@ -109,6 +147,16 @@ export function calculateWorkspaceStudyPlan({
       .map(([k, lp]) => lp.lessonId || k)
   );
 
+  const revisitSet = new Set(Array.isArray(revisitItemIds) ? revisitItemIds : []);
+  const latestAttempt = normalizedWorkspace.continuation?.checkpoint?.latestAttempt;
+  if (latestAttempt?.topicResults) {
+    for (const tr of Object.values(latestAttempt.topicResults)) {
+      if (tr.revisitRecommended && tr.recommendedAction?.lessonId) {
+        revisitSet.add(tr.recommendedAction.lessonId);
+      }
+    }
+  }
+
   const topicById = new Map((curriculum.topics || []).map((t) => [t.id, t]));
   const lessonById = new Map((curriculum.lessons || []).map((l) => [l.id, l]));
   const exerciseById = new Map((curriculum.exercises || []).map((e) => [e.id, e]));
@@ -117,15 +165,16 @@ export function calculateWorkspaceStudyPlan({
   // 1. Collect all required work items and uncompleted prerequisites
   const requiredItems = new Map();
 
-  function collectLessonAndPrereqs(lessonId) {
+  function collectLessonAndPrereqs(lessonId, isRevisit = false) {
     const lesson = lessonById.get(lessonId);
     if (!lesson) return;
     for (const prereqLessonId of lesson.prerequisites || []) {
       if (!completedLessons.has(prereqLessonId)) {
-        collectLessonAndPrereqs(prereqLessonId);
+        collectLessonAndPrereqs(prereqLessonId, false);
       }
     }
-    if (completedLessons.has(lesson.id) || requiredItems.has(lesson.id)) return;
+    if (completedLessons.has(lesson.id) && !isRevisit) return;
+    if (requiredItems.has(lesson.id)) return;
     const topic = topicById.get(lesson.topicId);
     requiredItems.set(lesson.id, {
       itemId: lesson.id,
@@ -133,21 +182,23 @@ export function calculateWorkspaceStudyPlan({
       topicId: lesson.topicId,
       topicOrder: topic ? topic.order : 99,
       itemOrder: lesson.order * 10,
-      title: lesson.title,
+      title: isRevisit ? `${lesson.title} (Revisit)` : lesson.title,
       estimatedMinutes: lesson.estimatedMinutes || 20,
+      isRevisit,
       lessonObj: lesson
     });
   }
 
   for (const rawId of selectedItemIds || []) {
+    const isRevisit = revisitSet.has(rawId);
     if (lessonById.has(rawId)) {
-      if (!completedLessons.has(rawId)) {
-        collectLessonAndPrereqs(rawId);
+      if (!completedLessons.has(rawId) || isRevisit) {
+        collectLessonAndPrereqs(rawId, isRevisit);
       }
     } else if (exerciseById.has(rawId)) {
       const ex = exerciseById.get(rawId);
-      if (!completedLessons.has(ex.lessonId)) {
-        collectLessonAndPrereqs(ex.lessonId);
+      if (!completedLessons.has(ex.lessonId) || isRevisit) {
+        collectLessonAndPrereqs(ex.lessonId, false);
       }
       if (!requiredItems.has(ex.id)) {
         const topic = topicById.get(ex.topicId);
@@ -160,14 +211,15 @@ export function calculateWorkspaceStudyPlan({
           itemOrder: (lesson ? lesson.order * 10 : 50) + 2,
           title: ex.title,
           estimatedMinutes: 15,
+          isRevisit,
           exerciseObj: ex
         });
       }
     } else if (practiceById.has(rawId)) {
       const prac = practiceById.get(rawId);
       for (const lid of prac.lessonIds || []) {
-        if (!completedLessons.has(lid)) {
-          collectLessonAndPrereqs(lid);
+        if (!completedLessons.has(lid) || isRevisit) {
+          collectLessonAndPrereqs(lid, false);
         }
       }
       if (!requiredItems.has(prac.id)) {
@@ -182,6 +234,7 @@ export function calculateWorkspaceStudyPlan({
           itemOrder: maxLessonOrder * 10 + 5,
           title: prac.title,
           estimatedMinutes: prac.estimatedMinutes || 20,
+          isRevisit,
           practiceObj: prac
         });
       }
@@ -258,7 +311,8 @@ export function calculateWorkspaceStudyPlan({
       topicOrder: item.topicOrder,
       itemOrder: item.itemOrder,
       title: item.title,
-      estimatedMinutes: item.estimatedMinutes
+      estimatedMinutes: item.estimatedMinutes,
+      isRevisit: Boolean(item.isRevisit)
     });
 
     for (const depId of outgoing.get(currentId) || []) {
@@ -284,7 +338,8 @@ export function calculateWorkspaceStudyPlan({
         topicOrder: item.topicOrder,
         itemOrder: item.itemOrder,
         title: item.title,
-        estimatedMinutes: item.estimatedMinutes
+        estimatedMinutes: item.estimatedMinutes,
+        isRevisit: Boolean(item.isRevisit)
       });
     }
   }
@@ -337,6 +392,7 @@ export function calculateWorkspaceStudyPlan({
           itemType: item.itemType,
           topicId: item.topicId,
           title: item.title,
+          isRevisit: Boolean(item.isRevisit),
           allocatedMinutes: p.allocatedMinutes,
           totalEstimatedMinutes: item.estimatedMinutes,
           partIndex: idx + 1,
@@ -346,6 +402,18 @@ export function calculateWorkspaceStudyPlan({
     }
   }
 
+  const horizonEndDate = addDays(startDate, 6);
+  let weeklyCapacityMinutes = 0;
+  for (let i = 0; i < 7; i++) {
+    const d = addDays(startDate, i);
+    const dayName = getDayOfWeek(d);
+    weeklyCapacityMinutes += (availability[dayName] || 0);
+  }
+
+  const weekSessions = sessions.filter((s) => s.date <= horizonEndDate);
+  const spilloverSessions = sessions.filter((s) => s.date > horizonEndDate);
+  const hasSpillover = spilloverSessions.length > 0;
+
   const estimatedFinishDate = sessions.length > 0 ? sessions[sessions.length - 1].date : startDate;
   const deadlineConflict = Boolean(
     unscheduledItemIds.length > 0 || (targetDate && estimatedFinishDate > targetDate)
@@ -354,10 +422,15 @@ export function calculateWorkspaceStudyPlan({
 
   return {
     planStartDate: startDate,
+    horizonEndDate,
     targetDate,
     availability,
+    weeklyCapacityMinutes,
     selectedItemIds: orderedWorkItems.map((w) => w.itemId),
     sessions,
+    weekSessions,
+    spilloverSessions,
+    hasSpillover,
     unscheduledItemIds,
     estimatedFinishDate,
     deadlineConflict,

@@ -9,14 +9,22 @@ import {
   getAuthoritativeLesson,
   gradeExerciseAttempt
 } from '../../../server/src/services/curriculumRegistry.js';
+import {
+  FOUNDATIONS_CHECKPOINTS,
+  getStudentSafeCheckpoint,
+  gradeCheckpointAttempt,
+  validateCheckpointData,
+  isIdenticalCheckpointAttempt
+} from '../../../server/src/data/foundationsCheckpoint.js';
 
 const STORAGE_KEY_PREFIX = 'nextstep_fixture_goal_';
 const AUTH_KEY = 'nextstep_fixture_user';
 export const DEFAULT_CURRICULUM_VERSION = 'atlas-proof-v1';
+const recentPlanPreviews = new Map();
 
 // Safe in-memory storage fallback for Node.js test runner and SSR
 const memoryStore = new Map();
-const safeStorage = {
+export const safeStorage = {
   getItem(key) {
     try {
       if (typeof localStorage !== 'undefined') return localStorage.getItem(key);
@@ -61,6 +69,12 @@ export const DEMO_ACCOUNTS = [
     name: 'Rahul Verma (Needs Recovery)',
     description: 'Completed 2 missions; exam week reduced available time.',
     initialState: 'interrupted'
+  },
+  {
+    email: 'student.completed@nextstep.local',
+    name: 'Divya Iyer (Starter Completed)',
+    description: 'Completed all 12 starter missions; ready for foundations checkpoint.',
+    initialState: 'completed'
   }
 ];
 
@@ -89,6 +103,42 @@ function getDayOfWeek(dateStr) {
   return names[d.getUTCDay()];
 }
 
+export function normalizeContinuation(rawContinuation) {
+  const base = rawContinuation && typeof rawContinuation === 'object' ? rawContinuation : {};
+  const checkpointBase = base.checkpoint && typeof base.checkpoint === 'object' ? base.checkpoint : {};
+  const suggestedBase = base.suggestedPlan && typeof base.suggestedPlan === 'object' ? base.suggestedPlan : {};
+
+  const history = Array.isArray(checkpointBase.history)
+    ? checkpointBase.history.slice(-5)
+    : [];
+
+  return {
+    schemaVersion: 1,
+    status: typeof base.status === 'string' ? base.status : 'not_started',
+    checkpoint: {
+      checkpointId: typeof checkpointBase.checkpointId === 'string' ? checkpointBase.checkpointId : 'chk_foundations_v1',
+      status: typeof checkpointBase.status === 'string' ? checkpointBase.status : 'not_started',
+      definitionVersion: typeof checkpointBase.definitionVersion === 'number' ? checkpointBase.definitionVersion : 1,
+      draftAnswers: checkpointBase.draftAnswers && typeof checkpointBase.draftAnswers === 'object' ? { ...checkpointBase.draftAnswers } : {},
+      draftReflection: typeof checkpointBase.draftReflection === 'string' ? checkpointBase.draftReflection : '',
+      draftAssistance: checkpointBase.draftAssistance && typeof checkpointBase.draftAssistance === 'object' ? { ...checkpointBase.draftAssistance } : {},
+      draftCurrentIndex: typeof checkpointBase.draftCurrentIndex === 'number' ? checkpointBase.draftCurrentIndex : 0,
+      draftSavedAt: checkpointBase.draftSavedAt || null,
+      latestAttempt: checkpointBase.latestAttempt && typeof checkpointBase.latestAttempt === 'object' ? { ...checkpointBase.latestAttempt } : null,
+      history
+    },
+    suggestedPlan: {
+      previewId: suggestedBase.previewId || null,
+      generatedAt: suggestedBase.generatedAt || null,
+      sourceEvidence: suggestedBase.sourceEvidence || null,
+      items: Array.isArray(suggestedBase.items) ? suggestedBase.items : [],
+      weeklyCommitmentHours: typeof suggestedBase.weeklyCommitmentHours === 'number' ? suggestedBase.weeklyCommitmentHours : 0,
+      accepted: Boolean(suggestedBase.accepted),
+      acceptedAt: suggestedBase.acceptedAt || null
+    }
+  };
+}
+
 export function normalizeStudyWorkspace(rawWorkspace) {
   const base = rawWorkspace && typeof rawWorkspace === 'object' ? rawWorkspace : {};
   return {
@@ -99,6 +149,7 @@ export function normalizeStudyWorkspace(rawWorkspace) {
     exerciseAttempts: base.exerciseAttempts && typeof base.exerciseAttempts === 'object' ? base.exerciseAttempts : {},
     practiceAttempts: base.practiceAttempts && typeof base.practiceAttempts === 'object' ? base.practiceAttempts : {},
     studyPlan: base.studyPlan && typeof base.studyPlan === 'object' ? base.studyPlan : null,
+    continuation: normalizeContinuation(base.continuation),
     updatedAt: base.updatedAt || null
   };
 }
@@ -108,6 +159,7 @@ export function calculateWorkspaceStudyPlan({
   targetDate,
   availability,
   selectedItemIds,
+  revisitItemIds = [],
   curriculum = curriculumData,
   studyWorkspace
 }) {
@@ -118,6 +170,16 @@ export function calculateWorkspaceStudyPlan({
       .map(([k, lp]) => lp.lessonId || k)
   );
 
+  const revisitSet = new Set(Array.isArray(revisitItemIds) ? revisitItemIds : []);
+  const latestAttempt = normalizedWorkspace.continuation?.checkpoint?.latestAttempt;
+  if (latestAttempt?.topicResults) {
+    for (const tr of Object.values(latestAttempt.topicResults)) {
+      if (tr.revisitRecommended && tr.recommendedAction?.lessonId) {
+        revisitSet.add(tr.recommendedAction.lessonId);
+      }
+    }
+  }
+
   const topicById = new Map((curriculum.topics || []).map((t) => [t.id, t]));
   const lessonById = new Map((curriculum.lessons || []).map((l) => [l.id, l]));
   const exerciseById = new Map((curriculum.exercises || []).map((e) => [e.id, e]));
@@ -126,15 +188,16 @@ export function calculateWorkspaceStudyPlan({
   // 1. Collect all required work items and uncompleted prerequisites
   const requiredItems = new Map();
 
-  function collectLessonAndPrereqs(lessonId) {
+  function collectLessonAndPrereqs(lessonId, isRevisit = false) {
     const lesson = lessonById.get(lessonId);
     if (!lesson) return;
     for (const prereqLessonId of lesson.prerequisites || []) {
       if (!completedLessons.has(prereqLessonId)) {
-        collectLessonAndPrereqs(prereqLessonId);
+        collectLessonAndPrereqs(prereqLessonId, false);
       }
     }
-    if (completedLessons.has(lesson.id) || requiredItems.has(lesson.id)) return;
+    if (completedLessons.has(lesson.id) && !isRevisit) return;
+    if (requiredItems.has(lesson.id)) return;
     const topic = topicById.get(lesson.topicId);
     requiredItems.set(lesson.id, {
       itemId: lesson.id,
@@ -142,21 +205,23 @@ export function calculateWorkspaceStudyPlan({
       topicId: lesson.topicId,
       topicOrder: topic ? topic.order : 99,
       itemOrder: lesson.order * 10,
-      title: lesson.title,
+      title: isRevisit ? `${lesson.title} (Revisit)` : lesson.title,
       estimatedMinutes: lesson.estimatedMinutes || 20,
+      isRevisit,
       lessonObj: lesson
     });
   }
 
   for (const rawId of selectedItemIds || []) {
+    const isRevisit = revisitSet.has(rawId);
     if (lessonById.has(rawId)) {
-      if (!completedLessons.has(rawId)) {
-        collectLessonAndPrereqs(rawId);
+      if (!completedLessons.has(rawId) || isRevisit) {
+        collectLessonAndPrereqs(rawId, isRevisit);
       }
     } else if (exerciseById.has(rawId)) {
       const ex = exerciseById.get(rawId);
-      if (!completedLessons.has(ex.lessonId)) {
-        collectLessonAndPrereqs(ex.lessonId);
+      if (!completedLessons.has(ex.lessonId) || isRevisit) {
+        collectLessonAndPrereqs(ex.lessonId, false);
       }
       if (!requiredItems.has(ex.id)) {
         const topic = topicById.get(ex.topicId);
@@ -169,14 +234,15 @@ export function calculateWorkspaceStudyPlan({
           itemOrder: (lesson ? lesson.order * 10 : 50) + 2,
           title: ex.title,
           estimatedMinutes: 15,
+          isRevisit,
           exerciseObj: ex
         });
       }
     } else if (practiceById.has(rawId)) {
       const prac = practiceById.get(rawId);
       for (const lid of prac.lessonIds || []) {
-        if (!completedLessons.has(lid)) {
-          collectLessonAndPrereqs(lid);
+        if (!completedLessons.has(lid) || isRevisit) {
+          collectLessonAndPrereqs(lid, false);
         }
       }
       if (!requiredItems.has(prac.id)) {
@@ -191,6 +257,7 @@ export function calculateWorkspaceStudyPlan({
           itemOrder: maxLessonOrder * 10 + 5,
           title: prac.title,
           estimatedMinutes: prac.estimatedMinutes || 20,
+          isRevisit,
           practiceObj: prac
         });
       }
@@ -267,7 +334,8 @@ export function calculateWorkspaceStudyPlan({
       topicOrder: item.topicOrder,
       itemOrder: item.itemOrder,
       title: item.title,
-      estimatedMinutes: item.estimatedMinutes
+      estimatedMinutes: item.estimatedMinutes,
+      isRevisit: Boolean(item.isRevisit)
     });
 
     for (const depId of outgoing.get(currentId) || []) {
@@ -293,7 +361,8 @@ export function calculateWorkspaceStudyPlan({
         topicOrder: item.topicOrder,
         itemOrder: item.itemOrder,
         title: item.title,
-        estimatedMinutes: item.estimatedMinutes
+        estimatedMinutes: item.estimatedMinutes,
+        isRevisit: Boolean(item.isRevisit)
       });
     }
   }
@@ -345,6 +414,7 @@ export function calculateWorkspaceStudyPlan({
           itemType: item.itemType,
           topicId: item.topicId,
           title: item.title,
+          isRevisit: Boolean(item.isRevisit),
           allocatedMinutes: p.allocatedMinutes,
           totalEstimatedMinutes: item.estimatedMinutes,
           partIndex: idx + 1,
@@ -354,6 +424,18 @@ export function calculateWorkspaceStudyPlan({
     }
   }
 
+  const horizonEndDate = addDays(startDate, 6);
+  let weeklyCapacityMinutes = 0;
+  for (let i = 0; i < 7; i++) {
+    const d = addDays(startDate, i);
+    const dayName = getDayOfWeek(d);
+    weeklyCapacityMinutes += (availability[dayName] || 0);
+  }
+
+  const weekSessions = sessions.filter((s) => s.date <= horizonEndDate);
+  const spilloverSessions = sessions.filter((s) => s.date > horizonEndDate);
+  const hasSpillover = spilloverSessions.length > 0;
+
   const estimatedFinishDate = sessions.length > 0 ? sessions[sessions.length - 1].date : startDate;
   const deadlineConflict = Boolean(
     unscheduledItemIds.length > 0 || (targetDate && estimatedFinishDate > targetDate)
@@ -362,10 +444,15 @@ export function calculateWorkspaceStudyPlan({
 
   return {
     planStartDate: startDate,
+    horizonEndDate,
     targetDate,
     availability,
+    weeklyCapacityMinutes,
     selectedItemIds: orderedWorkItems.map((w) => w.itemId),
     sessions,
+    weekSessions,
+    spilloverSessions,
+    hasSpillover,
     unscheduledItemIds,
     estimatedFinishDate,
     deadlineConflict,
@@ -587,6 +674,40 @@ function createInitialSeedGoal(stateType, userEmail) {
         ]
       },
       updatedAt: yesterdayIso
+    });
+  } else if (stateType === 'completed') {
+    for (let i = 1; i <= 12; i++) {
+      const mid = `m${String(i).padStart(2, '0')}`;
+      const daysAgo = 13 - i;
+      completions[mid] = {
+        completedAt: new Date(Date.now() - daysAgo * 86400000).toISOString(),
+        outcome: i % 4 === 0 ? 'with_hint' : 'independent',
+        reflection: `Starter mission ${mid} completed with clear invariant understanding.`
+      };
+    }
+    studyWorkspace = normalizeStudyWorkspace({
+      selectedTopicId: 'topic_arrays',
+      continuation: {
+        schemaVersion: 1,
+        status: 'not_started',
+        checkpoint: {
+          checkpointId: 'chk_foundations_v1',
+          status: 'not_started',
+          draftAnswers: {},
+          draftSavedAt: null,
+          latestAttempt: null,
+          history: []
+        },
+        suggestedPlan: {
+          previewId: null,
+          generatedAt: null,
+          sourceEvidence: null,
+          items: [],
+          weeklyCommitmentHours: 0,
+          accepted: false,
+          acceptedAt: null
+        }
+      }
     });
   }
 
@@ -1659,6 +1780,553 @@ export const apiFixture = {
     goal.studyWorkspace = {
       ...workspace,
       studyPlan: savedStudyPlan,
+      updatedAt: nowIso
+    };
+    goal.updatedAt = nowIso;
+    safeStorage.setItem(storageKey, JSON.stringify(goal));
+
+    return {
+      data: {
+        goal: deriveGoalStats(goal),
+        studyPlan: savedStudyPlan
+      }
+    };
+  },
+
+  async getCheckpoint(checkpointId) {
+    if (!currentUser) throw { status: 401, code: 'UNAUTHORIZED', message: 'Sign in required.' };
+    const storageKey = STORAGE_KEY_PREFIX + currentUser.id;
+    const raw = safeStorage.getItem(storageKey);
+    if (!raw) throw { status: 404, code: 'GOAL_NOT_FOUND', message: 'No active goal found.' };
+
+    const safeCheckpoint = getStudentSafeCheckpoint(checkpointId);
+    if (!safeCheckpoint) {
+      throw { status: 404, code: 'CHECKPOINT_NOT_FOUND', message: `Checkpoint "${checkpointId}" not found.` };
+    }
+
+    const goal = JSON.parse(raw);
+    const workspace = normalizeStudyWorkspace(goal.studyWorkspace);
+    const continuation = workspace.continuation;
+
+    return {
+      data: {
+        checkpoint: safeCheckpoint,
+        draft: {
+          answers: continuation.checkpoint.draftAnswers || {},
+          reflection: continuation.checkpoint.draftReflection || '',
+          assistance: continuation.checkpoint.draftAssistance || {},
+          currentIndex: continuation.checkpoint.draftCurrentIndex || 0,
+          definitionVersion: continuation.checkpoint.definitionVersion || 1,
+          savedAt: continuation.checkpoint.draftSavedAt || null
+        },
+        latestAttempt: continuation.checkpoint.latestAttempt || null
+      }
+    };
+  },
+
+  async saveCheckpointDraft({
+    expectedVersion,
+    checkpointId,
+    draftAnswers = {},
+    draftReflection = '',
+    draftAssistance = {},
+    draftCurrentIndex = 0,
+    definitionVersion = 1
+  }) {
+    if (!currentUser) throw { status: 401, code: 'UNAUTHORIZED', message: 'Sign in required.' };
+    const storageKey = STORAGE_KEY_PREFIX + currentUser.id;
+    const raw = safeStorage.getItem(storageKey);
+    if (!raw) throw { status: 404, code: 'GOAL_NOT_FOUND', message: 'No active goal found.' };
+
+    try {
+      validateCheckpointData({
+        checkpointId,
+        answers: draftAnswers,
+        selfReportedAssistance: draftAssistance,
+        definitionVersion,
+        reflection: draftReflection
+      });
+    } catch (valErr) {
+      throw { status: valErr.status || 422, code: valErr.code || 'INVALID_CHECKPOINT_DATA', message: valErr.message };
+    }
+
+    const goal = JSON.parse(raw);
+    if (goal.version !== expectedVersion) {
+      const err = new Error('Goal version changed.');
+      err.code = 'VERSION_CONFLICT';
+      err.status = 409;
+      throw err;
+    }
+
+    const nowIso = new Date().toISOString();
+    const workspace = normalizeStudyWorkspace(goal.studyWorkspace);
+    const updatedContinuation = {
+      ...workspace.continuation,
+      status: workspace.continuation.status === 'completed' ? 'completed' : 'in_progress',
+      checkpoint: {
+        ...workspace.continuation.checkpoint,
+        checkpointId,
+        definitionVersion,
+        status: workspace.continuation.checkpoint.status === 'completed' ? 'completed' : 'in_progress',
+        draftAnswers,
+        draftReflection,
+        draftAssistance,
+        draftCurrentIndex,
+        draftSavedAt: nowIso
+      }
+    };
+
+    goal.version += 1;
+    goal.studyWorkspace = {
+      ...workspace,
+      continuation: updatedContinuation,
+      updatedAt: nowIso
+    };
+    goal.updatedAt = nowIso;
+    safeStorage.setItem(storageKey, JSON.stringify(goal));
+
+    return {
+      data: {
+        goal: deriveGoalStats(goal),
+        draftSavedAt: nowIso
+      }
+    };
+  },
+
+  async evaluateCheckpoint({
+    expectedVersion,
+    attemptId,
+    checkpointId,
+    answers,
+    selfReportedAssistance = {},
+    reflection = '',
+    definitionVersion
+  }) {
+    if (!currentUser) throw { status: 401, code: 'UNAUTHORIZED', message: 'Sign in required.' };
+    const storageKey = STORAGE_KEY_PREFIX + currentUser.id;
+    const raw = safeStorage.getItem(storageKey);
+    if (!raw) throw { status: 404, code: 'GOAL_NOT_FOUND', message: 'No active goal found.' };
+
+    const goal = JSON.parse(raw);
+    const workspace = normalizeStudyWorkspace(goal.studyWorkspace);
+    const checkpointData = workspace.continuation.checkpoint;
+
+    // Idempotency check: inspect latestAttempt and history before active definition validation
+    const allAttempts = [
+      ...(checkpointData.latestAttempt ? [checkpointData.latestAttempt] : []),
+      ...(checkpointData.history || [])
+    ];
+    const existing = allAttempts.find((a) => a.attemptId === attemptId);
+    if (existing) {
+      const isIdentical = isIdenticalCheckpointAttempt(existing, {
+        checkpointId,
+        answers,
+        selfReportedAssistance,
+        reflection,
+        definitionVersion
+      });
+
+      if (isIdentical) {
+        return {
+          data: {
+            goal: deriveGoalStats(goal),
+            evaluation: existing
+          }
+        };
+      }
+
+      throw {
+        status: 409,
+        code: 'ATTEMPT_CONFLICT',
+        message: 'An evaluation attempt with this attemptId already exists with different data.'
+      };
+    }
+
+    try {
+      validateCheckpointData({
+        checkpointId,
+        answers,
+        selfReportedAssistance,
+        definitionVersion,
+        reflection
+      });
+    } catch (valErr) {
+      throw { status: valErr.status || 422, code: valErr.code || 'INVALID_CHECKPOINT_DATA', message: valErr.message };
+    }
+
+    if (goal.version !== expectedVersion) {
+      const err = new Error('Goal version changed.');
+      err.code = 'VERSION_CONFLICT';
+      err.status = 409;
+      throw err;
+    }
+
+    const evaluation = gradeCheckpointAttempt({
+      checkpointId,
+      attemptId,
+      answers,
+      selfReportedAssistance,
+      reflection,
+      definitionVersion
+    });
+
+    const nowIso = new Date().toISOString();
+    const history = [...(checkpointData.history || []), evaluation].slice(-5);
+
+    const updatedContinuation = {
+      ...workspace.continuation,
+      status: 'completed',
+      checkpoint: {
+        ...checkpointData,
+        checkpointId,
+        status: 'completed',
+        draftAnswers: {},
+        draftReflection: '',
+        draftAssistance: {},
+        draftCurrentIndex: 0,
+        draftSavedAt: null,
+        latestAttempt: evaluation,
+        history
+      }
+    };
+
+    goal.version += 1;
+    goal.studyWorkspace = {
+      ...workspace,
+      continuation: updatedContinuation,
+      updatedAt: nowIso
+    };
+    goal.updatedAt = nowIso;
+    safeStorage.setItem(storageKey, JSON.stringify(goal));
+
+    return {
+      data: {
+        goal: deriveGoalStats(goal),
+        evaluation
+      }
+    };
+  },
+
+  async skipCheckpoint({ expectedVersion, checkpointId }) {
+    if (!currentUser) throw { status: 401, code: 'UNAUTHORIZED', message: 'Sign in required.' };
+    const storageKey = STORAGE_KEY_PREFIX + currentUser.id;
+    const raw = safeStorage.getItem(storageKey);
+    if (!raw) throw { status: 404, code: 'GOAL_NOT_FOUND', message: 'No active goal found.' };
+
+    const goal = JSON.parse(raw);
+    if (goal.version !== expectedVersion) {
+      const err = new Error('Goal version changed.');
+      err.code = 'VERSION_CONFLICT';
+      err.status = 409;
+      throw err;
+    }
+
+    const nowIso = new Date().toISOString();
+    const workspace = normalizeStudyWorkspace(goal.studyWorkspace);
+    const updatedContinuation = {
+      ...workspace.continuation,
+      status: 'skipped',
+      checkpoint: {
+        ...workspace.continuation.checkpoint,
+        checkpointId,
+        status: 'skipped'
+      }
+    };
+
+    goal.version += 1;
+    goal.studyWorkspace = {
+      ...workspace,
+      continuation: updatedContinuation,
+      updatedAt: nowIso
+    };
+    goal.updatedAt = nowIso;
+    safeStorage.setItem(storageKey, JSON.stringify(goal));
+
+    return {
+      data: {
+        goal: deriveGoalStats(goal)
+      }
+    };
+  },
+
+  async resetCheckpoint({ expectedVersion, checkpointId }) {
+    if (!currentUser) throw { status: 401, code: 'UNAUTHORIZED', message: 'Sign in required.' };
+    const storageKey = STORAGE_KEY_PREFIX + currentUser.id;
+    const raw = safeStorage.getItem(storageKey);
+    if (!raw) throw { status: 404, code: 'GOAL_NOT_FOUND', message: 'No active goal found.' };
+
+    const goal = JSON.parse(raw);
+    if (goal.version !== expectedVersion) {
+      const err = new Error('Goal version changed.');
+      err.code = 'VERSION_CONFLICT';
+      err.status = 409;
+      throw err;
+    }
+
+    const nowIso = new Date().toISOString();
+    const workspace = normalizeStudyWorkspace(goal.studyWorkspace);
+    const updatedContinuation = {
+      ...workspace.continuation,
+      status: 'in_progress',
+      checkpoint: {
+        ...workspace.continuation.checkpoint,
+        checkpointId,
+        status: 'in_progress',
+        draftAnswers: {},
+        draftReflection: '',
+        draftAssistance: {},
+        draftCurrentIndex: 0,
+        draftSavedAt: null
+      }
+    };
+
+    goal.version += 1;
+    goal.studyWorkspace = {
+      ...workspace,
+      continuation: updatedContinuation,
+      updatedAt: nowIso
+    };
+    goal.updatedAt = nowIso;
+    safeStorage.setItem(storageKey, JSON.stringify(goal));
+
+    return {
+      data: {
+        goal: deriveGoalStats(goal)
+      }
+    };
+  },
+
+  async previewContinuationPlan({ expectedVersion, availability, selectedItemIds, targetDate, revisitItemIds: reqRevisitItemIds }) {
+    if (!currentUser) throw { status: 401, code: 'UNAUTHORIZED', message: 'Sign in required.' };
+    const storageKey = STORAGE_KEY_PREFIX + currentUser.id;
+    const raw = safeStorage.getItem(storageKey);
+    if (!raw) throw { status: 404, code: 'GOAL_NOT_FOUND', message: 'No active goal found.' };
+
+    const goal = JSON.parse(raw);
+    if (goal.version !== expectedVersion) {
+      const err = new Error('Goal version changed.');
+      err.code = 'VERSION_CONFLICT';
+      err.status = 409;
+      throw err;
+    }
+
+    const workspace = normalizeStudyWorkspace(goal.studyWorkspace);
+    const today = getTodayKolkata();
+    const completedLessons = new Set(
+      Object.entries(workspace.lessonProgress || {})
+        .filter(([k, lp]) => lp && (lp.status === 'completed' || lp.completedAt))
+        .map(([k, lp]) => lp.lessonId || k)
+    );
+
+    let effectiveRevisitIds = Array.isArray(reqRevisitItemIds) ? [...reqRevisitItemIds] : [];
+    let itemsToSchedule = selectedItemIds;
+
+    if (!itemsToSchedule || itemsToSchedule.length === 0) {
+      const derived = [];
+      const continuation = workspace.continuation;
+      const latestAttempt = continuation.checkpoint?.latestAttempt;
+
+      // 1. Checkpoint revisits
+      if (latestAttempt?.topicResults) {
+        for (const tr of Object.values(latestAttempt.topicResults)) {
+          if (tr.revisitRecommended && tr.recommendedAction?.lessonId) {
+            derived.push(tr.recommendedAction.lessonId);
+            effectiveRevisitIds.push(tr.recommendedAction.lessonId);
+          }
+        }
+      }
+
+      // 2. Due reviews from exercise and practice attempts
+      for (const [exerciseId, attempts] of Object.entries(workspace.exerciseAttempts || {})) {
+        if (!Array.isArray(attempts) || attempts.length === 0) continue;
+        const latest = attempts[attempts.length - 1];
+        if (latest?.nextReviewDate && latest.nextReviewDate <= today) {
+          if (!derived.includes(exerciseId)) {
+            derived.push(exerciseId);
+            effectiveRevisitIds.push(exerciseId);
+          }
+        }
+      }
+      for (const [problemId, attempts] of Object.entries(workspace.practiceAttempts || {})) {
+        if (!Array.isArray(attempts) || attempts.length === 0) continue;
+        const latest = attempts[attempts.length - 1];
+        if ((latest?.nextReviewDate && latest.nextReviewDate <= today) || latest?.needsReview) {
+          if (!derived.includes(problemId)) {
+            derived.push(problemId);
+            effectiveRevisitIds.push(problemId);
+          }
+        }
+      }
+
+      // 3. Next uncompleted lesson in topological curriculum order
+      const topicOrderMap = new Map((curriculumData.topics || []).map((t) => [t.id, t.order]));
+      const sortedLessons = [...(curriculumData.lessons || [])].sort((a, b) => {
+        const tA = topicOrderMap.get(a.topicId) ?? 99;
+        const tB = topicOrderMap.get(b.topicId) ?? 99;
+        if (tA !== tB) return tA - tB;
+        if (a.order !== b.order) return a.order - b.order;
+        return a.id.localeCompare(b.id);
+      });
+
+      for (const lesson of sortedLessons) {
+        if (!completedLessons.has(lesson.id) && !derived.includes(lesson.id)) {
+          const prereqsMet = (lesson.prerequisites || []).every((p) => completedLessons.has(p) || derived.includes(p));
+          if (prereqsMet) {
+            derived.push(lesson.id);
+            if (derived.length >= 2) break;
+          }
+        }
+      }
+
+      // 4. End-of-library deliberate mastery revisit
+      if (derived.length === 0 && curriculumData.lessons?.length > 0) {
+        const fallbackId = curriculumData.lessons[0].id;
+        derived.push(fallbackId);
+        effectiveRevisitIds.push(fallbackId);
+      }
+
+      itemsToSchedule = derived;
+    }
+
+    // Auto-mark any explicitly selected completed lessons as revisits
+    for (const id of itemsToSchedule) {
+      if (completedLessons.has(id) && !effectiveRevisitIds.includes(id)) {
+        effectiveRevisitIds.push(id);
+      }
+    }
+
+    const plan = calculateWorkspaceStudyPlan({
+      startDate: today,
+      targetDate: targetDate || goal.targetDate,
+      availability,
+      selectedItemIds: itemsToSchedule,
+      revisitItemIds: effectiveRevisitIds,
+      curriculum: curriculumData,
+      studyWorkspace: workspace
+    });
+
+    const previewId = 'prev-' + Math.random().toString(36).slice(2, 10);
+    const previewPayload = {
+      previewId,
+      ownerId: currentUser.id,
+      baseVersion: goal.version,
+      availability,
+      selectedItemIds: [...plan.selectedItemIds].sort(),
+      revisitItemIds: [...new Set([...effectiveRevisitIds, ...plan.sessions.filter((session) => session.isRevisit).map((session) => session.itemId)])]
+        .filter((id) => plan.selectedItemIds.includes(id)).sort(),
+      previewForDate: today,
+      targetDate: plan.targetDate,
+      curriculumVersion: workspace.curriculumVersion || DEFAULT_CURRICULUM_VERSION
+    };
+    recentPlanPreviews.set(`${currentUser.id}:${goal.version}`, previewPayload);
+
+    return {
+      data: {
+        previewId,
+        revisitItemIds: previewPayload.revisitItemIds,
+        previewForDate: today,
+        baseVersion: goal.version,
+        curriculumVersion: workspace.curriculumVersion || DEFAULT_CURRICULUM_VERSION,
+        ...plan
+      }
+    };
+  },
+
+  async applyContinuationPlan({
+    expectedVersion,
+    previewForDate,
+    curriculumVersion,
+    availability,
+    selectedItemIds,
+    revisitItemIds: reqRevisitItemIds,
+    targetDate,
+    previewToken
+  }) {
+    if (!currentUser) throw { status: 401, code: 'UNAUTHORIZED', message: 'Sign in required.' };
+    const storageKey = STORAGE_KEY_PREFIX + currentUser.id;
+    const raw = safeStorage.getItem(storageKey);
+    if (!raw) throw { status: 404, code: 'GOAL_NOT_FOUND', message: 'No active goal found.' };
+
+    const cached = recentPlanPreviews.get(`${currentUser.id}:${expectedVersion}`);
+    if (!cached) throw { status: 409, code: 'PREVIEW_REQUIRED', message: 'Preview this plan before accepting it.' };
+    if (reqRevisitItemIds !== undefined &&
+        JSON.stringify([...new Set(reqRevisitItemIds)].sort()) !== JSON.stringify(cached.revisitItemIds)) {
+      throw { status: 409, code: 'PREVIEW_MISMATCH', message: 'Review activities changed since preview.' };
+    }
+    if (curriculumVersion !== cached.curriculumVersion || previewForDate !== cached.previewForDate ||
+        (targetDate !== undefined && targetDate !== cached.targetDate) ||
+        ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'].some((day) => availability[day] !== cached.availability[day])) {
+      throw { status: 409, code: 'PREVIEW_MISMATCH', message: 'Plan inputs changed since preview.' };
+    }
+    if (cached) {
+      const appliedSorted = [...selectedItemIds].sort();
+      const previewSorted = [...cached.selectedItemIds].sort();
+      const itemsMatch = appliedSorted.length === previewSorted.length &&
+        appliedSorted.every((id, idx) => id === previewSorted[idx]);
+      if (!itemsMatch) {
+        const err = new Error('Submitted activities do not match the previewed plan.');
+        err.code = 'PREVIEW_MISMATCH';
+        err.status = 409;
+        throw err;
+      }
+    }
+
+    const today = getTodayKolkata();
+    if (previewForDate !== today) {
+      const err = new Error('This continuation plan preview was generated for a different day.');
+      err.code = 'STALE_PREVIEW';
+      err.status = 409;
+      throw err;
+    }
+
+    const goal = JSON.parse(raw);
+    if (goal.version !== expectedVersion) {
+      const err = new Error('Goal version changed.');
+      err.code = 'VERSION_CONFLICT';
+      err.status = 409;
+      throw err;
+    }
+
+    const workspace = normalizeStudyWorkspace(goal.studyWorkspace);
+    const effectiveRevisitIds = cached.revisitItemIds;
+
+    const plan = calculateWorkspaceStudyPlan({
+      startDate: today,
+      targetDate: cached.targetDate,
+      availability,
+      selectedItemIds,
+      revisitItemIds: effectiveRevisitIds,
+      curriculum: curriculumData,
+      studyWorkspace: workspace
+    });
+
+    const nowIso = new Date().toISOString();
+    const planId = 'cplan-' + Math.random().toString(36).slice(2, 10);
+    const savedStudyPlan = {
+      planId,
+      createdAt: nowIso,
+      baseVersion: goal.version + 1,
+      curriculumVersion: workspace.curriculumVersion || DEFAULT_CURRICULUM_VERSION,
+      ...plan
+    };
+
+    const updatedContinuation = {
+      ...workspace.continuation,
+      suggestedPlan: {
+        previewId: planId,
+        generatedAt: nowIso,
+        items: plan.selectedItemIds,
+        weeklyCommitmentHours: Object.values(availability).reduce((a, b) => a + b, 0) / 60,
+        accepted: true,
+        acceptedAt: nowIso
+      }
+    };
+
+    goal.version += 1;
+    goal.studyWorkspace = {
+      ...workspace,
+      studyPlan: savedStudyPlan,
+      continuation: updatedContinuation,
       updatedAt: nowIso
     };
     goal.updatedAt = nowIso;

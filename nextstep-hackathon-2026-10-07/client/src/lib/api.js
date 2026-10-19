@@ -248,5 +248,53 @@ export const liveApi = {
     return request(`/catalog/exercise/${exerciseId}/reference`, {
       method: 'GET'
     });
+  },
+
+  async getCheckpoint(checkpointId) {
+    return request(`/goal/workspace/checkpoint/${checkpointId}`, {
+      method: 'GET'
+    });
+  },
+
+  async saveCheckpointDraft(payload) {
+    return request('/goal/workspace/checkpoint/draft', {
+      method: 'POST',
+      body: payload
+    });
+  },
+
+  async evaluateCheckpoint(payload) {
+    return request('/goal/workspace/checkpoint/evaluate', {
+      method: 'POST',
+      body: payload
+    });
+  },
+
+  async skipCheckpoint(payload) {
+    return request('/goal/workspace/checkpoint/skip', {
+      method: 'POST',
+      body: payload
+    });
+  },
+
+  async resetCheckpoint(payload) {
+    return request('/goal/workspace/checkpoint/reset', {
+      method: 'POST',
+      body: payload
+    });
+  },
+
+  async previewContinuationPlan(payload) {
+    return request('/goal/workspace/continuation/plan/preview', {
+      method: 'POST',
+      body: payload
+    });
+  },
+
+  async applyContinuationPlan(payload) {
+    return request('/goal/workspace/continuation/plan/apply', {
+      method: 'POST',
+      body: payload
+    });
   }
 };
