@@ -617,3 +617,10 @@ Post-publish: bbab876 pushed to audit branch and main. Vercel success and new li
 - Current decision: local repair milestone COMPLETE / READY for publication checkpoint. No more implementation handoff for I1–I3. New features and non-blocking improvements are separate milestones.
 - Actual evidence and operational limitations: docs/CONTINUATION-RELEASE-CHECKPOINT-2026-10-19.md. Log: client/.local/continuation-release-gate.log.
 - No commit/push/merge/deploy, secrets/environment changes, dependency changes, migrations or production-data use. Existing dirty work preserved; no collaborator curriculum changes.
+
+## 2026-10-19 — Weekly execution workspace / local READY
+- Completed 3/3 stages on codex/weekly-execution. New Week agenda with missed/spillover allocations, current-capacity view, evidence-derived completion, correct start links and pending/unscheduled replanning through existing preview/accept API.
+- Added weeklyExecution.js, WeeklyPlanView.jsx, six unit cases and six integrated browser scenarios. Updated mobile More keyboard expectations for new Week entry, preserving focus checks.
+- Final scripts/verify-continuation-release.ps1 PASS: server132, client97, build, weekly6, continuation integration5, continuation9, Atlas9, isolation10, workspace14, whitespace.
+- Actual changes, acceptance evidence and owner walkthrough: docs/WEEKLY-EXECUTION-RESULT.md. Existing labelled synthetic preview remains http://127.0.0.1:5173/dashboard?view=week.
+- No server/database/curriculum/dependency/env edits, production data operations, commit, push, merge or deploy. Per-allocation time is not tracked; UI and tests reflect per-activity completion and full estimated effort when replanning.

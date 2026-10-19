@@ -13,6 +13,7 @@ import {
 
 const NAV_ITEMS = [
   { id: 'today', label: 'Today', icon: Calendar, primary: true },
+  { id: 'week', label: 'Week', icon: Calendar, primary: false },
   { id: 'atlas', label: 'Atlas', icon: Compass, primary: true },
   { id: 'proof', label: 'Proof', icon: Code2, primary: true },
   { id: 'practice', label: 'Practice', icon: ExternalLink, primary: true },

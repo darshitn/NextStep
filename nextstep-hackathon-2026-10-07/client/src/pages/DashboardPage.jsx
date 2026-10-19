@@ -4,6 +4,7 @@ import '../workspace.css';
 
 import WorkspaceNav from '../components/workspace/WorkspaceNav.jsx';
 import TodayView from '../components/workspace/TodayView.jsx';
+import WeeklyPlanView from '../components/workspace/WeeklyPlanView.jsx';
 import AtlasView from '../components/workspace/AtlasView.jsx';
 import ProofStudio from '../components/workspace/ProofStudio.jsx';
 import PracticeLibraryView from '../components/workspace/PracticeLibraryView.jsx';
@@ -62,10 +63,15 @@ export default function DashboardPage({
   // Checkpoint & Continuation modals
   const [isCheckpointOpen, setIsCheckpointOpen] = useState(false);
   const [isContinuationPlanOpen, setIsContinuationPlanOpen] = useState(false);
+  const [continuationSeed, setContinuationSeed] = useState(null);
+  const openContinuationPlan = (seed = null) => {
+    setContinuationSeed(seed);
+    setIsContinuationPlanOpen(true);
+  };
 
   // Active view from URL search param or direct route
   const rawView = searchParams.get('view') || initialView || 'today';
-  const validViews = ['today', 'atlas', 'proof', 'practice', 'roadmap', 'review', 'insights'];
+  const validViews = ['today', 'week', 'atlas', 'proof', 'practice', 'roadmap', 'review', 'insights'];
   const activeView = validViews.includes(rawView) ? rawView : 'today';
 
   const handleSelectView = (viewId) => {
@@ -729,7 +735,7 @@ export default function DashboardPage({
               onOpenProofLesson={handleOpenProofLesson}
               onOpenPracticeProblem={handleOpenPracticeProblem}
               onOpenCheckpoint={() => setIsCheckpointOpen(true)}
-              onOpenContinuationPlan={() => setIsContinuationPlanOpen(true)}
+              onOpenContinuationPlan={() => openContinuationPlan()}
               // Focus timer props
               timerState={timerState}
               remainingSeconds={remainingSeconds}
@@ -739,6 +745,11 @@ export default function DashboardPage({
               onResetTimer={handleResetTimer}
               onSelectTimerPreset={handleSelectTimerPreset}
             />
+          )}
+
+          {activeView === 'week' && (
+            <WeeklyPlanView goal={goal} catalog={catalog} onOpenProofLesson={handleOpenProofLesson}
+              onOpenPracticeProblem={handleOpenPracticeProblem} onPlan={openContinuationPlan} onSelectView={handleSelectView} />
           )}
 
           {activeView === 'atlas' && (
@@ -843,7 +854,7 @@ export default function DashboardPage({
         onGoalUpdated={onGoalUpdated}
         onStartNextWeekPlan={() => {
           setIsCheckpointOpen(false);
-          setIsContinuationPlanOpen(true);
+          openContinuationPlan();
         }}
         onOpenProofLesson={handleOpenProofLesson}
       />
@@ -854,6 +865,7 @@ export default function DashboardPage({
         onClose={() => setIsContinuationPlanOpen(false)}
         goal={goal}
         catalog={catalog}
+        initialPlan={continuationSeed}
         onGoalUpdated={onGoalUpdated}
         onPlanAccepted={() => {
           setSavedNotice('Next-week study plan saved and active.');

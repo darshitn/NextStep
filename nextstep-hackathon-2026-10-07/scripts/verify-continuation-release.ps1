@@ -19,6 +19,7 @@ try {
   Invoke-Check 'Server regressions' 'npm.cmd' @('--prefix', 'server', 'test')
   Invoke-Check 'Client regressions' 'npm.cmd' @('--prefix', 'client', 'test')
   Invoke-Check 'Production build' 'npm.cmd' @('--prefix', 'client', 'run', 'build')
+  Invoke-Check 'Weekly execution and non-destructive replanning' 'node' @('client/scripts/verify-weekly-execution.cjs', $PlaywrightModule, $PreviewUrl)
   Invoke-Check 'Continuation failure-path integration' 'node' @('client/scripts/verify-continuation-integration.cjs', $PlaywrightModule, $PreviewUrl)
   Invoke-Check 'Completed starter to accepted continuation' 'node' @('client/scripts/verify-continuation.cjs', $PlaywrightModule, $PreviewUrl)
   Invoke-Check 'Atlas and Proof regressions' 'node' @('client/scripts/verify-atlas-proof.cjs', $PlaywrightModule, $PreviewUrl)

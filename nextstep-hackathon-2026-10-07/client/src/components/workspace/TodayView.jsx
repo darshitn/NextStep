@@ -303,6 +303,11 @@ export default function TodayView({
                     </div>
                     <button
                       type="button"
+                      onClick={() => onSelectView('week')}
+                      className="secondary-button text-xs"
+                    >View week</button>
+                    <button
+                      type="button"
                       onClick={onOpenContinuationPlan}
                       className="text-xs font-semibold ui-text-accent hover:underline flex items-center gap-1"
                     >
