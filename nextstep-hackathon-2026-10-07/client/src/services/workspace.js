@@ -1177,3 +1177,191 @@ export function deriveActiveStudyPlanSession(studyWorkspace) {
     completedSessions
   };
 }
+
+/**
+ * Detects whether the student has recorded any formal curriculum learning activity
+ * (lesson progress, exercise attempt, practice attempt, or continuation checkpoint).
+ * Returns false for brand-new students or students who have only worked on the 12-mission Starter Track.
+ */
+export function hasRecordedCurriculumActivity(goal) {
+  const ws = goal?.studyWorkspace;
+  if (!ws) return false;
+
+  const hasLessons = Object.values(ws.lessonProgress || {}).some(
+    (lp) => lp && (lp.status === 'completed' || lp.status === 'in_progress' || Boolean(lp.completedAt))
+  );
+  if (hasLessons) return true;
+
+  const hasExercises = Object.values(ws.exerciseAttempts || {}).some(
+    (attempts) => Array.isArray(attempts) && attempts.length > 0
+  );
+  if (hasExercises) return true;
+
+  const hasPractice = Object.values(ws.practiceAttempts || {}).some(
+    (attempts) => Array.isArray(attempts) && attempts.length > 0
+  );
+  if (hasPractice) return true;
+
+  if (
+    ws.continuation?.checkpoint?.latestAttempt ||
+    (Array.isArray(ws.continuation?.checkpoint?.attempts) && ws.continuation.checkpoint.attempts.length > 0)
+  ) {
+    return true;
+  }
+
+  return false;
+}
+
+// Match the prerequisite and completion rules used by the normal next-lesson recommendation.
+export function deriveNextEligibleLesson(goal, catalog, currentLessonId) {
+  const progress = goal?.studyWorkspace?.lessonProgress || {};
+  return (catalog?.curriculum?.lessons || []).find((lesson) =>
+    lesson.id !== currentLessonId && progress[lesson.id]?.status !== 'completed' &&
+    (lesson.prerequisites || []).every((id) => progress[id]?.status === 'completed')
+  ) || null;
+}
+
+
+export function deriveCandidateActivities(goal, catalog, initialPlan) {
+  const candidates = [];
+  const addedIds = new Set();
+  const curriculum = catalog?.curriculum || (catalog?.lessons ? catalog : null);
+  const lessons = curriculum?.lessons || [];
+  const topics = curriculum?.topics || [];
+  const topicById = new Map(topics.map((t) => [t.id, t]));
+  const lessonById = new Map(lessons.map((l) => [l.id, l]));
+
+  const continuation = goal?.studyWorkspace?.continuation;
+  const checkpoint = continuation?.checkpoint;
+  const latestAttempt = checkpoint?.latestAttempt;
+
+  // Replanning starts with the actual unfinished activities, not a fresh
+  // recommendation that might silently replace the student's chosen work.
+  for (const id of initialPlan?.itemIds || []) {
+    const item = lessonById.get(id) || curriculum?.exercises?.find(item => item.id === id) || curriculum?.practiceProblems?.find(item => item.id === id);
+    if (!item || addedIds.has(id)) continue;
+    addedIds.add(id);
+    const revisit = initialPlan.revisitItemIds?.includes(id);
+    candidates.push({ id, title: item.title, topicId: item.topicId, topicTitle: topicById.get(item.topicId)?.title || item.topicId,
+      type: revisit ? 'revisit' : 'planned', badge: revisit ? 'Planned Review' : 'Remaining Activity',
+      reason: 'Carried forward from your current study plan; no completion has been recorded.', estimatedMinutes: item.estimatedMinutes || 20 });
+  }
+
+  // 1. Checkpoint revisits
+  if (latestAttempt?.topicResults) {
+    for (const [topicId, tr] of Object.entries(latestAttempt.topicResults)) {
+      if (tr.revisitRecommended && tr.recommendedAction?.lessonId && !addedIds.has(tr.recommendedAction.lessonId)) {
+        const lid = tr.recommendedAction.lessonId;
+        const lesson = lessonById.get(lid);
+        const topic = topicById.get(topicId);
+        addedIds.add(lid);
+        candidates.push({
+          id: lid,
+          title: lesson ? lesson.title : lid,
+          topicId,
+          topicTitle: topic ? topic.title : topicId.replace('topic_', '').replace(/_/g, ' '),
+          type: 'revisit',
+          badge: 'Targeted Revisit',
+          reason: `Foundations Checkpoint recommended revisit for ${topic ? topic.title : topicId}`,
+          estimatedMinutes: lesson?.estimatedMinutes || 20
+        });
+      }
+    }
+  }
+
+  // 2. Due reviews from workspace review queue (exercises and practice)
+  if (curriculum) {
+    try {
+      const reviewQueue = deriveWorkspaceReviewQueue(goal, catalog?.curriculum ? catalog : { curriculum }, new Date());
+      for (const item of reviewQueue) {
+        if (!item.isDue) continue;
+        if (candidates.length >= 3) break;
+        if (!addedIds.has(item.itemId)) {
+          addedIds.add(item.itemId);
+          candidates.push({
+            id: item.itemId,
+            title: item.title,
+            topicId: item.topicId,
+            topicTitle: item.topicTitle,
+            type: 'revisit',
+            badge: item.kind === 'exercise' ? 'Due Proof Review' : 'Due Practice Review',
+            reason: item.reason,
+            estimatedMinutes: item.kind === 'exercise' ? 15 : 20
+          });
+        }
+      }
+    } catch (err) {
+      console.warn('Could not derive review queue for continuation plan:', err);
+    }
+  }
+
+  // 3. Next uncompleted curriculum lessons in prerequisite order
+  const completedLessons = new Set(
+    Object.entries(goal?.studyWorkspace?.lessonProgress || {})
+      .filter(([k, lp]) => lp && (lp.status === 'completed' || lp.completedAt))
+      .map(([k, lp]) => lp.lessonId || k)
+  );
+
+  const topicOrderMap = new Map(topics.map((t) => [t.id, t.order]));
+  const sortedLessons = [...lessons].sort((a, b) => {
+    const tA = topicOrderMap.get(a.topicId) ?? 99;
+    const tB = topicOrderMap.get(b.topicId) ?? 99;
+    if (tA !== tB) return tA - tB;
+    if (a.order !== b.order) return a.order - b.order;
+    return a.id.localeCompare(b.id);
+  });
+
+  for (const lesson of sortedLessons) {
+    if (!completedLessons.has(lesson.id) && !addedIds.has(lesson.id)) {
+      const prereqsMet = (lesson.prerequisites || []).every(
+        (p) => completedLessons.has(p) || addedIds.has(p)
+      );
+      if (prereqsMet) {
+        addedIds.add(lesson.id);
+        const topic = topicById.get(lesson.topicId);
+        candidates.push({
+          id: lesson.id,
+          title: lesson.title,
+          topicId: lesson.topicId,
+          topicTitle: topic ? topic.title : lesson.topicId.replace('topic_', '').replace(/_/g, ' '),
+          type: 'new_lesson',
+          badge: 'Frontier Lesson',
+          reason: `Eligible progression into ${topic ? topic.title : lesson.topicId}`,
+          estimatedMinutes: lesson.estimatedMinutes || 20
+        });
+        const frontierCount = candidates.filter((c) => c.type === 'new_lesson').length;
+        if (frontierCount >= 2 || candidates.length >= 5) break;
+      }
+    }
+  }
+
+  // 4. End-of-library / deliberate review: if all curriculum lessons completed, offer foundational mastery revisit
+  if (candidates.length === 0) {
+    if (lessons.length > 0) {
+      const first = lessons[0];
+      candidates.push({
+        id: first.id,
+        title: first.title,
+        topicId: first.topicId,
+        topicTitle: topicById.get(first.topicId)?.title || 'Arrays & Hashing',
+        type: 'revisit',
+        badge: 'Mastery Review',
+        reason: 'Library complete: deliberate foundational invariant revisit to maintain mastery',
+        estimatedMinutes: first.estimatedMinutes || 20
+      });
+    } else {
+      candidates.push({
+        id: 'les_arrays_01',
+        title: 'Dynamic Array Allocation & Geometry',
+        topicId: 'topic_arrays',
+        topicTitle: 'Arrays & Hashing',
+        type: 'revisit',
+        badge: 'Mastery Review',
+        reason: 'Library complete: deliberate foundational invariant revisit to maintain mastery',
+        estimatedMinutes: 20
+      });
+    }
+  }
+
+  return candidates;
+}

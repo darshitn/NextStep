@@ -151,6 +151,12 @@ export function calculateNextReviewDate(dateOrIso = new Date().toISOString(), co
   return addDays(dateKolkata, daysToAdd);
 }
 
+export const checkInSchema = z.object({
+  version: z.literal(1),
+  confidence: z.enum(['ready', 'needs_example', 'unsure']).optional(),
+  focus: z.enum(['invariant', 'update_order', 'edge_cases', 'none']).optional()
+}).strict();
+
 export const saveLessonProgressSchema = z.object({
   expectedVersion: z.number().int().positive(),
   requestId: z.string().uuid(),
@@ -160,7 +166,8 @@ export const saveLessonProgressSchema = z.object({
   completedSections: z.array(z.string().max(60)).max(12).optional(),
   reflection: z.string().trim().max(500).nullable().optional(),
   knowledgeCheckOptionId: z.string().optional(),
-  knowledgeCheckPassed: z.boolean().optional()
+  knowledgeCheckPassed: z.boolean().optional(),
+  checkIn: checkInSchema.nullable().optional()
 }).strict();
 
 export const saveExerciseAttemptSchema = z.object({
@@ -177,7 +184,8 @@ export const saveExerciseAttemptSchema = z.object({
   mistakeCount: z.number().int().min(0).max(50).default(0),
   hintRevealed: z.boolean().default(false),
   referenceRevealed: z.boolean().default(false),
-  reflection: z.string().trim().max(500).nullable().optional()
+  reflection: z.string().trim().max(500).nullable().optional(),
+  checkIn: checkInSchema.nullable().optional()
 }).strict();
 
 export const savePracticeAttemptSchema = z.object({

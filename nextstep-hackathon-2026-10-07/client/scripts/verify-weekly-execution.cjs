@@ -73,7 +73,8 @@ const output = path.resolve(__dirname, '../.local/weekly-execution-evidence');
     });
     await check('Replanning seeds only unfinished activities; cancel and preview do not mutate', async () => {
       await week(); await page.getByRole('button', { name: 'Replan remaining work', exact: true }).click();
-      const dialog = page.getByRole('dialog');
+      const dialog = page.locator('[role="dialog"][aria-labelledby="continuation-plan-title"]');
+      await dialog.waitFor({ state: 'visible' });
       assert.equal(await dialog.getByRole('checkbox', { checked: true }).count(), 4);
       await page.keyboard.press('Escape'); assert.deepEqual(await goal(), original);
       await page.getByRole('button', { name: 'Replan remaining work', exact: true }).click();

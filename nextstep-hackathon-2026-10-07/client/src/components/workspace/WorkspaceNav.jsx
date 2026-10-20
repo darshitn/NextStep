@@ -95,8 +95,9 @@ export default function WorkspaceNav({ activeView, onSelectView, unresolvedRevie
   const handleSelectSecondary = (itemId) => {
     setMoreOpen(false);
     onSelectView(itemId);
-    // Shift focus to the destination view / heading to prevent stranding in body
-    requestAnimationFrame(() => {
+    // Shift focus to the destination view / heading to prevent stranding in body;
+    // poll across animation frames to accommodate asynchronous chunk loading.
+    const tryFocus = (attempt = 0) => {
       const target =
         document.getElementById(`view-${itemId}`) ||
         document.getElementById(`${itemId}-heading`) ||
@@ -106,8 +107,11 @@ export default function WorkspaceNav({ activeView, onSelectView, unresolvedRevie
           target.setAttribute('tabindex', '-1');
         }
         target.focus({ preventScroll: false });
+      } else if (attempt < 20) {
+        requestAnimationFrame(() => tryFocus(attempt + 1));
       }
-    });
+    };
+    requestAnimationFrame(() => tryFocus(0));
   };
 
   return (

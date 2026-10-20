@@ -14,9 +14,10 @@ import {
   ArrowRight,
   Sparkles,
   Compass,
-  Calendar
+  Calendar,
+  BookOpen
 } from 'lucide-react';
-import { deriveActiveStudyPlanSession } from '../../services/workspace.js';
+import { deriveActiveStudyPlanSession, hasRecordedCurriculumActivity } from '../../services/workspace.js';
 
 export default function TodayView({
   goal,
@@ -63,6 +64,7 @@ export default function TodayView({
   const planState = deriveActiveStudyPlanSession(goal?.studyWorkspace);
   const activeSession = planState.activeSession;
   const allPlanCompleted = planState.allCompleted;
+  const isFirstTimeCurriculumStudent = !hasRecordedCurriculumActivity(goal);
 
   return (
     <section id="view-today" role="region" aria-labelledby="today-heading" className="workspace-content">
@@ -158,6 +160,101 @@ export default function TodayView({
       {/* Two-column layout: Current mission + Context rail */}
       <div className="today-grid">
         <div className="today-main">
+          {/* Prominent First-Time Curriculum Invitation */}
+          {isFirstTimeCurriculumStudent && (
+            <section
+              aria-label="First-time curriculum lesson invitation"
+              className="first-session-card p-5 sm:p-6 rounded-2xl border ui-border-border ui-bg-surface space-y-4 shadow-sm"
+            >
+              <div className="flex items-start justify-between gap-3 flex-wrap">
+                <div className="space-y-1">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-[11px] font-bold uppercase tracking-wider px-2.5 py-0.5 rounded-full ui-bg-accent/15 ui-text-accent">
+                      First Lesson · Getting Started
+                    </span>
+                    {workspaceRecommendation?.estimatedMinutes && (
+                      <span className="inline-flex items-center gap-1 text-xs font-semibold ui-text-muted">
+                        <Clock className="w-3.5 h-3.5" />
+                        <span>{workspaceRecommendation.estimatedMinutes} mins</span>
+                      </span>
+                    )}
+                  </div>
+                  <h2 className="text-lg sm:text-xl font-extrabold ui-text-ink tracking-tight">
+                    Start your first lesson
+                  </h2>
+                  {workspaceRecommendation?.title ? (
+                    <p className="text-sm font-semibold ui-text-ink">
+                      {workspaceRecommendation.title}
+                      {workspaceRecommendation.topicTitle && (
+                        <span className="font-normal ui-text-muted"> · {workspaceRecommendation.topicTitle}</span>
+                      )}
+                    </p>
+                  ) : null}
+                </div>
+
+                {workspaceRecommendation && (
+                  <button
+                    type="button"
+                    onClick={() =>
+                      onOpenProofLesson &&
+                      onOpenProofLesson({
+                        topicId: workspaceRecommendation.topicId,
+                        lessonId: workspaceRecommendation.lessonId,
+                        exerciseId: workspaceRecommendation.exerciseId
+                      })
+                    }
+                    className="primary-button text-xs py-2.5 px-4 flex items-center justify-center gap-2 w-full sm:w-auto self-stretch sm:self-auto"
+                  >
+                    <Sparkles className="w-4 h-4" />
+                    <span>Start your first lesson</span>
+                    <ArrowRight className="w-4 h-4" />
+                  </button>
+                )}
+              </div>
+
+              {workspaceRecommendation ? (
+                <div className="space-y-3">
+                  <p className="text-xs sm:text-sm ui-text-muted leading-relaxed">
+                    {workspaceRecommendation.reason}
+                  </p>
+
+                  <div className="p-3.5 rounded-xl border ui-border-border ui-bg-soft/40 text-xs ui-text-muted space-y-1.5 leading-relaxed">
+                    <p className="font-semibold ui-text-ink flex items-center gap-1.5">
+                      <BookOpen className="w-3.5 h-3.5 ui-text-accent" />
+                      <span>Two complementary learning tracks</span>
+                    </p>
+                    <p>
+                      The <strong>12-mission Starter Track</strong> builds daily study habits and foundational problem-solving pacing. The <strong>Curriculum Path</strong> covers formal invariants, interactive proof traces, and practice problems in Topic Atlas and Proof Studio. You can pursue both in parallel at your own pace.
+                    </p>
+                  </div>
+
+                  <div className="flex items-center gap-2.5 flex-wrap pt-1">
+                    <button
+                      type="button"
+                      onClick={() => onSelectView('atlas')}
+                      className="secondary-button text-xs py-1.5 px-3 flex items-center gap-1.5"
+                    >
+                      <Compass className="w-3.5 h-3.5" />
+                      <span>Explore Topic Atlas</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => onSelectView('practice')}
+                      className="secondary-button text-xs py-1.5 px-3"
+                    >
+                      <span>Practice Library</span>
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div className="p-3.5 rounded-xl border border-amber-300 dark:border-amber-800 bg-amber-50/60 dark:bg-amber-950/20 text-xs ui-text-muted space-y-1">
+                  <p className="font-semibold text-amber-900 dark:text-amber-200">Curriculum catalog currently unavailable</p>
+                  <p>Curriculum topics and lessons could not be loaded. You can continue working on your daily starter mission below.</p>
+                </div>
+              )}
+            </section>
+          )}
+
           {currentMission ? (
             <MissionCard
               mission={currentMission}

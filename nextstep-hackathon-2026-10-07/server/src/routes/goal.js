@@ -1362,8 +1362,15 @@ router.post('/workspace/lesson', async (req, res, next) => {
       completedSections,
       reflection,
       knowledgeCheckOptionId,
-      knowledgeCheckPassed
+      knowledgeCheckPassed,
+      checkIn
     } = parseResult.data;
+
+    const normalizedCheckIn = checkIn && typeof checkIn === 'object' ? {
+      version: 1,
+      ...(checkIn.confidence ? { confidence: checkIn.confidence } : {}),
+      ...(checkIn.focus ? { focus: checkIn.focus } : {})
+    } : null;
 
     const lesson = getAuthoritativeLesson(lessonId);
     if (!lesson) {
@@ -1401,10 +1408,32 @@ router.post('/workspace/lesson', async (req, res, next) => {
 
     // Idempotent retry check on requestId
     if (existingLessonRecord && existingLessonRecord.lastRequestId === requestId) {
-      return res.status(200).json({
-        data: {
-          goal: deriveGoalStats(row.state, catalogData),
-          lessonProgress: existingLessonRecord
+      const normalizedReflection = reflection === undefined ? (existingLessonRecord.reflection ?? null) : reflection;
+      const existingCheckIn = existingLessonRecord.checkIn ? {
+        version: existingLessonRecord.checkIn.version || 1,
+        ...(existingLessonRecord.checkIn.confidence ? { confidence: existingLessonRecord.checkIn.confidence } : {}),
+        ...(existingLessonRecord.checkIn.focus ? { focus: existingLessonRecord.checkIn.focus } : {})
+      } : null;
+      const checkInMatches =
+        (existingLessonRecord.lastRequestCheckInProvided ?? Boolean(existingCheckIn)) === (checkIn !== undefined) &&
+        (checkIn === undefined || JSON.stringify(normalizedCheckIn) === JSON.stringify(existingCheckIn));
+      const isIdentical =
+        existingLessonRecord.status === status &&
+        (existingLessonRecord.reflection ?? null) === normalizedReflection &&
+        checkInMatches;
+
+      if (isIdentical) {
+        return res.status(200).json({
+          data: {
+            goal: deriveGoalStats(row.state, catalogData),
+            lessonProgress: existingLessonRecord
+          }
+        });
+      }
+      return res.status(409).json({
+        error: {
+          code: 'REQUEST_CONFLICT',
+          message: 'A lesson progress update with this requestId was already recorded with different content.'
         }
       });
     }
@@ -1431,6 +1460,8 @@ router.post('/workspace/lesson', async (req, res, next) => {
         finalKcPassed !== undefined
           ? finalKcPassed
           : Boolean(existingLessonRecord?.knowledgeCheckPassed),
+      checkIn: checkIn === undefined ? (existingLessonRecord?.checkIn ?? null) : normalizedCheckIn,
+      lastRequestCheckInProvided: checkIn !== undefined,
       lastRequestId: requestId,
       updatedAt: nowIso
     };
@@ -1518,8 +1549,15 @@ router.post('/workspace/exercise', async (req, res, next) => {
       mistakeCount = 0,
       hintRevealed = false,
       referenceRevealed = false,
-      reflection
+      reflection,
+      checkIn
     } = parseResult.data;
+
+    const normalizedCheckIn = checkIn && typeof checkIn === 'object' ? {
+      version: 1,
+      ...(checkIn.confidence ? { confidence: checkIn.confidence } : {}),
+      ...(checkIn.focus ? { focus: checkIn.focus } : {})
+    } : null;
 
     const exercise = getAuthoritativeExercise(exerciseId);
     if (!exercise) {
@@ -1578,13 +1616,21 @@ router.post('/workspace/exercise', async (req, res, next) => {
     const existingAttempt = existingList.find((a) => a.attemptId === attemptId);
     if (existingAttempt) {
       const normalizedReflection = reflection ?? null;
+      const existingCheckIn = existingAttempt.checkIn ? {
+        version: existingAttempt.checkIn.version || 1,
+        ...(existingAttempt.checkIn.confidence ? { confidence: existingAttempt.checkIn.confidence } : {}),
+        ...(existingAttempt.checkIn.focus ? { focus: existingAttempt.checkIn.focus } : {})
+      } : null;
+      const checkInMatches = JSON.stringify(normalizedCheckIn) === JSON.stringify(existingCheckIn);
+
       if (
         existingAttempt.outcome === authoritativeOutcome &&
         (existingAttempt.variantKey || 'primary') === variantKey &&
         existingAttempt.mistakeCount === mistakeCount &&
         existingAttempt.hintRevealed === hintRevealed &&
         existingAttempt.referenceRevealed === referenceRevealed &&
-        (existingAttempt.reflection ?? null) === normalizedReflection
+        (existingAttempt.reflection ?? null) === normalizedReflection &&
+        checkInMatches
       ) {
         return res.status(200).json({
           data: {
@@ -1624,6 +1670,7 @@ router.post('/workspace/exercise', async (req, res, next) => {
       hintRevealed,
       referenceRevealed,
       reflection: reflection ?? null,
+      ...(normalizedCheckIn ? { checkIn: normalizedCheckIn } : {}),
       savedAt: nowIso,
       nextReviewDate
     };

@@ -333,4 +333,190 @@ describe('Stages 2 & 3 — Atlas + Proof Workspace Routes & Study Planner', () =
     assert.ok(applyBody.data.goal.studyWorkspace.studyPlan);
     assert.equal(applyBody.data.goal.schedule.length, 12, 'Starter mission schedule must remain untouched');
   });
+
+  it('POST /api/goal/workspace/lesson validates, persists, and enforces idempotency on checkIn', async () => {
+    const reqId = 'aaaaaaaa-1111-4111-8111-111111111111';
+    const payload = {
+      expectedVersion: 5,
+      requestId: reqId,
+      lessonId: 'les_arrays_02',
+      topicId: 'topic_arrays',
+      status: 'in_progress',
+      completedSections: ['explanation'],
+      reflection: 'Takeaway on prefix/suffix',
+      checkIn: {
+        version: 1,
+        confidence: 'ready',
+        focus: 'invariant'
+      }
+    };
+
+    const res = await fetch(`${baseUrl}/api/goal/workspace/lesson`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ws-user-1-token' },
+      body: JSON.stringify(payload)
+    });
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    assert.equal(body.data.goal.version, 6);
+    assert.deepEqual(body.data.lessonProgress.checkIn, {
+      version: 1,
+      confidence: 'ready',
+      focus: 'invariant'
+    });
+
+    // Identical retry returns 200 without version bump
+    const dupRes = await fetch(`${baseUrl}/api/goal/workspace/lesson`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ws-user-1-token' },
+      body: JSON.stringify(payload)
+    });
+    assert.equal(dupRes.status, 200);
+    const dupBody = await dupRes.json();
+    assert.equal(dupBody.data.goal.version, 6);
+
+    // Altered checkIn under same requestId triggers 409 REQUEST_CONFLICT
+    const conflictRes = await fetch(`${baseUrl}/api/goal/workspace/lesson`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ws-user-1-token' },
+      body: JSON.stringify({
+        ...payload,
+        checkIn: {
+          version: 1,
+          confidence: 'unsure',
+          focus: 'edge_cases'
+        }
+      })
+    });
+    assert.equal(conflictRes.status, 409);
+    const conflictBody = await conflictRes.json();
+    assert.equal(conflictBody.error.code, 'REQUEST_CONFLICT');
+
+    // Invalid checkIn version rejected with 422
+    const invalidVerRes = await fetch(`${baseUrl}/api/goal/workspace/lesson`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ws-user-1-token' },
+      body: JSON.stringify({
+        ...payload,
+        requestId: 'aaaaaaaa-2222-4222-8222-222222222222',
+        checkIn: {
+          version: 2,
+          confidence: 'ready'
+        }
+      })
+    });
+    assert.equal(invalidVerRes.status, 422);
+
+    // Unknown extra field rejected with 422
+    const extraFieldRes = await fetch(`${baseUrl}/api/goal/workspace/lesson`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ws-user-1-token' },
+      body: JSON.stringify({
+        ...payload,
+        requestId: 'aaaaaaaa-3333-4333-8333-333333333333',
+        checkIn: {
+          version: 1,
+          confidence: 'ready',
+          unexpected: true
+        }
+      })
+    });
+    assert.equal(extraFieldRes.status, 422);
+  });
+
+  it('POST /api/goal/workspace/exercise validates, persists, and enforces idempotency on checkIn', async () => {
+    const attemptId = 'bbbbbbbb-1111-4111-8111-111111111111';
+    const payload = {
+      expectedVersion: 6,
+      attemptId,
+      exerciseId: 'ex_arrays_01',
+      variantKey: 'primary',
+      stepAnswers: [
+        { stepIndex: 0, choiceId: 'c1_correct' },
+        { stepIndex: 1, choiceId: 'c2_correct' },
+        { stepIndex: 2, choiceId: 'c3_correct' }
+      ],
+      edgeChoiceId: 'ec_arr1_correct',
+      outcome: 'independent',
+      mistakeCount: 0,
+      hintRevealed: false,
+      referenceRevealed: false,
+      reflection: 'Clear takeaway on profit scan.',
+      checkIn: {
+        version: 1,
+        confidence: 'ready',
+        focus: 'update_order'
+      }
+    };
+
+    const res = await fetch(`${baseUrl}/api/goal/workspace/exercise`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ws-user-1-token' },
+      body: JSON.stringify(payload)
+    });
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    assert.equal(body.data.goal.version, 7);
+    assert.deepEqual(body.data.exerciseAttempt.checkIn, {
+      version: 1,
+      confidence: 'ready',
+      focus: 'update_order'
+    });
+
+    // Identical retry returns 200 without version bump
+    const dupRes = await fetch(`${baseUrl}/api/goal/workspace/exercise`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ws-user-1-token' },
+      body: JSON.stringify(payload)
+    });
+    assert.equal(dupRes.status, 200);
+    const dupBody = await dupRes.json();
+    assert.equal(dupBody.data.goal.version, 7);
+
+    // Altered checkIn under same attemptId triggers 409 ATTEMPT_CONFLICT
+    const conflictRes = await fetch(`${baseUrl}/api/goal/workspace/exercise`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ws-user-1-token' },
+      body: JSON.stringify({
+        ...payload,
+        checkIn: {
+          version: 1,
+          confidence: 'unsure',
+          focus: 'none'
+        }
+      })
+    });
+    assert.equal(conflictRes.status, 409);
+    const conflictBody = await conflictRes.json();
+    assert.equal(conflictBody.error.code, 'ATTEMPT_CONFLICT');
+  });
+  it('preserves omitted lesson check-ins, clears explicit null, and retries each without version bumps', async () => {
+    const row = [...dbRows.values()].find((entry) => entry.owner_id === 'ws-user-1');
+    const post = async (payload) => {
+      const response = await fetch(`${baseUrl}/api/goal/workspace/lesson`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ws-user-1-token' },
+        body: JSON.stringify(payload)
+      });
+      return { status: response.status, body: await response.json() };
+    };
+    const base = { lessonId: 'les_arrays_02', status: 'in_progress' };
+    const set = await post({ ...base, expectedVersion: row.version, requestId: 'cccccccc-1111-4111-8111-111111111111', checkIn: { version: 1, confidence: 'ready' } });
+    assert.equal(set.status, 200);
+    const omitted = { ...base, expectedVersion: set.body.data.goal.version, requestId: 'cccccccc-2222-4222-8222-222222222222' };
+    const preserved = await post(omitted);
+    assert.equal(preserved.status, 200);
+    assert.equal(preserved.body.data.lessonProgress.checkIn.confidence, 'ready');
+    const retry = await post(omitted);
+    assert.equal(retry.status, 200);
+    assert.equal(retry.body.data.goal.version, preserved.body.data.goal.version);
+    assert.equal((await post({ ...omitted, checkIn: null })).status, 409);
+    const clear = { ...base, expectedVersion: preserved.body.data.goal.version, requestId: 'cccccccc-3333-4333-8333-333333333333', checkIn: null };
+    const cleared = await post(clear);
+    assert.equal(cleared.status, 200);
+    assert.equal(cleared.body.data.lessonProgress.checkIn, null);
+    const clearRetry = await post(clear);
+    assert.equal(clearRetry.status, 200);
+    assert.equal(clearRetry.body.data.goal.version, cleared.body.data.goal.version);
+  });
 });
