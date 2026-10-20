@@ -1365,3 +1365,305 @@ export function deriveCandidateActivities(goal, catalog, initialPlan) {
 
   return candidates;
 }
+
+/**
+ * Derives the single dominant primary activity for Today according to deterministic precedence:
+ * 1. Explicit resumable activity, when actually recorded.
+ * 2. Pending activity from an accepted weekly plan.
+ * 3. Existing recommendation appropriate to the account state.
+ */
+export function deriveTodayPrimaryAction({
+  goal,
+  catalog,
+  resumeContext = null,
+  currentMission = null,
+  scheduleMap = {},
+  now = new Date()
+}) {
+  const curriculum = catalog?.curriculum;
+  const lessons = curriculum?.lessons || [];
+  const topics = curriculum?.topics || [];
+  const topicById = new Map(topics.map((t) => [t.id, t]));
+  const ws = goal?.studyWorkspace || {};
+  const lessonProgress = ws.lessonProgress || {};
+
+  const missions = catalog?.missions || [];
+  const completedMissionsCount = Object.keys(goal?.completions || {}).filter((id) =>
+    missions.some((m) => m.id === id)
+  ).length;
+  const isStarterCompleted = missions.length > 0 && completedMissionsCount >= missions.length;
+
+  // 1. Explicit Resumable Activity (when actually recorded)
+  // Check curriculum in-progress lesson
+  const inProgressLesson = lessons.find((l) => lessonProgress[l.id]?.status === 'in_progress');
+  if (inProgressLesson) {
+    const topic = topicById.get(inProgressLesson.topicId);
+    return {
+      type: 'resumable',
+      heading: 'Continue learning',
+      badge: 'In-Progress Lesson',
+      title: inProgressLesson.title,
+      subtitle: topic?.title || 'Learning path',
+      estimatedMinutes: inProgressLesson.estimatedMinutes || 20,
+      reason: 'Pick up where you left off. Finish its worked example and interactive trace to complete the lesson.',
+      actionLabel: 'Continue lesson',
+      actionTarget: {
+        type: 'proof',
+        topicId: inProgressLesson.topicId,
+        lessonId: inProgressLesson.id,
+        exerciseId: inProgressLesson.exerciseId,
+        mode: 'trace'
+      },
+      source: 'curriculum'
+    };
+  }
+
+  // Check starter mission with recorded resumeContext
+  if (resumeContext && resumeContext.mission) {
+    const m = resumeContext.mission;
+    const isReady = resumeContext.record?.selfReportedStatus === 'ready_to_continue';
+    return {
+      type: 'resumable',
+      heading: 'Continue learning',
+      badge: 'In-Progress Practice',
+      title: `${m.id.toUpperCase()} · ${m.title}`,
+      subtitle: 'Starter track',
+      estimatedMinutes: m.minutes || 30,
+      reason: isReady
+        ? 'You marked yourself ready to continue. Return to practice and record your completion.'
+        : 'Pick up where you left off with your saved practice notes and guidance.',
+      actionLabel: 'Resume practice',
+      actionTarget: {
+        type: 'mission',
+        mission: m
+      },
+      source: 'starter'
+    };
+  }
+
+  // 2. Pending Activity from an Accepted Weekly Plan
+  const planState = deriveActiveStudyPlanSession(ws);
+  if (planState.activeSession && !planState.allCompleted) {
+    const s = planState.activeSession;
+    const topic = topicById.get(s.topicId);
+    const isExerciseOrLesson = s.itemType === 'exercise' || s.itemType === 'lesson';
+    return {
+      type: 'weekly_plan',
+      heading: 'Start today’s activity',
+      badge: s.isRevisit
+        ? 'My week · Review'
+        : (s.totalParts > 1 ? `My week · Part ${s.partIndex}/${s.totalParts}` : 'My week'),
+      title: s.title,
+      subtitle: topic?.title || (s.itemType === 'practice' ? 'Practice problem' : 'Curriculum session'),
+      estimatedMinutes: s.allocatedMinutes,
+      reason: `Scheduled for ${s.date} in your weekly study plan (${s.allocatedMinutes}m allocated).`,
+      actionLabel: 'Start planned session',
+      actionTarget: isExerciseOrLesson
+        ? {
+            type: 'proof',
+            topicId: s.topicId,
+            lessonId: s.itemId.startsWith('les_') ? s.itemId : undefined,
+            exerciseId: s.itemId.startsWith('ex_') ? s.itemId : undefined
+          }
+        : {
+            type: 'practice',
+            problemId: s.itemId
+          },
+      source: 'plan',
+      alternativeAction: currentMission ? {
+        type: 'starter_mission',
+        title: `${currentMission.id.toUpperCase()} · ${currentMission.title}`,
+        subtitle: 'Starter track',
+        estimatedMinutes: currentMission.minutes || 30,
+        actionLabel: 'Switch to starter mission',
+        actionTarget: { type: 'mission', mission: currentMission }
+      } : undefined
+    };
+  }
+
+  // If weekly plan exists and ALL completed
+  if (planState.allCompleted && planState.totalSessions > 0) {
+    return {
+      type: 'weekly_plan_completed',
+      heading: 'All planned sessions completed',
+      badge: 'My week · Complete',
+      title: 'Weekly Study Plan Finished',
+      subtitle: `${planState.totalSessions} sessions completed`,
+      estimatedMinutes: 0,
+      reason: `You finished all ${planState.totalSessions} scheduled study sessions for this week. Plan your next progression or explore the curriculum.`,
+      actionLabel: 'Plan next sessions',
+      actionTarget: {
+        type: 'continuation_plan'
+      },
+      source: 'plan',
+      alternativeAction: {
+        type: 'explore_atlas',
+        title: 'Explore Learning path',
+        subtitle: 'Curriculum map',
+        actionLabel: 'Explore Learning path',
+        actionTarget: { type: 'atlas' }
+      }
+    };
+  }
+
+  // 3. Existing Recommendation Appropriate to the Account State
+  // Case A: Catalog unavailable
+  if (!curriculum || !Array.isArray(lessons) || lessons.length === 0) {
+    if (currentMission) {
+      return {
+        type: 'starter_mission',
+        heading: 'Start today’s activity',
+        badge: 'Starter track',
+        title: `${currentMission.id.toUpperCase()} · ${currentMission.title}`,
+        subtitle: 'DSA Foundations',
+        estimatedMinutes: currentMission.minutes || 30,
+        reason: 'Curriculum catalog is currently unavailable. Continue your daily starter mission.',
+        actionLabel: 'Start daily mission',
+        actionTarget: { type: 'mission', mission: currentMission },
+        source: 'starter'
+      };
+    }
+    return {
+      type: 'catalog_unavailable',
+      heading: 'Catalog unavailable',
+      badge: 'Offline',
+      title: 'Curriculum Not Available',
+      subtitle: 'System',
+      estimatedMinutes: 0,
+      reason: 'Curriculum topics and lessons could not be loaded. Please refresh the page.',
+      actionLabel: 'Refresh saved goal',
+      actionTarget: { type: 'refresh' },
+      source: 'none'
+    };
+  }
+
+  // Case B: Completed 12/12 Starter Missions
+  if (isStarterCompleted) {
+    const checkpointAttempt = ws.continuation?.checkpoint?.latestAttempt;
+    if (!checkpointAttempt) {
+      return {
+        type: 'checkpoint',
+        heading: 'Start today’s activity',
+        badge: 'Foundations Checkpoint',
+        title: 'Check My Foundations',
+        subtitle: '10-minute conceptual check',
+        estimatedMinutes: 10,
+        reason: 'Review the 12 starter foundations with 6 short questions to personalize your curriculum study plan.',
+        actionLabel: 'Check My Foundations (10 min)',
+        actionTarget: { type: 'checkpoint' },
+        source: 'curriculum',
+        alternativeAction: {
+          type: 'explore_atlas',
+          title: 'Explore Learning path',
+          subtitle: 'Curriculum map',
+          actionLabel: 'Explore Learning path',
+          actionTarget: { type: 'atlas' }
+        }
+      };
+    } else if (!ws.continuation?.suggestedPlan?.acceptedAt && !planState.hasPlan) {
+      return {
+        type: 'continuation_checkpoint_complete',
+        heading: 'Continue learning',
+        badge: 'Foundations Checkpoint Complete',
+        title: 'Review Foundations Checkpoint & Plan Next Step',
+        subtitle: 'Personalized curriculum roadmap',
+        estimatedMinutes: 5,
+        reason: 'Your checkpoint evaluation is recorded. Review your foundations checkpoint or build your weekly curriculum plan.',
+        actionLabel: 'Review Foundations Checkpoint',
+        actionTarget: { type: 'checkpoint' },
+        source: 'curriculum',
+        alternativeAction: {
+          type: 'explore_atlas',
+          title: 'Explore Learning path',
+          subtitle: 'Curriculum map',
+          actionLabel: 'Explore Learning path',
+          actionTarget: { type: 'atlas' }
+        }
+      };
+    }
+  }
+
+  // Case C: Standard Explainable Recommendation
+  const rec = deriveExplainableRecommendation(goal, catalog, now);
+
+  // Check if all curriculum lessons completed
+  const allCurriculumCompleted = lessons.length > 0 && lessons.every((l) => lessonProgress[l.id]?.status === 'completed');
+  if (allCurriculumCompleted) {
+    return {
+      type: 'all_completed',
+      heading: 'All curriculum lessons completed',
+      badge: 'Curriculum Complete · Revision',
+      title: rec?.title || lessons[0]?.title || 'Revision & Mastery',
+      subtitle: rec?.topicTitle || 'All Topics Completed',
+      estimatedMinutes: rec?.estimatedMinutes || 20,
+      reason: 'You have completed every published lesson! Revisit interactive Proof traces with alternate inputs.',
+      actionLabel: 'Practice alternate trace',
+      actionTarget: {
+        type: 'proof',
+        topicId: rec?.topicId || lessons[0]?.topicId,
+        lessonId: rec?.lessonId || lessons[0]?.id,
+        exerciseId: rec?.exerciseId || lessons[0]?.exerciseId
+      },
+      source: 'curriculum'
+    };
+  }
+
+  if (rec) {
+    const isFirstTime = !hasRecordedCurriculumActivity(goal);
+    const plainReason = rec.reason || (isFirstTime
+      ? 'Starting lesson for Arrays & Memory with zero unmet prerequisites to learn interactive proof tracing and array invariants.'
+      : 'Recommended next step in your curriculum path.');
+
+    const primaryAction = {
+      type: 'recommendation',
+      heading: 'Start today’s activity',
+      badge: rec.badge || (isFirstTime ? 'First Lesson · Getting Started' : 'Recommended Today'),
+      title: rec.title,
+      subtitle: rec.topicTitle,
+      estimatedMinutes: rec.estimatedMinutes || 20,
+      reason: plainReason,
+      actionLabel: isFirstTime ? 'Start your first lesson' : (rec.lessonId ? 'Start lesson' : 'Start practice'),
+      actionTarget: rec.lessonId ? {
+        type: 'proof',
+        topicId: rec.topicId,
+        lessonId: rec.lessonId,
+        exerciseId: rec.exerciseId,
+        mode: isFirstTime ? 'learn' : 'trace'
+      } : {
+        type: 'practice',
+        problemId: rec.problemId
+      },
+      source: 'curriculum'
+    };
+
+    if (currentMission && !isStarterCompleted) {
+      primaryAction.alternativeAction = {
+        type: 'starter_mission',
+        title: `${currentMission.id.toUpperCase()} · ${currentMission.title}`,
+        subtitle: 'Starter track',
+        estimatedMinutes: currentMission.minutes || 30,
+        actionLabel: 'Switch to starter mission',
+        actionTarget: { type: 'mission', mission: currentMission }
+      };
+    }
+
+    return primaryAction;
+  }
+
+  if (currentMission) {
+    return {
+      type: 'starter_mission',
+      heading: 'Start today’s activity',
+      badge: 'Starter track',
+      title: `${currentMission.id.toUpperCase()} · ${currentMission.title}`,
+      subtitle: 'DSA Foundations',
+      estimatedMinutes: currentMission.minutes || 30,
+      reason: 'Your daily starter mission to build regular study pacing.',
+      actionLabel: 'Start daily mission',
+      actionTarget: { type: 'mission', mission: currentMission },
+      source: 'starter'
+    };
+  }
+
+  return null;
+}

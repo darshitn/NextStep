@@ -99,8 +99,13 @@ const output = path.resolve(__dirname, '../.local/weekly-execution-evidence');
         await page.screenshot({ path: path.join(output, `week-${width}.png`), fullPage: true });
       }
       await page.getByRole('tab', { name: 'Today', exact: true }).click();
-      await page.getByRole('button', { name: /More/ }).click();
-      await page.getByRole('menuitem', { name: 'Week', exact: true }).click();
+      const weekTab = page.getByRole('tab', { name: /^(?:My week|Week)$/ });
+      if (await weekTab.isVisible()) {
+        await weekTab.click();
+      } else {
+        await page.getByRole('button', { name: /More/ }).click();
+        await page.getByRole('menuitem', { name: /^(?:My week|Week)$/ }).click();
+      }
       await page.locator('#view-week').waitFor(); assert.match(page.url(), /view=week/);
     });
     await check('All-done plan offers a useful next plan and no remaining-work action', async () => {

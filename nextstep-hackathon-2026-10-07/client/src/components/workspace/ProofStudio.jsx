@@ -58,6 +58,7 @@ export default function ProofStudio({
   selectedTopicId,
   selectedLessonId,
   selectedExerciseId,
+  initialMode = null,
   onSelectTopic,
   onSelectLesson,
   onSelectExercise,
@@ -117,9 +118,14 @@ export default function ProofStudio({
   const lessonRecord = activeLesson ? ws.lessonProgress?.[activeLesson.id] : null;
   const exerciseHistory = activeExercise ? ws.exerciseAttempts?.[activeExercise.id] || [] : [];
 
-  // Studio Mode: 'trace' | 'learn' | 'reflect'
-  // Defaults to 'trace' so interactive trace is immediately accessible
-  const [proofMode, setProofMode] = useState('trace');
+  const isGenuinelyNew = !lessonRecord && exerciseHistory.length === 0;
+  const [proofMode, setProofMode] = useState(() => (initialMode ? initialMode : isGenuinelyNew ? 'learn' : 'trace'));
+
+  useEffect(() => {
+    if (initialMode && ['learn', 'trace', 'reflect'].includes(initialMode)) {
+      setProofMode(initialMode);
+    }
+  }, [initialMode]);
   const [showMobileCode, setShowMobileCode] = useState(false);
   const [showMobileObjective, setShowMobileObjective] = useState(false);
   const [showMobilePickers, setShowMobilePickers] = useState(false);
@@ -879,6 +885,7 @@ export default function ProofStudio({
       {/* Proof Learning Loop Progress Guide */}
       <section
         aria-label="Proof learning loop progress guide"
+        data-guide="proof-header"
         className="learning-loop-guide p-2.5 sm:p-4 rounded-xl border ui-border-border ui-bg-surface space-y-2 sm:space-y-2.5"
       >
         <div className="flex items-center justify-between gap-2 flex-wrap">
@@ -887,7 +894,7 @@ export default function ProofStudio({
               Learning Loop
             </span>
             <span className="text-xs font-bold ui-text-ink">
-              {activeExercise ? 'Understand → Predict → Check → Save' : 'Understand → Check → Save'}
+              {activeExercise ? 'Learn → Try → Check → Finish' : 'Learn → Check → Finish'}
             </span>
           </div>
           <span className="text-[11px] ui-text-muted hidden sm:inline">
@@ -897,9 +904,10 @@ export default function ProofStudio({
 
         {activeExercise ? (
           <div className="grid grid-cols-4 gap-1.5 sm:gap-2.5">
-            {/* Step 1: Understand */}
+            {/* Step 1: Learn */}
             <button
               type="button"
+              data-guide="proof-learn-tab"
               onClick={() => setProofMode('learn')}
               className={`p-1.5 sm:p-2.5 rounded-lg border text-left transition-colors flex flex-col justify-between gap-1 sm:gap-1.5 ${
                 proofMode === 'learn'
@@ -908,7 +916,7 @@ export default function ProofStudio({
               }`}
             >
               <div className="flex items-center justify-between gap-1 w-full">
-                <span className="text-[10px] sm:text-[11px] font-bold uppercase tracking-wider opacity-75">1. Understand</span>
+                <span className="text-[10px] sm:text-[11px] font-bold uppercase tracking-wider opacity-75">1. Learn</span>
                 <BookOpen size={11} className="ui-text-accent shrink-0 hidden sm:inline" aria-hidden="true" />
               </div>
               <div>
@@ -917,9 +925,10 @@ export default function ProofStudio({
               </div>
             </button>
 
-            {/* Step 2: Predict */}
+            {/* Step 2: Try */}
             <button
               type="button"
+              data-guide="proof-try-tab"
               onClick={() => navigateToProofTarget('trace-step-choices')}
               className={`p-1.5 sm:p-2.5 rounded-lg border text-left transition-colors flex flex-col justify-between gap-1 sm:gap-1.5 ${
                 allStepsCompleted
@@ -930,7 +939,7 @@ export default function ProofStudio({
               }`}
             >
               <div className="flex items-center justify-between gap-1 w-full">
-                <span className="text-[10px] sm:text-[11px] font-bold uppercase tracking-wider opacity-75">2. Predict</span>
+                <span className="text-[10px] sm:text-[11px] font-bold uppercase tracking-wider opacity-75">2. Try</span>
                 {allStepsCompleted ? (
                   <CheckCircle2 size={11} className="text-emerald-600 dark:text-emerald-400 shrink-0" aria-hidden="true" />
                 ) : (
@@ -950,6 +959,7 @@ export default function ProofStudio({
             {/* Step 3: Check */}
             <button
               type="button"
+              data-guide="proof-check-tab"
               onClick={() => navigateToProofTarget('boundary-check-heading')}
               className={`p-1.5 sm:p-2.5 rounded-lg border text-left transition-colors flex flex-col justify-between gap-1 sm:gap-1.5 ${
                 edgePassed
@@ -977,8 +987,9 @@ export default function ProofStudio({
               </div>
             </button>
 
-            {/* Step 4: Save */}
+            {/* Step 4: Finish */}
             <div
+              data-guide="proof-finish-tab"
               className={`p-1.5 sm:p-2.5 rounded-lg border text-left flex flex-col justify-between gap-1 sm:gap-1.5 ${
                 Boolean(latestExerciseAttempt)
                   ? 'border-emerald-300 dark:border-emerald-800 bg-emerald-50/50 dark:bg-emerald-950/20 ui-text-ink'
@@ -988,7 +999,7 @@ export default function ProofStudio({
               }`}
             >
               <div className="flex items-center justify-between gap-1 w-full">
-                <span className="text-[10px] sm:text-[11px] font-bold uppercase tracking-wider opacity-75">4. Save</span>
+                <span className="text-[10px] sm:text-[11px] font-bold uppercase tracking-wider opacity-75">4. Finish</span>
                 {Boolean(latestExerciseAttempt) ? (
                   <CheckCircle2 size={11} className="text-emerald-600 dark:text-emerald-400 shrink-0" aria-hidden="true" />
                 ) : (
@@ -1370,7 +1381,7 @@ export default function ProofStudio({
                       </div>
 
                       {/* Step Checkpoint Prompt & Choices */}
-                      <div className="rounded-xl border ui-border-border ui-bg-soft p-3 sm:p-4 space-y-2.5 sm:space-y-3">
+                      <div data-guide="proof-try-container" className="rounded-xl border ui-border-border ui-bg-soft p-3 sm:p-4 space-y-2.5 sm:space-y-3">
                         <h4 className="text-xs sm:text-sm font-bold ui-text-ink">
                           Checkpoint {currentTraceState.currentStepIdx + 1}: {renderFormattedProse(currentStep.prompt)}
                         </h4>
@@ -1543,6 +1554,7 @@ export default function ProofStudio({
 
               {/* Save Proof Attempt Form & Exercise Reflection */}
               <form
+                data-guide="proof-save-section"
                 onSubmit={handleRecordExerciseAttempt}
                 className="rounded-xl border ui-border-border ui-bg-soft p-4 space-y-3"
               >
@@ -1931,7 +1943,7 @@ export default function ProofStudio({
           ) : (
             /* Exercise-Free Lesson View: Meaningful empty trace state + Direct lesson reflection */
             <div className="space-y-4">
-              <section className="rounded-xl border ui-border-border ui-bg-surface p-6 text-center space-y-2">
+              <section data-guide="proof-try-container" className="rounded-xl border ui-border-border ui-bg-surface p-6 text-center space-y-2">
                 <h4 className="text-sm font-bold ui-text-ink">No Interactive Proof Trace Attached to this Lesson</h4>
                 <p className="text-xs ui-text-muted max-w-lg mx-auto leading-relaxed">
                   This lesson covers core conceptual mechanics, worked examples, and boundary invariants. Explore the concepts in the Learn tab or summarize your takeaways below.
@@ -1947,7 +1959,7 @@ export default function ProofStudio({
               </section>
 
               {/* Lesson Reflection Card for Exercise-Free Lesson */}
-              <div className="rounded-xl border ui-border-border ui-bg-surface p-5 space-y-3">
+              <div data-guide="proof-save-section" className="rounded-xl border ui-border-border ui-bg-surface p-5 space-y-3">
                 <h3 className="text-base font-bold ui-text-ink">
                   Lesson Reflection &amp; Takeaways
                 </h3>

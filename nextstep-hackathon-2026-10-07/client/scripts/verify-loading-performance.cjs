@@ -82,8 +82,19 @@ async function check(name, run) {
 
     // Helper: Select workspace view from nav bar across any page
     const selectViewOnPage = async (p, name) => {
-      const direct = p.locator('.workspace-nav').getByRole('button', { name: new RegExp('^' + name + '(?:\\s|$)', 'i') })
-        .or(p.locator('.workspace-nav').getByRole('tab', { name: new RegExp('^' + name + '(?:\\s|$)', 'i') }));
+      const labelMap = {
+        Atlas: '(?:Learning path|Atlas)',
+        Proof: '(?:Learn & practise|Learn|Proof)',
+        Week: '(?:My week|Week)',
+        Roadmap: '(?:Starter track|Roadmap)',
+        Insights: '(?:Progress|Insights)',
+        Practice: 'Practice',
+        Review: 'Review',
+        Today: 'Today'
+      };
+      const pattern = labelMap[name] || name;
+      const direct = p.locator('.workspace-nav').getByRole('button', { name: new RegExp('^' + pattern + '(?:\\s|$)', 'i') })
+        .or(p.locator('.workspace-nav').getByRole('tab', { name: new RegExp('^' + pattern + '(?:\\s|$)', 'i') }));
       const count = await direct.count();
       for (let i = 0; i < count; i++) {
         const el = direct.nth(i);
@@ -94,8 +105,8 @@ async function check(name, run) {
       const moreTrigger = p.locator('#nav-more-trigger');
       if (await moreTrigger.isVisible()) {
         await moreTrigger.click();
-        const menuEl = p.locator('.workspace-nav-dropdown').getByRole('menuitem', { name: new RegExp('^' + name + '(?:\\s|$)', 'i') })
-          .or(p.locator('.workspace-nav-dropdown').getByRole('button', { name: new RegExp('^' + name + '(?:\\s|$)', 'i') }));
+        const menuEl = p.locator('.workspace-nav-dropdown').getByRole('menuitem', { name: new RegExp('^' + pattern + '(?:\\s|$)', 'i') })
+          .or(p.locator('.workspace-nav-dropdown').getByRole('button', { name: new RegExp('^' + pattern + '(?:\\s|$)', 'i') }));
         return menuEl.first().click();
       }
       return direct.first().click();

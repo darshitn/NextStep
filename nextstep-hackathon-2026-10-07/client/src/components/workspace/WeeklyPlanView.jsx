@@ -7,6 +7,12 @@ export default function WeeklyPlanView({ goal, catalog, onOpenProofLesson, onOpe
   const [offset, setOffset] = useState(0);
   const model = deriveWeeklyExecution(goal, new Date(), offset);
   const [filter, setFilter] = useState('all');
+
+  const starterMissions = catalog?.missions || [];
+  const completedStarterIds = new Set(Object.keys(goal?.completions || {}));
+  const uncompletedStarterMissions = starterMissions.filter(m => !completedStarterIds.has(m.id));
+  const hasStarterWork = uncompletedStarterMissions.length > 0;
+
   const open = (session) => {
     if (session.itemType === 'practice') return onOpenPracticeProblem(session.itemId);
     const exercise = catalog?.curriculum?.exercises?.find(item => item.id === session.itemId);
@@ -25,12 +31,38 @@ export default function WeeklyPlanView({ goal, catalog, onOpenProofLesson, onOpe
   );
   return (
     <section id="view-week" className="workspace-content week-workspace" role="region" aria-labelledby="week-heading">
-      <header className="week-heading">
+      <header className="week-heading" data-guide="week-heading">
         <div><span className="week-eyebrow"><CalendarDays size={15} /> YOUR EXECUTION WEEK</span><h1 id="week-heading">A plan you can act on.</h1><p className="ui-text-muted text-sm">See what is next, start one activity, and make room when life changes.</p></div>
-        <button type="button" className="primary-button text-xs" onClick={model.pendingActivities ? replan : () => onPlan(null)} disabled={model.pendingActivities > 40}><RotateCcw size={15} /> {model.pendingActivities ? 'Replan remaining work' : 'Plan study activities'}</button>
+        <button type="button" data-guide="week-plan-actions" className="primary-button text-xs" onClick={model.pendingActivities ? replan : () => onPlan(null)} disabled={model.pendingActivities > 40}><RotateCcw size={15} /> {model.pendingActivities ? 'Replan remaining work' : 'Plan study activities'}</button>
       </header>
       {!model.hasPlan ? (
-        <div className="week-empty"><CalendarDays size={30} className="ui-text-accent" /><h2>Your week starts with a choice.</h2><p>Choose curriculum activities and your availability. Review the dates before saving; your starter track stays separate.</p><button type="button" className="primary-button" onClick={() => onPlan(null)}>Build my week <ArrowRight size={15} /></button><button type="button" className="secondary-button" onClick={() => onSelectView('atlas')}>Explore the curriculum</button></div>
+        <div className="week-empty" data-guide="week-empty-state">
+          <CalendarDays size={30} className="ui-text-accent" />
+          <h2>No curriculum plan yet</h2>
+          <p>Choose curriculum activities and your availability. Review the dates before saving; your starter track stays separate.</p>
+          {hasStarterWork && (
+            <div className="p-3.5 rounded-xl border ui-border-border ui-bg-soft/50 text-xs ui-text-muted space-y-1.5 max-w-md mx-auto text-left">
+              <p className="font-semibold ui-text-ink">
+                Starter track is active ({starterMissions.length - uncompletedStarterMissions.length}/{starterMissions.length} completed)
+              </p>
+              <p>
+                You have {uncompletedStarterMissions.length} scheduled starter mission{uncompletedStarterMissions.length === 1 ? '' : 's'} available to build regular study pacing.
+              </p>
+              <button
+                type="button"
+                className="secondary-button text-xs py-1.5 px-3 mt-1 inline-flex items-center gap-1.5"
+                onClick={() => onSelectView('roadmap')}
+              >
+                <span>View Starter track missions</span>
+                <ArrowRight size={13} />
+              </button>
+            </div>
+          )}
+          <div className="flex items-center justify-center gap-2 pt-2 flex-wrap">
+            <button type="button" className="primary-button" onClick={() => onPlan(null)}>Build my week <ArrowRight size={15} /></button>
+            <button type="button" className="secondary-button" onClick={() => onSelectView('atlas')}>Explore Learning path</button>
+          </div>
+        </div>
       ) : <>
         <div className="week-metrics" aria-label="Weekly plan summary">
           <div><span>Activities remaining</span><strong>{model.pendingActivities}</strong></div><div><span>Completed activities</span><strong>{model.completedActivities}</strong></div><div><span>Allocated in this view</span><strong>{model.weekMinutes}<small> min</small></strong></div>
@@ -42,7 +74,7 @@ export default function WeeklyPlanView({ goal, catalog, onOpenProofLesson, onOpe
           <div className="week-date-controls"><button type="button" className="secondary-button" aria-label="Previous seven days" onClick={() => setOffset(value => value - 1)} disabled={offset <= -52}><ChevronLeft size={16} /></button><div><h2>{readableDay(model.start, { month: 'short', day: 'numeric' })} – {readableDay(model.end, { month: 'short', day: 'numeric' })}</h2><span>Asia/Kolkata · seven-day view</span></div><button type="button" className="secondary-button" aria-label="Next seven days" onClick={() => setOffset(value => value + 1)} disabled={offset >= 52}><ChevronRight size={16} /></button><button type="button" className="week-text-button" onClick={() => setOffset(0)}>This week</button></div>
           <div className="week-filter" role="group" aria-label="Activity visibility">{[['all', 'All'], ['pending', 'Remaining'], ['completed', 'Completed']].map(([value, label]) => <button key={value} type="button" aria-pressed={filter === value} onClick={() => setFilter(value)}>{label}</button>)}</div>
         </div>
-        <div className="week-days">{model.days.map(day => {
+        <div className="week-days" data-guide="week-days-container">{model.days.map(day => {
           const visible = day.sessions.filter(session => filter === 'all' || (filter === 'completed' ? session.completed : !session.completed));
           return <section key={day.date} className={`week-day ${day.isToday ? 'is-today' : ''}`} aria-label={day.date}><header><div><span>{new Date(day.date + 'T12:00:00Z').toLocaleDateString('en-GB', { weekday: 'short', timeZone: 'UTC' })}</span><h2>{readableDay(day.date, { month: 'short', day: 'numeric' })}</h2>{day.isToday && <b>Today</b>}</div><span className="week-day-capacity"><Clock size={12} /> {day.allocated}m planned · {day.capacity}m available</span></header><div className="week-session-list">{visible.length ? visible.map(row) : <p className="week-rest">{day.sessions.length ? 'No activities match this filter.' : day.capacity ? 'Open capacity. No activity scheduled.' : 'Rest day. No time committed.'}</p>}</div></section>;
         })}</div>

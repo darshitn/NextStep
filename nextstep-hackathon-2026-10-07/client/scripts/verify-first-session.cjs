@@ -115,23 +115,23 @@ export const apiService = { ...apiFixture, demoAccounts: DEMO_ACCOUNTS,
       const guide = page.locator('section[aria-label="Proof learning loop progress guide"]');
       await guide.waitFor();
       const guideText = await guide.textContent();
-      assert.ok(guideText.includes('Understand → Predict → Check → Save'), 'Header must show 4-step loop');
-      assert.ok(guideText.includes('1. Understand'), 'Must have Step 1');
-      assert.ok(guideText.includes('2. Predict'), 'Must have Step 2');
+      assert.ok(guideText.includes('Learn → Try → Check → Finish') || guideText.includes('Understand → Predict → Check → Save'), 'Header must show 4-step loop');
+      assert.ok(guideText.includes('1. Learn') || guideText.includes('1. Understand'), 'Must have Step 1');
+      assert.ok(guideText.includes('2. Try') || guideText.includes('2. Predict'), 'Must have Step 2');
       assert.ok(guideText.includes('3. Check'), 'Must have Step 3');
-      assert.ok(guideText.includes('4. Save'), 'Must have Step 4');
+      assert.ok(guideText.includes('4. Finish') || guideText.includes('4. Save'), 'Must have Step 4');
 
       await page.screenshot({ path: path.join(output, 'first-session-proof-guide-1440.png'), fullPage: false });
 
       // 2. Click "Understand" in guide -> switches to Learn mode
-      const understandBtn = guide.getByRole('button', { name: /1\. Understand/i });
+      const understandBtn = guide.getByRole('button', { name: /(?:1\. Learn|1\. Understand)/i });
       await understandBtn.click();
-      await page.getByRole('tab', { name: /Learn/i, selected: true }).waitFor();
+      await page.getByRole('tab', { name: 'Learn', exact: true, selected: true }).waitFor();
 
       // 3. Click "Predict" in guide -> switches back to Trace mode
-      const predictBtn = guide.getByRole('button', { name: /2\. Predict/i });
+      const predictBtn = guide.getByRole('button', { name: /(?:2\. Try|2\. Predict)/i });
       await predictBtn.click();
-      await page.getByRole('tab', { name: /Trace/i, selected: true }).waitFor();
+      await page.getByRole('tab', { name: /^Trace/i, selected: true }).waitFor();
       await page.waitForFunction(() => document.activeElement?.closest('#trace-step-choices'));
 
       // 4. Verify disabled Save explanation at 0/3 verified steps
@@ -263,8 +263,8 @@ export const apiService = { ...apiFixture, demoAccounts: DEMO_ACCOUNTS,
       await page.locator('#view-today').waitFor();
       assert.equal(await firstSessionCard.count(), 0, 'First-session card must be absent for existing active student');
 
-      // Existing workspace recommendation card remains present in rail
-      const railCard = page.locator('.context-card[aria-label="Atlas and Proof recommended next step"]');
+      // Existing workspace recommendation card remains present
+      const railCard = page.locator('[aria-label="Atlas and Proof recommended next step"]');
       await railCard.waitFor();
       assert.ok(await railCard.isVisible(), 'Rail recommendation remains available');
 
@@ -286,11 +286,11 @@ export const apiService = { ...apiFixture, demoAccounts: DEMO_ACCOUNTS,
       const guide = page.locator('section[aria-label="Proof learning loop progress guide"]');
       await guide.waitFor();
       const guideText = await guide.textContent();
-      assert.ok(guideText.includes('Understand → Check → Save'), 'Header must show 3-step loop for exercise-free lesson');
-      assert.ok(guideText.includes('1. Understand'), 'Must have Step 1');
+      assert.ok(guideText.includes('Understand → Check → Save') || guideText.includes('Learn → Check → Finish'), 'Header must show 3-step loop for exercise-free lesson');
+      assert.ok(guideText.includes('1. Understand') || guideText.includes('1. Learn'), 'Must have Step 1');
       assert.ok(guideText.includes('2. Check'), 'Must have Step 2');
-      assert.ok(guideText.includes('3. Save'), 'Must have Step 3');
-      assert.ok(!guideText.includes('2. Predict'), 'Must NOT have Predict step in exercise-free lesson');
+      assert.ok(guideText.includes('3. Save') || guideText.includes('3. Finish'), 'Must have Step 3');
+      assert.ok(!guideText.includes('2. Predict') && !guideText.includes('2. Try'), 'Must NOT have Predict step in exercise-free lesson');
 
       // 2. Verify trace notice explains no interactive trace attached
       await page.getByText(/No Interactive Proof Trace Attached to this Lesson/i).waitFor();
@@ -299,9 +299,9 @@ export const apiService = { ...apiFixture, demoAccounts: DEMO_ACCOUNTS,
       const traceChoices = page.locator('#trace-step-choices');
       assert.equal(await traceChoices.count(), 0, 'No trace choices on exercise-free lesson');
 
-      await guide.getByRole('button', { name: /1\. Understand/ }).click();
+      await guide.getByRole('button', { name: /(?:1\. Understand|1\. Learn)/ }).click();
       await guide.getByRole('button', { name: /2\. Check/ }).click();
-      await page.getByRole('tab', { name: /Learn/i, selected: true }).waitFor();
+      await page.getByRole('tab', { name: 'Learn', exact: true, selected: true }).waitFor();
       await page.waitForFunction(() => document.activeElement?.closest('[role="radiogroup"][aria-label="Lesson invariant check"]'));
       await page.locator('#proof-lesson-select').focus();
       await page.locator('#proof-lesson-select').selectOption('les_arrays_04');

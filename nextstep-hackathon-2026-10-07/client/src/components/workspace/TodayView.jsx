@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useMemo } from 'react';
 import ProgressSummary from '../ProgressSummary.jsx';
 import PracticeActivity from '../PracticeActivity.jsx';
 import MissionCard from '../MissionCard.jsx';
@@ -15,9 +15,20 @@ import {
   Sparkles,
   Compass,
   Calendar,
-  BookOpen
+  BookOpen,
+  HelpCircle,
+  X,
+  Play
 } from 'lucide-react';
-import { deriveActiveStudyPlanSession, hasRecordedCurriculumActivity } from '../../services/workspace.js';
+import {
+  deriveActiveStudyPlanSession,
+  hasRecordedCurriculumActivity,
+  deriveTodayPrimaryAction
+} from '../../services/workspace.js';
+import {
+  loadGuidePreferences,
+  saveGuidePreferences
+} from '../../services/guideService.js';
 
 export default function TodayView({
   goal,
@@ -59,15 +70,85 @@ export default function TodayView({
   onPauseTimer,
   onResumeTimer,
   onResetTimer,
-  onSelectTimerPreset
+  onSelectTimerPreset,
+  // Interactive Guide props
+  user,
+  onOpenGuide
 }) {
   const planState = deriveActiveStudyPlanSession(goal?.studyWorkspace);
   const activeSession = planState.activeSession;
   const allPlanCompleted = planState.allCompleted;
   const isFirstTimeCurriculumStudent = !hasRecordedCurriculumActivity(goal);
 
+  // Guide walkthrough invitation preferences
+  const [guidePrefs, setGuidePrefs] = useState(() => loadGuidePreferences(user));
+  const showWalkthroughInvitation = !guidePrefs?.dismissedInvitation;
+  const [showAlternativeDetails, setShowAlternativeDetails] = useState(false);
+
+  const handleDismissWalkthrough = () => {
+    const updated = { ...guidePrefs, dismissedInvitation: true };
+    setGuidePrefs(updated);
+    saveGuidePreferences(user, updated);
+  };
+
+  const handleStartWalkthrough = (chapterId = 'start_learning', triggerEl = null) => {
+    handleDismissWalkthrough();
+    if (onOpenGuide) {
+      onOpenGuide(chapterId, triggerEl);
+    }
+  };
+
+  // Derive single dominant activity card with deterministic precedence
+  const primaryAction = useMemo(() => {
+    return deriveTodayPrimaryAction({
+      goal,
+      catalog,
+      resumeContext,
+      currentMission,
+      scheduleMap
+    });
+  }, [goal, catalog, resumeContext, currentMission, scheduleMap]);
+
+  const handleExecuteTarget = (target) => {
+    if (!target) return;
+    if (target.type === 'proof') {
+      if (onOpenProofLesson) {
+        onOpenProofLesson({
+          topicId: target.topicId,
+          lessonId: target.lessonId,
+          exerciseId: target.exerciseId,
+          mode: target.mode
+        });
+      }
+    } else if (target.type === 'practice') {
+      if (onOpenPracticeProblem) {
+        onOpenPracticeProblem(target.problemId);
+      }
+    } else if (target.type === 'mission') {
+      if (onOpenPractice) {
+        onOpenPractice(target.mission);
+      }
+    } else if (target.type === 'checkpoint') {
+      if (onOpenCheckpoint) {
+        onOpenCheckpoint();
+      }
+    } else if (target.type === 'continuation_plan') {
+      if (onOpenContinuationPlan) {
+        onOpenContinuationPlan();
+      }
+    } else if (target.type === 'atlas') {
+      if (onSelectView) {
+        onSelectView('atlas');
+      }
+    } else if (target.type === 'refresh') {
+      if (onRefresh) {
+        onRefresh();
+      }
+    }
+  };
+
   return (
-    <section id="view-today" role="region" aria-labelledby="today-heading" className="workspace-content">
+    <section id="view-today" role="region" aria-labelledby="today-heading" className="workspace-content space-y-5">
       {/* Optional Rename Form */}
       {editingName && (
         <form onSubmit={saveName} className="rounded-xl border ui-border-border ui-bg-surface p-4 space-y-3">
@@ -101,6 +182,40 @@ export default function TodayView({
         </form>
       )}
 
+      {/* Dismissible Walkthrough Invitation */}
+      {showWalkthroughInvitation && (
+        <div
+          role="region"
+          aria-label="Walkthrough invitation"
+          data-guide="walkthrough-invitation"
+          className="p-3.5 sm:p-4 rounded-xl border ui-border-border ui-bg-surface flex items-center justify-between gap-3 flex-wrap"
+        >
+          <div className="flex items-center gap-2.5">
+            <Sparkles className="w-4 h-4 ui-text-accent shrink-0" aria-hidden="true" />
+            <div>
+              <p className="text-xs sm:text-sm font-bold ui-text-ink">Want a quick walkthrough?</p>
+              <p className="text-xs ui-text-muted">Take a 2-minute tour to see what to do, where to find things, and how saving works.</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={(e) => handleStartWalkthrough('start_learning', e.currentTarget)}
+              className="primary-button text-xs py-1.5 px-3"
+            >
+              Start walkthrough
+            </button>
+            <button
+              type="button"
+              onClick={handleDismissWalkthrough}
+              className="px-2.5 py-1.5 text-xs font-semibold ui-text-muted hover:ui-text-ink"
+            >
+              Not now
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Goal Header */}
       <div className="goal-heading">
         <div>
@@ -113,6 +228,17 @@ export default function TodayView({
         </div>
 
         <div className="flex items-center gap-2.5 self-start sm:self-auto flex-wrap">
+          <button
+            type="button"
+            onClick={(e) => handleStartWalkthrough('start_learning', e.currentTarget)}
+            data-guide="getting-started-trigger"
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl ui-bg-surface hover:ui-bg-soft border ui-border-border text-xs font-semibold ui-text-ink transition-colors"
+            title="Getting started walkthrough"
+          >
+            <HelpCircle className="w-3.5 h-3.5 ui-text-accent" aria-hidden="true" />
+            <span>Getting started</span>
+          </button>
+
           <button
             type="button"
             onClick={() => {
@@ -154,107 +280,143 @@ export default function TodayView({
         </p>
       )}
 
+      {/* ONE DOMINANT PRIMARY ACTIVITY HERO CARD */}
+      {primaryAction && (
+        <section
+          data-guide="today-activity-card"
+          aria-label={
+            isFirstTimeCurriculumStudent
+              ? "First-time curriculum lesson invitation"
+              : primaryAction.source === 'curriculum'
+              ? "Atlas and Proof recommended next step"
+              : "Today recommended activity"
+          }
+          className="today-dominant-card p-5 sm:p-6 rounded-2xl border ui-border-border ui-bg-surface space-y-4 shadow-sm"
+        >
+          <div className="flex items-start justify-between gap-3 flex-wrap">
+            <div className="space-y-1">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-[11px] font-bold uppercase tracking-wider px-2.5 py-0.5 rounded-full ui-bg-accent/15 ui-text-accent">
+                  {primaryAction.badge}
+                </span>
+                {primaryAction.estimatedMinutes > 0 && (
+                  <span className="inline-flex items-center gap-1 text-xs font-semibold ui-text-muted">
+                    <Clock className="w-3.5 h-3.5" />
+                    <span>{primaryAction.estimatedMinutes} mins</span>
+                  </span>
+                )}
+              </div>
+              <h2 className="text-lg sm:text-xl font-extrabold ui-text-ink tracking-tight">
+                {isFirstTimeCurriculumStudent ? "Start your first lesson" : primaryAction.heading}
+              </h2>
+              <p className="text-sm font-semibold ui-text-ink">
+                {primaryAction.title}
+                {primaryAction.subtitle && (
+                  <span className="font-normal ui-text-muted"> · {primaryAction.subtitle}</span>
+                )}
+              </p>
+            </div>
+
+            <button
+              type="button"
+              data-guide="today-primary-action-btn"
+              data-action-type={primaryAction.actionTarget?.type || 'proof'}
+              data-action-label={primaryAction.actionLabel}
+              onClick={() => handleExecuteTarget(primaryAction.actionTarget)}
+              className="primary-button text-xs py-2.5 px-4 flex items-center justify-center gap-2 w-full sm:w-auto shrink-0"
+            >
+              <Sparkles className="w-4 h-4" />
+              <span>{primaryAction.actionLabel}</span>
+              <ArrowRight className="w-4 h-4" />
+            </button>
+          </div>
+
+          <p className="text-xs sm:text-sm ui-text-muted leading-relaxed">
+            {primaryAction.reason}
+          </p>
+
+          {isFirstTimeCurriculumStudent && (
+            <div className="p-3.5 rounded-xl border ui-border-border ui-bg-soft/40 text-xs ui-text-muted space-y-1.5 leading-relaxed">
+              <p className="font-semibold ui-text-ink flex items-center gap-1.5">
+                <BookOpen className="w-3.5 h-3.5 ui-text-accent" />
+                <span>Two complementary learning tracks</span>
+              </p>
+              <p>
+                The <strong>12-mission Starter Track</strong> builds daily study habits and foundational problem-solving pacing. The <strong>Curriculum Path</strong> covers formal invariants, interactive proof traces, and practice problems in Topic Atlas and Proof Studio. You can pursue both in parallel at your own pace.
+              </p>
+            </div>
+          )}
+
+          {/* Secondary Route: Alternative Activity */}
+          {primaryAction.alternativeAction && (
+            <div className="pt-2 border-t ui-border-border flex items-center justify-between gap-2 flex-wrap text-xs">
+              <div className="text-xs ui-text-muted">
+                <span>Alternative: </span>
+                <strong className="ui-text-ink">{primaryAction.alternativeAction.title}</strong>
+                {primaryAction.alternativeAction.estimatedMinutes && (
+                  <span> ({primaryAction.alternativeAction.estimatedMinutes}m)</span>
+                )}
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => handleExecuteTarget(primaryAction.alternativeAction.actionTarget)}
+                  className="secondary-button text-xs py-1.5 px-3 flex items-center gap-1"
+                >
+                  <span>{primaryAction.alternativeAction.actionLabel}</span>
+                  <ArrowRight className="w-3.5 h-3.5" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowAlternativeDetails((prev) => !prev)}
+                  className="px-2.5 py-1 text-xs font-medium ui-text-muted hover:ui-text-ink"
+                >
+                  {showAlternativeDetails ? 'Hide options' : 'Choose another activity'}
+                </button>
+              </div>
+            </div>
+          )}
+
+          {showAlternativeDetails && (
+            <div className="p-3.5 rounded-xl border ui-border-border ui-bg-soft/40 text-xs ui-text-muted space-y-2">
+              <p className="font-semibold ui-text-ink">Available study options:</p>
+              <div className="flex flex-col sm:flex-row gap-2">
+                <button
+                  type="button"
+                  onClick={() => onSelectView('atlas')}
+                  className="secondary-button text-xs py-1.5 px-3 flex items-center gap-1.5 justify-center"
+                >
+                  <Compass className="w-3.5 h-3.5" />
+                  <span>Learning path map</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onSelectView('practice')}
+                  className="secondary-button text-xs py-1.5 px-3 flex items-center gap-1.5 justify-center"
+                >
+                  <BookOpen className="w-3.5 h-3.5" />
+                  <span>Practice Library (120 problems)</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onSelectView('roadmap')}
+                  className="secondary-button text-xs py-1.5 px-3 flex items-center gap-1.5 justify-center"
+                >
+                  <span>Starter track (12 missions)</span>
+                </button>
+              </div>
+            </div>
+          )}
+        </section>
+      )}
+
       {/* Compact progress strip */}
       <ProgressSummary goal={goal} totalMissions={missions.length} />
 
       {/* Two-column layout: Current mission + Context rail */}
       <div className="today-grid">
-        <div className="today-main">
-          {/* Prominent First-Time Curriculum Invitation */}
-          {isFirstTimeCurriculumStudent && (
-            <section
-              aria-label="First-time curriculum lesson invitation"
-              className="first-session-card p-5 sm:p-6 rounded-2xl border ui-border-border ui-bg-surface space-y-4 shadow-sm"
-            >
-              <div className="flex items-start justify-between gap-3 flex-wrap">
-                <div className="space-y-1">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <span className="text-[11px] font-bold uppercase tracking-wider px-2.5 py-0.5 rounded-full ui-bg-accent/15 ui-text-accent">
-                      First Lesson · Getting Started
-                    </span>
-                    {workspaceRecommendation?.estimatedMinutes && (
-                      <span className="inline-flex items-center gap-1 text-xs font-semibold ui-text-muted">
-                        <Clock className="w-3.5 h-3.5" />
-                        <span>{workspaceRecommendation.estimatedMinutes} mins</span>
-                      </span>
-                    )}
-                  </div>
-                  <h2 className="text-lg sm:text-xl font-extrabold ui-text-ink tracking-tight">
-                    Start your first lesson
-                  </h2>
-                  {workspaceRecommendation?.title ? (
-                    <p className="text-sm font-semibold ui-text-ink">
-                      {workspaceRecommendation.title}
-                      {workspaceRecommendation.topicTitle && (
-                        <span className="font-normal ui-text-muted"> · {workspaceRecommendation.topicTitle}</span>
-                      )}
-                    </p>
-                  ) : null}
-                </div>
-
-                {workspaceRecommendation && (
-                  <button
-                    type="button"
-                    onClick={() =>
-                      onOpenProofLesson &&
-                      onOpenProofLesson({
-                        topicId: workspaceRecommendation.topicId,
-                        lessonId: workspaceRecommendation.lessonId,
-                        exerciseId: workspaceRecommendation.exerciseId
-                      })
-                    }
-                    className="primary-button text-xs py-2.5 px-4 flex items-center justify-center gap-2 w-full sm:w-auto self-stretch sm:self-auto"
-                  >
-                    <Sparkles className="w-4 h-4" />
-                    <span>Start your first lesson</span>
-                    <ArrowRight className="w-4 h-4" />
-                  </button>
-                )}
-              </div>
-
-              {workspaceRecommendation ? (
-                <div className="space-y-3">
-                  <p className="text-xs sm:text-sm ui-text-muted leading-relaxed">
-                    {workspaceRecommendation.reason}
-                  </p>
-
-                  <div className="p-3.5 rounded-xl border ui-border-border ui-bg-soft/40 text-xs ui-text-muted space-y-1.5 leading-relaxed">
-                    <p className="font-semibold ui-text-ink flex items-center gap-1.5">
-                      <BookOpen className="w-3.5 h-3.5 ui-text-accent" />
-                      <span>Two complementary learning tracks</span>
-                    </p>
-                    <p>
-                      The <strong>12-mission Starter Track</strong> builds daily study habits and foundational problem-solving pacing. The <strong>Curriculum Path</strong> covers formal invariants, interactive proof traces, and practice problems in Topic Atlas and Proof Studio. You can pursue both in parallel at your own pace.
-                    </p>
-                  </div>
-
-                  <div className="flex items-center gap-2.5 flex-wrap pt-1">
-                    <button
-                      type="button"
-                      onClick={() => onSelectView('atlas')}
-                      className="secondary-button text-xs py-1.5 px-3 flex items-center gap-1.5"
-                    >
-                      <Compass className="w-3.5 h-3.5" />
-                      <span>Explore Topic Atlas</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => onSelectView('practice')}
-                      className="secondary-button text-xs py-1.5 px-3"
-                    >
-                      <span>Practice Library</span>
-                    </button>
-                  </div>
-                </div>
-              ) : (
-                <div className="p-3.5 rounded-xl border border-amber-300 dark:border-amber-800 bg-amber-50/60 dark:bg-amber-950/20 text-xs ui-text-muted space-y-1">
-                  <p className="font-semibold text-amber-900 dark:text-amber-200">Curriculum catalog currently unavailable</p>
-                  <p>Curriculum topics and lessons could not be loaded. You can continue working on your daily starter mission below.</p>
-                </div>
-              )}
-            </section>
-          )}
-
+        <div className="today-main space-y-4">
+          {/* Starter Mission Card (if starter mission is active) */}
           {currentMission ? (
             <MissionCard
               mission={currentMission}
@@ -352,22 +514,8 @@ export default function TodayView({
                   </div>
                 )}
 
-                {/* Dominant Continuation Actions */}
+                {/* Secondary Continuation Navigation */}
                 <div className="pt-2 border-t ui-border-border flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5">
-                  <button
-                    type="button"
-                    onClick={onOpenCheckpoint}
-                    className="primary-button text-xs py-2.5 px-4 flex items-center justify-center gap-2"
-                  >
-                    <Sparkles className="w-4 h-4" />
-                    <span>
-                      {goal?.studyWorkspace?.continuation?.checkpoint?.latestAttempt
-                        ? 'Review Foundations Checkpoint'
-                        : 'Check My Foundations (10 min)'}
-                    </span>
-                    <ArrowRight className="w-4 h-4" />
-                  </button>
-
                   <button
                     type="button"
                     onClick={onOpenContinuationPlan}
@@ -523,83 +671,6 @@ export default function TodayView({
             onReset={onResetTimer}
             onSelectPreset={onSelectTimerPreset}
           />
-
-          {/* Atlas & Proof Curriculum Recommendation Card */}
-          {workspaceRecommendation && (
-            <div className="context-card" aria-label="Atlas and Proof recommended next step">
-              <div className="context-card-header">
-                <span className="context-card-title">
-                  <Sparkles size={16} aria-hidden="true" />
-                  <span>Atlas &amp; Proof next step</span>
-                </span>
-                <button
-                  type="button"
-                  onClick={() => onSelectView('atlas')}
-                  className="text-xs font-semibold ui-text-accent hover:underline inline-flex items-center gap-1"
-                >
-                  <span>Open Atlas</span>
-                  <ArrowRight size={13} aria-hidden="true" />
-                </button>
-              </div>
-
-              <div className="space-y-2.5">
-                <p className="text-sm font-bold ui-text-ink">
-                  {workspaceRecommendation.title}
-                </p>
-                <p className="text-xs ui-text-muted leading-relaxed">
-                  {workspaceRecommendation.reason}
-                </p>
-                <div className="flex items-center gap-2 flex-wrap pt-1">
-                  {workspaceRecommendation.lessonId ? (
-                    <button
-                      type="button"
-                      onClick={() =>
-                        onOpenProofLesson &&
-                        onOpenProofLesson({
-                          topicId: workspaceRecommendation.topicId,
-                          lessonId: workspaceRecommendation.lessonId,
-                          exerciseId: workspaceRecommendation.exerciseId
-                        })
-                      }
-                      className="primary-button text-xs py-1.5 px-3"
-                    >
-                      <span>Open in Proof Studio</span>
-                      <ArrowRight size={13} aria-hidden="true" />
-                    </button>
-                  ) : workspaceRecommendation.problemId ? (
-                    <button
-                      type="button"
-                      onClick={() =>
-                        onOpenPracticeProblem &&
-                        onOpenPracticeProblem(workspaceRecommendation.problemId)
-                      }
-                      className="primary-button text-xs py-1.5 px-3"
-                    >
-                      <span>Open Practice Library</span>
-                      <ArrowRight size={13} aria-hidden="true" />
-                    </button>
-                  ) : (
-                    <button
-                      type="button"
-                      onClick={() => onSelectView('atlas')}
-                      className="primary-button text-xs py-1.5 px-3"
-                    >
-                      <Compass size={13} aria-hidden="true" />
-                      <span>Explore Topic Atlas</span>
-                    </button>
-                  )}
-
-                  <button
-                    type="button"
-                    onClick={() => onSelectView('practice')}
-                    className="secondary-button text-xs py-1.5 px-3"
-                  >
-                    <span>Practice Library</span>
-                  </button>
-                </div>
-              </div>
-            </div>
-          )}
 
           {/* Upcoming Missions Card */}
           <div className="context-card">
