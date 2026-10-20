@@ -13,10 +13,13 @@ import {
   Code2,
   ShieldAlert,
   ChevronDown,
-  ChevronUp
+  ChevronUp,
+  Clock
 } from 'lucide-react';
 import ProofTraceRenderer from './ProofTraceRenderer.jsx';
+import ReflectionCheckIn, { CONFIDENCE_OPTIONS, FOCUS_OPTIONS } from './ReflectionCheckIn.jsx';
 import { apiService } from '../../services/apiService.js';
+import { deriveNextEligibleLesson } from '../../services/workspace.js';
 
 function makeUuid() {
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
@@ -124,12 +127,14 @@ export default function ProofStudio({
 
   // Keyed state per item to prevent cross-exercise draft and notice leakage
   const [lessonReflections, setLessonReflections] = useState({});
+  const [lessonCheckIns, setLessonCheckIns] = useState({});
   const [kcStates, setKcStates] = useState({});
   const [isSavingLesson, setIsSavingLesson] = useState(false);
   const [lessonSaveNotice, setLessonSaveNotice] = useState('');
   const [lessonSaveError, setLessonSaveError] = useState('');
 
   const [exerciseReflections, setExerciseReflections] = useState({});
+  const [traceCheckIns, setTraceCheckIns] = useState({});
   const [variantKeys, setVariantKeys] = useState({});
   const [traceStates, setTraceStates] = useState({});
   const [pendingAttemptIds, setPendingAttemptIds] = useState({});
@@ -139,6 +144,7 @@ export default function ProofStudio({
   const [submittingExerciseId, setSubmittingExerciseId] = useState(null);
   const [exerciseNotices, setExerciseNotices] = useState({});
   const [exerciseErrors, setExerciseErrors] = useState({});
+  const [exerciseSaveResults, setExerciseSaveResults] = useState({});
 
   const evalStepSeqRef = useRef(0);
   const evalEdgeSeqRef = useRef(0);
@@ -147,6 +153,31 @@ export default function ProofStudio({
 
   const variantKey = (activeExerciseId && variantKeys[activeExerciseId]) || 'primary';
   const traceKey = activeExerciseId ? `${activeExerciseId}:${variantKey}` : '';
+  const [navigationTarget, setNavigationTarget] = useState(null);
+  useEffect(() => {
+    if (!navigationTarget) return;
+    if (navigationTarget.lessonId !== activeLessonId || navigationTarget.traceKey !== traceKey) {
+      setNavigationTarget(null);
+      return;
+    }
+    const frame = requestAnimationFrame(() => {
+      setNavigationTarget(null);
+      const element = document.getElementById(navigationTarget.id);
+      if (!element) return;
+      const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+      element.scrollIntoView({ behavior: reduced ? 'auto' : 'smooth', block: 'center' });
+      const target = element.matches('h4')
+        ? element.parentElement?.querySelector('[role="radio"], button') || element
+        : element.querySelector('button') || element;
+      target.focus({ preventScroll: true });
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [navigationTarget, proofMode, activeLessonId, traceKey]);
+
+  const navigateToProofTarget = (id, mode = 'trace') => {
+    setProofMode(mode);
+    setNavigationTarget({ id, lessonId: activeLessonId, traceKey });
+  };
 
   const defaultTraceState = useMemo(() => ({
     currentStepIdx: 0,
@@ -182,15 +213,24 @@ export default function ProofStudio({
     });
   };
 
-  const exerciseReflection = (activeExerciseId && exerciseReflections[activeExerciseId] !== undefined)
-    ? exerciseReflections[activeExerciseId]
+  const exerciseReflection = (traceKey && exerciseReflections[traceKey] !== undefined)
+    ? exerciseReflections[traceKey]
     : '';
+
+  const latestExerciseAttempt = exerciseHistory.filter((attempt) => (attempt.variantKey || 'primary') === variantKey).at(-1);
+  const currentExerciseCheckIn = (traceKey && traceCheckIns[traceKey] !== undefined)
+    ? traceCheckIns[traceKey]
+    : (latestExerciseAttempt?.checkIn || { confidence: null, focus: null });
 
   const pendingAttemptId = (activeExerciseId && pendingAttemptIds[activeExerciseId]) || makeUuid();
 
   const lessonReflection = (activeLessonId && lessonReflections[activeLessonId] !== undefined)
     ? lessonReflections[activeLessonId]
     : (lessonRecord?.reflection || '');
+
+  const currentLessonCheckIn = (activeLessonId && lessonCheckIns[activeLessonId] !== undefined)
+    ? lessonCheckIns[activeLessonId]
+    : (lessonRecord?.checkIn || { confidence: null, focus: null });
 
   if (!activeLesson) {
     return (
@@ -227,6 +267,55 @@ export default function ProofStudio({
     : currentTraceState.hintRevealed || currentTraceState.mistakeCount > 0
     ? 'with_hint'
     : 'independent';
+
+  const verifiedStepCount = traceSteps.length > 0
+    ? Object.keys(currentTraceState.stepAnswersMap || {}).length
+    : 0;
+  const remainingSteps = Math.max(0, traceSteps.length - verifiedStepCount);
+  const boundaryNeeded = !edgePassed;
+
+  const remainingRequirementsText = (() => {
+    if (canSaveExercise) return '';
+    if (remainingSteps > 0 && boundaryNeeded) {
+      return `Verify ${remainingSteps} more trace step${remainingSteps === 1 ? '' : 's'} and the boundary check to enable saving.`;
+    }
+    if (remainingSteps > 0) {
+      return `Verify ${remainingSteps} more trace step${remainingSteps === 1 ? '' : 's'} to enable saving.`;
+    }
+    if (boundaryNeeded) {
+      return 'Verify the boundary check to enable saving.';
+    }
+    return 'Complete remaining requirements to enable saving.';
+  })();
+
+  const firstUnverifiedStepIdx = traceSteps.findIndex((_, idx) => !currentTraceState.stepAnswersMap?.[idx]);
+
+  const jumpTargetLabel = (() => {
+    if (canSaveExercise) return null;
+    if (remainingSteps > 0 && firstUnverifiedStepIdx !== -1) {
+      return `Go to Step ${firstUnverifiedStepIdx + 1}`;
+    }
+    if (boundaryNeeded) {
+      return 'Jump to boundary check';
+    }
+    return null;
+  })();
+
+  const handleJumpToRequirement = () => {
+    if (remainingSteps > 0 && firstUnverifiedStepIdx !== -1) {
+      updateTraceState({ currentStepIdx: firstUnverifiedStepIdx });
+      navigateToProofTarget('trace-step-choices');
+    } else if (boundaryNeeded) {
+      navigateToProofTarget('boundary-check-heading');
+    }
+  };
+
+  const nextEligibleLesson = deriveNextEligibleLesson(goal, catalog, activeLesson.id);
+  const onOpenProofLesson = ({ topicId, lessonId, exerciseId }) => {
+    onSelectTopic?.(topicId);
+    onSelectLesson?.(lessonId);
+    onSelectExercise?.(exerciseId || null);
+  };
 
   const handleChooseTraceOption = async (choice) => {
     if (!activeExercise || !choice) return;
@@ -438,8 +527,8 @@ export default function ProofStudio({
     if (!activeExercise || !onSaveExerciseAttempt || !canSaveExercise) return;
     const targetExerciseId = activeExercise.id;
     setSubmittingExerciseId(targetExerciseId);
-    setExerciseErrors((prev) => ({ ...prev, [targetExerciseId]: '' }));
-    setExerciseNotices((prev) => ({ ...prev, [targetExerciseId]: '' }));
+    setExerciseErrors((prev) => ({ ...prev, [traceKey]: '' }));
+    setExerciseNotices((prev) => ({ ...prev, [traceKey]: '' }));
     try {
       const stepAnswers = traceSteps.map((_, idx) => ({
         stepIndex: idx,
@@ -454,20 +543,33 @@ export default function ProofStudio({
         mistakeCount: currentTraceState.mistakeCount,
         hintRevealed: currentTraceState.hintRevealed,
         referenceRevealed: currentTraceState.referenceRevealed,
-        reflection: exerciseReflection.trim() || null
+        reflection: exerciseReflection.trim() || null,
+        checkIn: (currentExerciseCheckIn?.confidence || currentExerciseCheckIn?.focus) ? {
+          version: 1,
+          ...(currentExerciseCheckIn.confidence ? { confidence: currentExerciseCheckIn.confidence } : {}),
+          ...(currentExerciseCheckIn.focus ? { focus: currentExerciseCheckIn.focus } : {})
+        } : undefined
       });
       const savedAttempt = res?.exerciseAttempt || res?.data?.exerciseAttempt;
       const due = savedAttempt?.nextReviewDate;
       const savedOutcome = savedAttempt?.outcome || computedExerciseOutcome;
       setExerciseNotices((prev) => ({
         ...prev,
-        [targetExerciseId]: `Proof attempt saved (${savedOutcome.replace(/_/g, ' ')})${due ? ` · Next review: ${due}` : ''}.`
+        [traceKey]: `Proof attempt saved (${savedOutcome.replace(/_/g, ' ')})${due ? ` · Next review: ${due}` : ''}.`
+      }));
+      setExerciseSaveResults((prev) => ({
+        ...prev,
+        [`${targetExerciseId}:${variantKey}`]: {
+          savedAt: new Date().toISOString(),
+          outcome: savedOutcome,
+          nextReviewDate: due || null
+        }
       }));
       setPendingAttemptIds((prev) => ({ ...prev, [targetExerciseId]: makeUuid() }));
     } catch (err) {
       setExerciseErrors((prev) => ({
         ...prev,
-        [targetExerciseId]: err.message || 'Could not save Proof exercise attempt.'
+        [traceKey]: err.message || 'Could not save Proof exercise attempt.'
       }));
     } finally {
       setSubmittingExerciseId(null);
@@ -542,6 +644,11 @@ export default function ProofStudio({
             ? ['explanation', 'worked_example', 'edge_case', 'knowledge_check']
             : ['explanation', 'worked_example'],
         reflection: lessonReflection.trim() || null,
+        checkIn: (currentLessonCheckIn?.confidence || currentLessonCheckIn?.focus) ? {
+          version: 1,
+          ...(currentLessonCheckIn.confidence ? { confidence: currentLessonCheckIn.confidence } : {}),
+          ...(currentLessonCheckIn.focus ? { focus: currentLessonCheckIn.focus } : {})
+        } : null,
         knowledgeCheckOptionId: currentKc?.selectedOption || undefined,
         knowledgeCheckPassed: Boolean(currentKc?.isCorrect)
       });
@@ -566,10 +673,10 @@ export default function ProofStudio({
       id="view-proof"
       role="region"
       aria-labelledby="proof-heading"
-      className="workspace-content space-y-3.5 sm:space-y-5"
+      className="workspace-content space-y-2.5 sm:space-y-5"
     >
       {/* Studio Header & Navigation Strip */}
-      <div className="rounded-xl border ui-border-border ui-bg-surface p-3.5 sm:p-5 space-y-3 sm:space-y-4">
+      <div className="rounded-xl border ui-border-border ui-bg-surface p-2.5 sm:p-5 space-y-2 sm:space-y-4">
         <div className="flex items-start justify-between gap-2.5 sm:gap-3 flex-wrap">
           <div className="w-full sm:w-auto sm:flex-1 min-w-0">
             <div className="flex items-center gap-2 flex-wrap">
@@ -769,6 +876,227 @@ export default function ProofStudio({
         </div>
       </div>
 
+      {/* Proof Learning Loop Progress Guide */}
+      <section
+        aria-label="Proof learning loop progress guide"
+        className="learning-loop-guide p-2.5 sm:p-4 rounded-xl border ui-border-border ui-bg-surface space-y-2 sm:space-y-2.5"
+      >
+        <div className="flex items-center justify-between gap-2 flex-wrap">
+          <div className="flex items-center gap-1.5 sm:gap-2">
+            <span className="text-[10px] sm:text-[11px] font-bold uppercase tracking-wider ui-text-accent">
+              Learning Loop
+            </span>
+            <span className="text-xs font-bold ui-text-ink">
+              {activeExercise ? 'Understand → Predict → Check → Save' : 'Understand → Check → Save'}
+            </span>
+          </div>
+          <span className="text-[11px] ui-text-muted hidden sm:inline">
+            {activeExercise ? 'Interactive worked proof loop' : 'Conceptual lesson & invariant review'}
+          </span>
+        </div>
+
+        {activeExercise ? (
+          <div className="grid grid-cols-4 gap-1.5 sm:gap-2.5">
+            {/* Step 1: Understand */}
+            <button
+              type="button"
+              onClick={() => setProofMode('learn')}
+              className={`p-1.5 sm:p-2.5 rounded-lg border text-left transition-colors flex flex-col justify-between gap-1 sm:gap-1.5 ${
+                proofMode === 'learn'
+                  ? 'ui-border-accent ui-bg-soft font-semibold ui-text-ink shadow-sm'
+                  : 'ui-border-border ui-bg-surface hover:ui-bg-soft ui-text-ink'
+              }`}
+            >
+              <div className="flex items-center justify-between gap-1 w-full">
+                <span className="text-[10px] sm:text-[11px] font-bold uppercase tracking-wider opacity-75">1. Understand</span>
+                <BookOpen size={11} className="ui-text-accent shrink-0 hidden sm:inline" aria-hidden="true" />
+              </div>
+              <div>
+                <p className="text-[11px] sm:text-xs font-bold truncate">Mechanics</p>
+                <p className="text-[11px] ui-text-muted hidden sm:block">Concept &amp; worked examples</p>
+              </div>
+            </button>
+
+            {/* Step 2: Predict */}
+            <button
+              type="button"
+              onClick={() => navigateToProofTarget('trace-step-choices')}
+              className={`p-1.5 sm:p-2.5 rounded-lg border text-left transition-colors flex flex-col justify-between gap-1 sm:gap-1.5 ${
+                allStepsCompleted
+                  ? 'border-emerald-300 dark:border-emerald-800 bg-emerald-50/50 dark:bg-emerald-950/20 ui-text-ink'
+                  : proofMode === 'trace' && verifiedStepCount > 0
+                  ? 'ui-border-accent ui-bg-soft ui-text-ink'
+                  : 'ui-border-border ui-bg-surface hover:ui-bg-soft ui-text-ink'
+              }`}
+            >
+              <div className="flex items-center justify-between gap-1 w-full">
+                <span className="text-[10px] sm:text-[11px] font-bold uppercase tracking-wider opacity-75">2. Predict</span>
+                {allStepsCompleted ? (
+                  <CheckCircle2 size={11} className="text-emerald-600 dark:text-emerald-400 shrink-0" aria-hidden="true" />
+                ) : (
+                  <Play size={11} className="ui-text-accent shrink-0 hidden sm:inline" aria-hidden="true" />
+                )}
+              </div>
+              <div>
+                <p className="text-[11px] sm:text-xs font-bold truncate">
+                  {verifiedStepCount}/{traceSteps.length} Steps
+                </p>
+                <p className="text-[11px] ui-text-muted hidden sm:block">
+                  {verifiedStepCount} of {traceSteps.length} verified
+                </p>
+              </div>
+            </button>
+
+            {/* Step 3: Check */}
+            <button
+              type="button"
+              onClick={() => navigateToProofTarget('boundary-check-heading')}
+              className={`p-1.5 sm:p-2.5 rounded-lg border text-left transition-colors flex flex-col justify-between gap-1 sm:gap-1.5 ${
+                edgePassed
+                  ? 'border-emerald-300 dark:border-emerald-800 bg-emerald-50/50 dark:bg-emerald-950/20 ui-text-ink'
+                  : allStepsCompleted && !edgePassed
+                  ? 'ui-border-accent ui-bg-soft ui-text-ink font-semibold'
+                  : 'ui-border-border ui-bg-surface hover:ui-bg-soft ui-text-ink'
+              }`}
+            >
+              <div className="flex items-center justify-between gap-1 w-full">
+                <span className="text-[10px] sm:text-[11px] font-bold uppercase tracking-wider opacity-75">3. Check</span>
+                {edgePassed ? (
+                  <CheckCircle2 size={11} className="text-emerald-600 dark:text-emerald-400 shrink-0" aria-hidden="true" />
+                ) : (
+                  <ShieldAlert size={11} className="ui-text-muted shrink-0 hidden sm:inline" aria-hidden="true" />
+                )}
+              </div>
+              <div>
+                <p className="text-[11px] sm:text-xs font-bold truncate">
+                  {edgePassed ? 'Verified' : 'Boundary'}
+                </p>
+                <p className="text-[11px] ui-text-muted hidden sm:block">
+                  {edgePassed ? 'Boundary verified' : allStepsCompleted ? 'Needs verification' : 'Edge-case check'}
+                </p>
+              </div>
+            </button>
+
+            {/* Step 4: Save */}
+            <div
+              className={`p-1.5 sm:p-2.5 rounded-lg border text-left flex flex-col justify-between gap-1 sm:gap-1.5 ${
+                Boolean(latestExerciseAttempt)
+                  ? 'border-emerald-300 dark:border-emerald-800 bg-emerald-50/50 dark:bg-emerald-950/20 ui-text-ink'
+                  : canSaveExercise
+                  ? 'ui-border-accent ui-bg-soft ui-text-ink font-semibold shadow-sm'
+                  : 'ui-border-border ui-bg-surface ui-text-ink opacity-80'
+              }`}
+            >
+              <div className="flex items-center justify-between gap-1 w-full">
+                <span className="text-[10px] sm:text-[11px] font-bold uppercase tracking-wider opacity-75">4. Save</span>
+                {Boolean(latestExerciseAttempt) ? (
+                  <CheckCircle2 size={11} className="text-emerald-600 dark:text-emerald-400 shrink-0" aria-hidden="true" />
+                ) : (
+                  <Clock size={11} className="ui-text-muted shrink-0 hidden sm:inline" aria-hidden="true" />
+                )}
+              </div>
+              <div>
+                <p className="text-[11px] sm:text-xs font-bold truncate">
+                  {Boolean(latestExerciseAttempt) ? 'Saved' : canSaveExercise ? 'Ready' : 'Record'}
+                </p>
+                <p className="text-[11px] ui-text-muted hidden sm:block">
+                  {Boolean(latestExerciseAttempt)
+                    ? `${exerciseHistory.length} attempt${exerciseHistory.length === 1 ? '' : 's'} recorded`
+                    : canSaveExercise
+                    ? 'Ready to save'
+                    : 'Verify steps & boundary'}
+                </p>
+              </div>
+            </div>
+          </div>
+        ) : (
+          /* Exercise-free lesson learning loop: Understand -> Check -> Save */
+          <div className="grid grid-cols-3 gap-1.5 sm:gap-2.5">
+            {/* Step 1: Understand */}
+            <button
+              type="button"
+              onClick={() => setProofMode('learn')}
+              className={`p-1.5 sm:p-2.5 rounded-lg border text-left transition-colors flex flex-col justify-between gap-1 sm:gap-1.5 ${
+                proofMode === 'learn'
+                  ? 'ui-border-accent ui-bg-soft font-semibold ui-text-ink shadow-sm'
+                  : 'ui-border-border ui-bg-surface hover:ui-bg-soft ui-text-ink'
+              }`}
+            >
+              <div className="flex items-center justify-between gap-1 w-full">
+                <span className="text-[10px] sm:text-[11px] font-bold uppercase tracking-wider opacity-75">1. Understand</span>
+                <BookOpen size={11} className="ui-text-accent shrink-0 hidden sm:inline" aria-hidden="true" />
+              </div>
+              <div>
+                <p className="text-[11px] sm:text-xs font-bold truncate">Mechanics</p>
+                <p className="text-[11px] ui-text-muted hidden sm:block">Theory &amp; worked examples</p>
+              </div>
+            </button>
+
+            {/* Step 2: Check */}
+            <button
+              type="button"
+              onClick={() => navigateToProofTarget('learn-invariant-check-heading', 'learn')}
+              className={`p-1.5 sm:p-2.5 rounded-lg border text-left transition-colors flex flex-col justify-between gap-1 sm:gap-1.5 ${
+                kcStates[activeLesson.id]?.isCorrect
+                  ? 'border-emerald-300 dark:border-emerald-800 bg-emerald-50/50 dark:bg-emerald-950/20 ui-text-ink'
+                  : 'ui-border-border ui-bg-surface hover:ui-bg-soft ui-text-ink'
+              }`}
+            >
+              <div className="flex items-center justify-between gap-1 w-full">
+                <span className="text-[10px] sm:text-[11px] font-bold uppercase tracking-wider opacity-75">2. Check</span>
+                {kcStates[activeLesson.id]?.isCorrect ? (
+                  <CheckCircle2 size={11} className="text-emerald-600 dark:text-emerald-400 shrink-0" aria-hidden="true" />
+                ) : (
+                  <CheckCircle2 size={11} className="ui-text-muted shrink-0 hidden sm:inline" aria-hidden="true" />
+                )}
+              </div>
+              <div>
+                <p className="text-[11px] sm:text-xs font-bold truncate">Invariant Check</p>
+                <p className="text-[11px] ui-text-muted hidden sm:block">
+                  {kcStates[activeLesson.id]?.isCorrect
+                    ? 'Check passed'
+                    : kcStates[activeLesson.id]?.submitted
+                    ? 'Re-check invariant'
+                    : 'Answer invariant check'}
+                </p>
+              </div>
+            </button>
+
+            {/* Step 3: Save */}
+            <div
+              className={`p-1.5 sm:p-2.5 rounded-lg border text-left flex flex-col justify-between gap-1 sm:gap-1.5 ${
+                lessonRecord?.status === 'completed'
+                  ? 'border-emerald-300 dark:border-emerald-800 bg-emerald-50/50 dark:bg-emerald-950/20 ui-text-ink'
+                  : lessonRecord?.status === 'in_progress'
+                  ? 'ui-border-accent ui-bg-soft ui-text-ink'
+                  : 'ui-border-border ui-bg-surface ui-text-ink'
+              }`}
+            >
+              <div className="flex items-center justify-between gap-1 w-full">
+                <span className="text-[10px] sm:text-[11px] font-bold uppercase tracking-wider opacity-75">3. Save</span>
+                {lessonRecord?.status === 'completed' ? (
+                  <CheckCircle2 size={11} className="text-emerald-600 dark:text-emerald-400 shrink-0" aria-hidden="true" />
+                ) : (
+                  <Clock size={11} className="ui-text-muted shrink-0 hidden sm:inline" aria-hidden="true" />
+                )}
+              </div>
+              <div>
+                <p className="text-[11px] sm:text-xs font-bold truncate">
+                  {lessonRecord?.status === 'completed' ? 'Completed' : 'Progress'}
+                </p>
+                <p className="text-[11px] ui-text-muted hidden sm:block">
+                  {lessonRecord?.status === 'completed'
+                    ? 'Lesson completed'
+                    : lessonRecord?.status === 'in_progress'
+                    ? 'In-progress saved'
+                    : 'Mark complete or in-progress'}
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
+      </section>
+
       {/* =========================================================================
           MODE 1: TRACE STUDIO (Interactive Reasoning & Step Verification)
           ========================================================================= */}
@@ -777,7 +1105,7 @@ export default function ProofStudio({
           {activeExercise ? (
             <section
               aria-labelledby="interactive-exercise-heading"
-              className="rounded-xl border ui-border-border ui-bg-surface p-3.5 sm:p-5 space-y-3.5 sm:space-y-5"
+              className="rounded-xl border ui-border-border ui-bg-surface p-2.5 sm:p-5 space-y-2 sm:space-y-5"
             >
               {/* Exercise Header & Actions */}
               <div className="flex items-start justify-between gap-3 sm:gap-4 flex-wrap">
@@ -890,7 +1218,7 @@ export default function ProofStudio({
               </div>
 
               {/* Active Input Banner & Mobile Code Toggle */}
-              <div className="flex items-center justify-between gap-1.5 sm:gap-2 flex-wrap rounded-lg border ui-border-border ui-bg-soft px-3 sm:px-3.5 py-1.5 sm:py-2 text-xs">
+              <div className="flex items-center justify-between gap-1.5 sm:gap-2 flex-wrap rounded-lg border ui-border-border ui-bg-soft px-2.5 sm:px-3.5 py-1 sm:py-2 text-xs">
                 <span className="font-mono font-semibold ui-text-ink text-[11px] sm:text-xs">
                   Active Input ({activeVariant.label}): {activeVariant.inputLabel}
                 </span>
@@ -1002,7 +1330,7 @@ export default function ProofStudio({
                 </div>
 
                 {/* State Snapshot + Step Checkpoint Questions (Right on desktop, Top on mobile) */}
-                <div className="lg:col-span-7 space-y-3 sm:space-y-4">
+                <div className="lg:col-span-7 space-y-2 sm:space-y-4">
                   {currentStep && (
                     <>
                       {/* State Snapshot Renderer */}
@@ -1047,7 +1375,7 @@ export default function ProofStudio({
                           Checkpoint {currentTraceState.currentStepIdx + 1}: {renderFormattedProse(currentStep.prompt)}
                         </h4>
 
-                        <div className="space-y-1.5 sm:space-y-2" role="group" aria-label="Trace step choices">
+                        <div id="trace-step-choices" className="space-y-1.5 sm:space-y-2" role="group" aria-label="Trace step choices">
                           {currentStep.choices.map((ch) => {
                             const isPicked = currentTraceState.selectedChoiceId === ch.id;
                             return (
@@ -1139,9 +1467,9 @@ export default function ProofStudio({
 
               {/* Boundary & Edge-Case Verification Check */}
               {activeExercise.edgeCaseCheck && (
-                <div className="rounded-xl border ui-border-border ui-bg-soft p-4 space-y-3">
+                <div id="boundary-check-section" className="rounded-xl border ui-border-border ui-bg-soft p-4 space-y-3">
                   <div className="flex items-center justify-between gap-2 flex-wrap">
-                    <h4 className="text-sm font-bold ui-text-ink">
+                    <h4 id="boundary-check-heading" className="text-sm font-bold ui-text-ink">
                       Boundary &amp; Edge-Case Verification
                     </h4>
                     {allStepsCompleted && (
@@ -1226,21 +1554,23 @@ export default function ProofStudio({
                     Current Mode: {computedExerciseOutcome.replace(/_/g, ' ')}
                   </span>
                 </div>
-                <label htmlFor="proof-exercise-reflection" className="block text-xs ui-text-muted">
-                  {renderFormattedProse(activeExercise.reflectionPrompt)}
-                </label>
-                <textarea
-                  id="proof-exercise-reflection"
-                  rows={2}
-                  maxLength={500}
-                  value={exerciseReflection}
-                  onChange={(e) => {
-                    const val = e.target.value;
-                    setExerciseReflections((prev) => ({ ...prev, [activeExerciseId]: val }));
+                <ReflectionCheckIn
+                  checkIn={currentExerciseCheckIn}
+                  onChangeCheckIn={(newCheckIn) => {
+                    if (traceKey) {
+                      setTraceCheckIns((prev) => ({ ...prev, [traceKey]: newCheckIn }));
+                      setPendingAttemptIds((prev) => ({ ...prev, [activeExerciseId]: makeUuid() }));
+                    }
+                  }}
+                  reflection={exerciseReflection}
+                  onChangeReflection={(val) => {
+                    setExerciseReflections((prev) => ({ ...prev, [traceKey]: val }));
                     setPendingAttemptIds((prev) => ({ ...prev, [activeExerciseId]: makeUuid() }));
                   }}
+                  promptText={renderFormattedProse(activeExercise.reflectionPrompt)}
+                  textareaId="proof-exercise-reflection"
                   placeholder="Write a 1-sentence invariant takeaway from this trace..."
-                  className="w-full rounded-lg border ui-border-border ui-bg-surface p-2.5 text-xs ui-text-ink"
+                  disabled={submittingExerciseId === activeExerciseId}
                 />
                 <div className="flex items-center justify-between gap-3 flex-wrap">
                   <button
@@ -1257,31 +1587,154 @@ export default function ProofStudio({
                   </button>
 
                   {!canSaveExercise && (
-                    <span className="text-xs ui-text-muted">
-                      {!allStepsCompleted
-                        ? `Complete all ${traceSteps.length} trace steps (${Object.keys(currentTraceState.stepAnswersMap).length}/${traceSteps.length} verified)`
-                        : !edgePassed
-                        ? 'Verify boundary & edge-case check'
-                        : ''} to enable saving.
-                    </span>
+                    <div className="flex items-center gap-2 flex-wrap text-xs">
+                      <span className="ui-text-muted">{remainingRequirementsText}</span>
+                      {jumpTargetLabel && (
+                        <button
+                          type="button"
+                          id="jump-to-requirement-btn"
+                          onClick={handleJumpToRequirement}
+                          className="px-2.5 py-1 rounded-lg border ui-border-border ui-bg-surface hover:ui-bg-soft text-xs font-semibold ui-text-accent flex items-center gap-1 transition-colors"
+                        >
+                          <span>{jumpTargetLabel}</span>
+                          <ArrowRight size={12} aria-hidden="true" />
+                        </button>
+                      )}
+                    </div>
                   )}
 
                   {exerciseHistory.length > 0 && (
-                    <span className="text-xs font-medium ui-text-muted">
-                      {exerciseHistory.length} saved attempt{exerciseHistory.length === 1 ? '' : 's'} · Latest due:{' '}
-                      {exerciseHistory[exerciseHistory.length - 1].nextReviewDate}
-                    </span>
+                    <div className="flex items-center gap-2 flex-wrap text-xs font-medium ui-text-muted">
+                      <span>
+                        {exerciseHistory.length} saved attempt{exerciseHistory.length === 1 ? '' : 's'} · Latest due:{' '}
+                        {exerciseHistory[exerciseHistory.length - 1].nextReviewDate}
+                      </span>
+                      {exerciseHistory[exerciseHistory.length - 1].checkIn?.confidence && (
+                        <span className="status-badge status-neutral text-[10px]">
+                          Reported: {CONFIDENCE_OPTIONS.find((c) => c.value === exerciseHistory[exerciseHistory.length - 1].checkIn.confidence)?.label || exerciseHistory[exerciseHistory.length - 1].checkIn.confidence}
+                        </span>
+                      )}
+                      {exerciseHistory[exerciseHistory.length - 1].checkIn?.focus && exerciseHistory[exerciseHistory.length - 1].checkIn.focus !== 'none' && (
+                        <span className="status-badge status-neutral text-[10px]">
+                          Focus: {FOCUS_OPTIONS.find((f) => f.value === exerciseHistory[exerciseHistory.length - 1].checkIn.focus)?.label || exerciseHistory[exerciseHistory.length - 1].checkIn.focus}
+                        </span>
+                      )}
+                    </div>
                   )}
                 </div>
 
-                {exerciseNotices[activeExerciseId] && (
+                {exerciseSaveResults[traceKey] && (
+                  <div
+                    role="status"
+                    className="p-3.5 sm:p-4 rounded-xl border border-emerald-300 dark:border-emerald-800 bg-emerald-50/70 dark:bg-emerald-950/20 text-xs text-emerald-900 dark:text-emerald-100 space-y-2.5"
+                  >
+                    <div className="flex items-start justify-between gap-2 flex-wrap">
+                      <div className="space-y-0.5">
+                        <div className="flex items-center gap-1.5 font-bold">
+                          <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+                          <span>Proof Trace Attempt Recorded</span>
+                          <span className="uppercase text-[10px] px-2 py-0.5 rounded-full bg-emerald-200 dark:bg-emerald-900/60 font-extrabold tracking-wide">
+                            {exerciseSaveResults[traceKey].outcome.replace(/_/g, ' ')}
+                          </span>
+                        </div>
+                        <p className="text-xs opacity-90">
+                          Proof attempt saved: Server recorded your verified trace steps and boundary check
+                          {exerciseSaveResults[traceKey].nextReviewDate
+                            ? ` · Scheduled for recall review on ${exerciseSaveResults[traceKey].nextReviewDate}`
+                            : ''}
+                          .
+                        </p>
+                      </div>
+                      <span className="text-[11px] font-semibold opacity-75">
+                        Attempt saved · Lesson {lessonRecord?.status === 'completed' ? 'already completed' : 'still in progress'}
+                      </span>
+                    </div>
+
+                    {lessonRecord?.status !== 'completed' && (
+                      <p className="text-[11px] opacity-85 leading-relaxed">
+                        <strong>Note:</strong> Recording this trace attempt saves your step proofs, but does not complete the lesson. To mark the lesson complete, answer the Invariant Check and choose Mark Lesson Complete below. A written note is optional.
+                      </p>
+                    )}
+
+                    <div className="flex items-center gap-2 flex-wrap pt-1 border-t border-emerald-200 dark:border-emerald-800/60">
+                      <span className="text-[11px] font-bold uppercase tracking-wider opacity-80">Next Action:</span>
+                      {lessonRecord?.status !== 'completed' ? (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const el = document.getElementById('lesson-invariant-check-heading');
+                            if (el) {
+                              const prefersReducedMotion =
+                                typeof window !== 'undefined' &&
+                                window.matchMedia &&
+                                window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+                              el.scrollIntoView({ behavior: prefersReducedMotion ? 'auto' : 'smooth', block: 'nearest' });
+                              const firstOpt = el.parentElement?.querySelector('button[role="radio"]') || el.parentElement?.querySelector('button');
+                              if (firstOpt) firstOpt.focus({ preventScroll: true });
+                            }
+                          }}
+                          className="primary-button text-xs py-1.5 px-3 flex items-center gap-1"
+                        >
+                          <span>Complete Lesson Invariant Check</span>
+                          <ArrowRight size={12} aria-hidden="true" />
+                        </button>
+                      ) : linkedPractice.length > 0 ? (
+                        <button
+                          type="button"
+                          onClick={() => onOpenPracticeProblem && onOpenPracticeProblem(linkedPractice[0].id)}
+                          className="primary-button text-xs py-1.5 px-3 flex items-center gap-1"
+                        >
+                          <span>Try Linked Practice: {linkedPractice[0].title}</span>
+                          <ArrowRight size={12} aria-hidden="true" />
+                        </button>
+                      ) : nextEligibleLesson ? (
+                        <button
+                          type="button"
+                          onClick={() =>
+                            onOpenProofLesson &&
+                            onOpenProofLesson({
+                              topicId: nextEligibleLesson.topicId,
+                              lessonId: nextEligibleLesson.id,
+                              exerciseId: nextEligibleLesson.exerciseId
+                            })
+                          }
+                          className="primary-button text-xs py-1.5 px-3 flex items-center gap-1"
+                        >
+                          <span>Next Lesson: {nextEligibleLesson.title}</span>
+                          <ArrowRight size={12} aria-hidden="true" />
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => onSelectView('atlas')}
+                          className="primary-button text-xs py-1.5 px-3 flex items-center gap-1"
+                        >
+                          <span>Explore Topic Atlas</span>
+                          <ArrowRight size={12} aria-hidden="true" />
+                        </button>
+                      )}
+
+                      {linkedPractice.length > 0 && lessonRecord?.status !== 'completed' && (
+                        <button
+                          type="button"
+                          onClick={() => onOpenPracticeProblem && onOpenPracticeProblem(linkedPractice[0].id)}
+                          className="secondary-button text-xs py-1.5 px-2.5"
+                        >
+                          <span>Practice: {linkedPractice[0].title}</span>
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {!exerciseSaveResults[traceKey] && exerciseNotices[traceKey] && (
                   <p role="status" className="text-xs font-semibold ui-text-accent">
-                    {exerciseNotices[activeExerciseId]}
+                    {exerciseNotices[traceKey]}
                   </p>
                 )}
-                {exerciseErrors[activeExerciseId] && (
+                {exerciseErrors[traceKey] && (
                   <p role="alert" className="text-xs font-semibold ui-text-ink">
-                    {exerciseErrors[activeExerciseId]}
+                    {exerciseErrors[traceKey]}
                   </p>
                 )}
               </form>
@@ -1290,7 +1743,7 @@ export default function ProofStudio({
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 pt-3 border-t ui-border-border">
                 {/* Lesson Invariant Check */}
                 <div className="rounded-xl border ui-border-border ui-bg-soft p-4 space-y-3">
-                  <h4 className="text-sm font-bold ui-text-ink">
+                  <h4 id="lesson-invariant-check-heading" className="text-sm font-bold ui-text-ink">
                     Lesson Invariant Check
                   </h4>
                   <p className="text-xs ui-text-ink">{renderFormattedProse(activeLesson.knowledgeCheck.question)}</p>
@@ -1369,20 +1822,21 @@ export default function ProofStudio({
                   <h4 className="text-sm font-bold ui-text-ink">
                     Lesson Reflection &amp; Completion
                   </h4>
-                  <label htmlFor="lesson-reflection-input" className="block text-xs ui-text-muted">
-                    {renderFormattedProse(activeLesson.reflectionPrompt)}
-                  </label>
-                  <textarea
-                    id="lesson-reflection-input"
-                    rows={2}
-                    maxLength={500}
-                    value={lessonReflection}
-                    onChange={(e) => {
-                      const val = e.target.value;
+                  <ReflectionCheckIn
+                    checkIn={currentLessonCheckIn}
+                    onChangeCheckIn={(newCheckIn) => {
+                      if (activeLessonId) {
+                        setLessonCheckIns((prev) => ({ ...prev, [activeLessonId]: newCheckIn }));
+                      }
+                    }}
+                    reflection={lessonReflection}
+                    onChangeReflection={(val) => {
                       setLessonReflections((prev) => ({ ...prev, [activeLessonId]: val }));
                     }}
+                    promptText={renderFormattedProse(activeLesson.reflectionPrompt)}
+                    textareaId="lesson-reflection-input"
                     placeholder="Summarize the key invariant in your own words..."
-                    className="w-full rounded-lg border ui-border-border ui-bg-surface p-2.5 text-xs ui-text-ink"
+                    disabled={isSavingLesson}
                   />
                   <div className="flex items-center gap-2.5 flex-wrap">
                     <button
@@ -1407,10 +1861,64 @@ export default function ProofStudio({
                       <span>Save as In-Progress</span>
                     </button>
                   </div>
+                  {lessonRecord?.checkIn?.confidence && (
+                    <div className="flex items-center gap-2 flex-wrap text-xs font-medium ui-text-muted pt-1">
+                      <span className="status-badge status-neutral text-[10px]">
+                        Reported: {CONFIDENCE_OPTIONS.find((c) => c.value === lessonRecord.checkIn.confidence)?.label || lessonRecord.checkIn.confidence}
+                      </span>
+                      {lessonRecord.checkIn?.focus && lessonRecord.checkIn.focus !== 'none' && (
+                        <span className="status-badge status-neutral text-[10px]">
+                          Focus: {FOCUS_OPTIONS.find((f) => f.value === lessonRecord.checkIn.focus)?.label || lessonRecord.checkIn.focus}
+                        </span>
+                      )}
+                    </div>
+                  )}
                   {lessonSaveNotice && (
-                    <p role="status" className="text-xs font-semibold ui-text-accent">
-                      {lessonSaveNotice}
-                    </p>
+                    <div className="space-y-2">
+                      <p role="status" className="text-xs font-semibold ui-text-accent">
+                        {lessonSaveNotice}
+                      </p>
+                      {lessonRecord?.status === 'completed' && (
+                        <div className="flex items-center gap-2 flex-wrap pt-1">
+                          <span className="text-[11px] font-bold uppercase tracking-wider ui-text-muted">Next Action:</span>
+                          {linkedPractice.length > 0 ? (
+                            <button
+                              type="button"
+                              onClick={() => onOpenPracticeProblem && onOpenPracticeProblem(linkedPractice[0].id)}
+                              className="primary-button text-xs py-1.5 px-3 flex items-center gap-1"
+                            >
+                              <span>Try Linked Practice: {linkedPractice[0].title}</span>
+                              <ArrowRight size={12} aria-hidden="true" />
+                            </button>
+                          ) : nextEligibleLesson ? (
+                            <button
+                              type="button"
+                              onClick={() =>
+                                onOpenProofLesson &&
+                                onOpenProofLesson({
+                                  topicId: nextEligibleLesson.topicId,
+                                  lessonId: nextEligibleLesson.id,
+                                  exerciseId: nextEligibleLesson.exerciseId
+                                })
+                              }
+                              className="primary-button text-xs py-1.5 px-3 flex items-center gap-1"
+                            >
+                              <span>Next Lesson: {nextEligibleLesson.title}</span>
+                              <ArrowRight size={12} aria-hidden="true" />
+                            </button>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => onSelectView('atlas')}
+                              className="primary-button text-xs py-1.5 px-3 flex items-center gap-1"
+                            >
+                              <span>Explore Topic Atlas</span>
+                              <ArrowRight size={12} aria-hidden="true" />
+                            </button>
+                          )}
+                        </div>
+                      )}
+                    </div>
                   )}
                   {lessonSaveError && (
                     <p role="alert" className="text-xs font-semibold ui-text-ink">
@@ -1443,20 +1951,21 @@ export default function ProofStudio({
                 <h3 className="text-base font-bold ui-text-ink">
                   Lesson Reflection &amp; Takeaways
                 </h3>
-                <label htmlFor="lesson-reflection-input" className="block text-xs ui-text-muted">
-                  {renderFormattedProse(activeLesson.reflectionPrompt)}
-                </label>
-                <textarea
-                  id="lesson-reflection-input"
-                  rows={2}
-                  maxLength={500}
-                  value={lessonReflection}
-                  onChange={(e) => {
-                    const val = e.target.value;
+                <ReflectionCheckIn
+                  checkIn={currentLessonCheckIn}
+                  onChangeCheckIn={(newCheckIn) => {
+                    if (activeLessonId) {
+                      setLessonCheckIns((prev) => ({ ...prev, [activeLessonId]: newCheckIn }));
+                    }
+                  }}
+                  reflection={lessonReflection}
+                  onChangeReflection={(val) => {
                     setLessonReflections((prev) => ({ ...prev, [activeLessonId]: val }));
                   }}
+                  promptText={renderFormattedProse(activeLesson.reflectionPrompt)}
+                  textareaId="lesson-reflection-input"
                   placeholder="Summarize the key invariant or edge case in your own words..."
-                  className="w-full rounded-lg border ui-border-border ui-bg-soft p-2.5 text-xs ui-text-ink"
+                  disabled={isSavingLesson}
                 />
                 <div className="flex items-center gap-2.5 flex-wrap">
                   <button
@@ -1481,10 +1990,64 @@ export default function ProofStudio({
                     <span>Save as In-Progress</span>
                   </button>
                 </div>
+                {lessonRecord?.checkIn?.confidence && (
+                  <div className="flex items-center gap-2 flex-wrap text-xs font-medium ui-text-muted pt-1">
+                    <span className="status-badge status-neutral text-[10px]">
+                      Reported: {CONFIDENCE_OPTIONS.find((c) => c.value === lessonRecord.checkIn.confidence)?.label || lessonRecord.checkIn.confidence}
+                    </span>
+                    {lessonRecord.checkIn?.focus && lessonRecord.checkIn.focus !== 'none' && (
+                      <span className="status-badge status-neutral text-[10px]">
+                        Focus: {FOCUS_OPTIONS.find((f) => f.value === lessonRecord.checkIn.focus)?.label || lessonRecord.checkIn.focus}
+                      </span>
+                    )}
+                  </div>
+                )}
                 {lessonSaveNotice && (
-                  <p role="status" className="text-xs font-semibold ui-text-accent">
-                    {lessonSaveNotice}
-                  </p>
+                  <div className="space-y-2">
+                    <p role="status" className="text-xs font-semibold ui-text-accent">
+                      {lessonSaveNotice}
+                    </p>
+                    {lessonRecord?.status === 'completed' && (
+                      <div className="flex items-center gap-2 flex-wrap pt-1">
+                        <span className="text-[11px] font-bold uppercase tracking-wider ui-text-muted">Next Action:</span>
+                        {linkedPractice.length > 0 ? (
+                          <button
+                            type="button"
+                            onClick={() => onOpenPracticeProblem && onOpenPracticeProblem(linkedPractice[0].id)}
+                            className="primary-button text-xs py-1.5 px-3 flex items-center gap-1"
+                          >
+                            <span>Try Linked Practice: {linkedPractice[0].title}</span>
+                            <ArrowRight size={12} aria-hidden="true" />
+                          </button>
+                        ) : nextEligibleLesson ? (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              onOpenProofLesson &&
+                              onOpenProofLesson({
+                                topicId: nextEligibleLesson.topicId,
+                                lessonId: nextEligibleLesson.id,
+                                exerciseId: nextEligibleLesson.exerciseId
+                              })
+                            }
+                            className="primary-button text-xs py-1.5 px-3 flex items-center gap-1"
+                          >
+                            <span>Next Lesson: {nextEligibleLesson.title}</span>
+                            <ArrowRight size={12} aria-hidden="true" />
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => onSelectView('atlas')}
+                            className="primary-button text-xs py-1.5 px-3 flex items-center gap-1"
+                          >
+                            <span>Explore Topic Atlas</span>
+                            <ArrowRight size={12} aria-hidden="true" />
+                          </button>
+                        )}
+                      </div>
+                    )}
+                  </div>
                 )}
                 {lessonSaveError && (
                   <p role="alert" className="text-xs font-semibold ui-text-ink">
@@ -1596,7 +2159,7 @@ export default function ProofStudio({
 
               {/* Lesson Knowledge Check */}
               <div className="rounded-lg border ui-border-border ui-bg-soft p-4 space-y-3">
-                <h4 className="text-sm font-bold ui-text-ink">
+                <h4 id="learn-invariant-check-heading" tabIndex={-1} className="text-sm font-bold ui-text-ink">
                   Quick Invariant Check
                 </h4>
                 <p className="text-xs ui-text-ink">{renderFormattedProse(activeLesson.knowledgeCheck.question)}</p>
@@ -1707,20 +2270,21 @@ export default function ProofStudio({
             <h3 className="text-base font-bold ui-text-ink">
               Lesson Reflection &amp; Completion
             </h3>
-            <label htmlFor="lesson-reflection-input" className="block text-xs ui-text-muted">
-              {renderFormattedProse(activeLesson.reflectionPrompt)}
-            </label>
-            <textarea
-              id="lesson-reflection-input"
-              rows={3}
-              maxLength={500}
-              value={lessonReflection}
-              onChange={(e) => {
-                const val = e.target.value;
+            <ReflectionCheckIn
+              checkIn={currentLessonCheckIn}
+              onChangeCheckIn={(newCheckIn) => {
+                if (activeLessonId) {
+                  setLessonCheckIns((prev) => ({ ...prev, [activeLessonId]: newCheckIn }));
+                }
+              }}
+              reflection={lessonReflection}
+              onChangeReflection={(val) => {
                 setLessonReflections((prev) => ({ ...prev, [activeLessonId]: val }));
               }}
+              promptText={renderFormattedProse(activeLesson.reflectionPrompt)}
+              textareaId="lesson-reflection-input"
               placeholder="Summarize the key invariant or edge case in your own words..."
-              className="w-full rounded-lg border ui-border-border ui-bg-soft p-2.5 text-xs ui-text-ink"
+              disabled={isSavingLesson}
             />
             <div className="flex items-center gap-2.5 flex-wrap">
               <button
@@ -1745,6 +2309,18 @@ export default function ProofStudio({
                 <span>Save as In-Progress</span>
               </button>
             </div>
+            {lessonRecord?.checkIn?.confidence && (
+              <div className="flex items-center gap-2 flex-wrap text-xs font-medium ui-text-muted pt-1">
+                <span className="status-badge status-neutral text-[10px]">
+                  Reported: {CONFIDENCE_OPTIONS.find((c) => c.value === lessonRecord.checkIn.confidence)?.label || lessonRecord.checkIn.confidence}
+                </span>
+                {lessonRecord.checkIn?.focus && lessonRecord.checkIn.focus !== 'none' && (
+                  <span className="status-badge status-neutral text-[10px]">
+                    Focus: {FOCUS_OPTIONS.find((f) => f.value === lessonRecord.checkIn.focus)?.label || lessonRecord.checkIn.focus}
+                  </span>
+                )}
+              </div>
+            )}
             {lessonSaveNotice && (
               <p role="status" className="text-xs font-semibold ui-text-accent">
                 {lessonSaveNotice}

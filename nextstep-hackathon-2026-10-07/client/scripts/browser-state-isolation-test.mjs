@@ -153,6 +153,18 @@ async function runSuite() {
     return directLocator.first().click();
   };
 
+  const openNoteDisclosure = async (selector) => {
+    const el = page.locator(selector);
+    const details = el.locator('xpath=ancestor::details');
+    if (await details.count() > 0) {
+      const isOpen = await details.evaluate((d) => d.open);
+      if (!isOpen) {
+        await details.locator('summary').click();
+      }
+    }
+    await el.waitFor({ state: 'visible' });
+  };
+
   // -------------------------------------------------------------------------
   // Scenario 1: State Isolation Between Exercises A & B (Reflections)
   // -------------------------------------------------------------------------
@@ -162,7 +174,7 @@ async function runSuite() {
 
   await page.locator('#proof-topic-select').selectOption('topic_arrays');
   await page.locator('#proof-lesson-select').selectOption('les_arrays_01');
-  await page.locator('#proof-exercise-reflection').waitFor();
+  await openNoteDisclosure('#proof-exercise-reflection');
 
   const refA = 'Exercise A Reflection: Track minimum price encountered so far and maximize profit.';
   console.log(`Setting Exercise A reflection...`);
@@ -171,7 +183,7 @@ async function runSuite() {
   // Switch to Lesson 2 (Exercise B: ex_arrays_02)
   console.log('Switching to Exercise B (les_arrays_02)...');
   await page.locator('#proof-lesson-select').selectOption('les_arrays_02');
-  await page.locator('#proof-exercise-reflection').waitFor();
+  await openNoteDisclosure('#proof-exercise-reflection');
 
   // Verify Exercise B starts empty
   const valBInitial = await page.locator('#proof-exercise-reflection').inputValue();
@@ -241,6 +253,7 @@ async function runSuite() {
   console.log('✓ Verified: "No Interactive Proof Trace Attached to this Lesson" rendered cleanly.');
 
   // Verify lesson reflection functions normally
+  await openNoteDisclosure('#lesson-reflection-input');
   await page.locator('#lesson-reflection-input').fill('Slow write pointer only advances on valid compaction element.');
   assert.equal(
     await page.locator('#lesson-reflection-input').inputValue(),

@@ -15,6 +15,7 @@ export default function SignInForm({
   const [fullName, setFullName] = useState('');
   const [clientError, setClientError] = useState(null);
   const [pendingEmail, setPendingEmail] = useState('');
+  const [confirmationRedirectUrl, setConfirmationRedirectUrl] = useState('');
 
   const displayedError = clientError || error;
 
@@ -62,6 +63,9 @@ export default function SignInForm({
       const res = await onSignUp(cleanEmail, password, { fullName: fullName.trim() });
       if (res?.confirmationRequired) {
         setPendingEmail(cleanEmail);
+        setConfirmationRedirectUrl(res.confirmationRedirectUrl || '');
+        setPassword('');
+        setConfirmPassword('');
         setMode('check_email');
       }
     } catch {
@@ -151,6 +155,12 @@ export default function SignInForm({
               <p className="leading-relaxed">
                 2. You will be redirected back to NextStep with your account confirmed.
               </p>
+              {confirmationRedirectUrl && (
+                <p className="leading-relaxed break-words">
+                  Confirmation opens {new URL(confirmationRedirectUrl).host}. If you are testing a local copy,
+                  return here and sign in after confirming your email.
+                </p>
+              )}
               <p className="text-[11px] ui-text-muted pt-1 border-t ui-border-border">
                 Can't find the email? Check your Spam/Junk folder or wait 60 seconds.
               </p>

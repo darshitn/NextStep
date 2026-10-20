@@ -255,6 +255,10 @@ async function textContrast(page) {
     await page.getByRole('radiogroup', { name: 'Lesson invariant check', exact: true }).getByRole('radio').first().click();
 
     // Enter lesson reflection for les_arrays_01 and mark lesson complete
+    const lessonDetails = page.locator('#lesson-reflection-input').locator('xpath=ancestor::details');
+    if (await lessonDetails.count() > 0 && !(await lessonDetails.evaluate((d) => d.open))) {
+      await lessonDetails.locator('summary').click();
+    }
     await page.locator('#lesson-reflection-input').fill('Geometric capacity doubling ensures O(1) amortized insertion cost.');
     await page.getByRole('button', { name: /Mark Lesson Complete|Update Completed Lesson/i }).click();
     await page.getByText(/Lesson marked completed/i).waitFor();
@@ -310,6 +314,10 @@ async function textContrast(page) {
     await page.getByRole('button', { name: edgeButtonPattern }).click();
 
     await page.getByRole('button', { name: 'Reveal Reference Invariant', exact: true }).click();
+    const exDetails = page.locator('#proof-exercise-reflection').locator('xpath=ancestor::details');
+    if (await exDetails.count() > 0 && !(await exDetails.evaluate((d) => d.open))) {
+      await exDetails.locator('summary').click();
+    }
     await page.locator('#proof-exercise-reflection').fill('Prefix minimum ensures buy price precedes sell price at all times.');
     await page.getByRole('button', { name: 'Save Proof Attempt', exact: true }).click();
     await page.getByText(/Proof attempt saved/i).waitFor();

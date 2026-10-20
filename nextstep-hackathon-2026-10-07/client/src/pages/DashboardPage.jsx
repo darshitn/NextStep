@@ -4,18 +4,50 @@ import '../workspace.css';
 
 import WorkspaceNav from '../components/workspace/WorkspaceNav.jsx';
 import TodayView from '../components/workspace/TodayView.jsx';
-import WeeklyPlanView from '../components/workspace/WeeklyPlanView.jsx';
-import AtlasView from '../components/workspace/AtlasView.jsx';
-import ProofStudio from '../components/workspace/ProofStudio.jsx';
-import PracticeLibraryView from '../components/workspace/PracticeLibraryView.jsx';
-import RoadmapView from '../components/workspace/RoadmapView.jsx';
-import ReviewView from '../components/workspace/ReviewView.jsx';
-import InsightsView from '../components/workspace/InsightsView.jsx';
+import { createLazyView } from '../components/workspace/AsyncViewBoundary.jsx';
+
+const WeeklyPlanView = createLazyView(
+  () => import('../components/workspace/WeeklyPlanView.jsx'),
+  'Weekly Plan'
+);
+const AtlasView = createLazyView(
+  () => import('../components/workspace/AtlasView.jsx'),
+  'Knowledge Atlas'
+);
+const ProofStudio = createLazyView(
+  () => import('../components/workspace/ProofStudio.jsx'),
+  'Proof Studio'
+);
+const PracticeLibraryView = createLazyView(
+  () => import('../components/workspace/PracticeLibraryView.jsx'),
+  'Practice Library'
+);
+const RoadmapView = createLazyView(
+  () => import('../components/workspace/RoadmapView.jsx'),
+  'Roadmap'
+);
+const ReviewView = createLazyView(
+  () => import('../components/workspace/ReviewView.jsx'),
+  'Spaced Review'
+);
+const InsightsView = createLazyView(
+  () => import('../components/workspace/InsightsView.jsx'),
+  'Learning Insights'
+);
 
 import CompletionForm from '../components/CompletionForm.jsx';
 import GuidancePanel from '../components/GuidancePanel.jsx';
-import FoundationsCheckpointModal from '../components/workspace/FoundationsCheckpointModal.jsx';
-import ContinuationPlanModal from '../components/workspace/ContinuationPlanModal.jsx';
+
+const FoundationsCheckpointModal = createLazyView(
+  () => import('../components/workspace/FoundationsCheckpointModal.jsx'),
+  'Foundations Checkpoint',
+  { isModal: true }
+);
+const ContinuationPlanModal = createLazyView(
+  () => import('../components/workspace/ContinuationPlanModal.jsx'),
+  'Continuation Plan',
+  { isModal: true }
+);
 import LoadingState from '../components/LoadingState.jsx';
 import ErrorNotice from '../components/ErrorNotice.jsx';
 import { apiService } from '../services/apiService.js';
@@ -60,19 +92,43 @@ export default function DashboardPage({
   const [selectedExerciseId, setSelectedExerciseId] = useState(null);
   const [highlightedProblemId, setHighlightedProblemId] = useState(null);
 
-  // Checkpoint & Continuation modals
+  // Checkpoint & Continuation modals - lazy loaded on demand
   const [isCheckpointOpen, setIsCheckpointOpen] = useState(false);
   const [isContinuationPlanOpen, setIsContinuationPlanOpen] = useState(false);
+  const [hasOpenedCheckpoint, setHasOpenedCheckpoint] = useState(false);
+  const [hasOpenedContinuation, setHasOpenedContinuation] = useState(false);
   const [continuationSeed, setContinuationSeed] = useState(null);
   const openContinuationPlan = (seed = null) => {
     setContinuationSeed(seed);
+    setHasOpenedContinuation(true);
     setIsContinuationPlanOpen(true);
   };
+
+  useEffect(() => {
+    if (isCheckpointOpen && !hasOpenedCheckpoint) {
+      setHasOpenedCheckpoint(true);
+    }
+  }, [isCheckpointOpen, hasOpenedCheckpoint]);
 
   // Active view from URL search param or direct route
   const rawView = searchParams.get('view') || initialView || 'today';
   const validViews = ['today', 'week', 'atlas', 'proof', 'practice', 'roadmap', 'review', 'insights'];
   const activeView = validViews.includes(rawView) ? rawView : 'today';
+
+  useEffect(() => {
+    if ((isContinuationPlanOpen || activeView === 'week') && !hasOpenedContinuation) {
+      setHasOpenedContinuation(true);
+    }
+  }, [isContinuationPlanOpen, activeView, hasOpenedContinuation]);
+
+  // Defer ReviewView chunk until first visited
+  const [hasVisitedReview, setHasVisitedReview] = useState(activeView === 'review');
+
+  useEffect(() => {
+    if (activeView === 'review' && !hasVisitedReview) {
+      setHasVisitedReview(true);
+    }
+  }, [activeView, hasVisitedReview]);
 
   const handleSelectView = (viewId) => {
     if (location.pathname !== '/dashboard') {
@@ -806,24 +862,26 @@ export default function DashboardPage({
             />
           )}
 
-          <div hidden={activeView !== 'review'}>
-            <ReviewView
-              reviewItems={reviewData.items}
-              workspaceReviewQueue={workspaceReviewQueue}
-              notesLibrary={notesLibrary}
-              unresolvedCount={reviewData.unresolvedCount}
-              onOpenPractice={openPractice}
-              onOpenProofLesson={handleOpenProofLesson}
-              onOpenPracticeProblem={handleOpenPracticeProblem}
-              onToggleSelfReportedStatus={handleToggleSelfReportedStatus}
-              onDismissResumeCard={handleDismissResumeCard}
-              onSelectView={handleSelectView}
-              isSaving={isSavingLearningContext}
-              onSaveRecallAttempt={handleSaveRecallAttempt}
-              goal={goal}
-              onRefresh={handleRefresh}
-            />
-          </div>
+          {(hasVisitedReview || activeView === 'review') && (
+            <div hidden={activeView !== 'review'}>
+              <ReviewView
+                reviewItems={reviewData.items}
+                workspaceReviewQueue={workspaceReviewQueue}
+                notesLibrary={notesLibrary}
+                unresolvedCount={reviewData.unresolvedCount}
+                onOpenPractice={openPractice}
+                onOpenProofLesson={handleOpenProofLesson}
+                onOpenPracticeProblem={handleOpenPracticeProblem}
+                onToggleSelfReportedStatus={handleToggleSelfReportedStatus}
+                onDismissResumeCard={handleDismissResumeCard}
+                onSelectView={handleSelectView}
+                isSaving={isSavingLearningContext}
+                onSaveRecallAttempt={handleSaveRecallAttempt}
+                goal={goal}
+                onRefresh={handleRefresh}
+              />
+            </div>
+          )}
 
           {activeView === 'insights' && (
             <InsightsView
@@ -847,30 +905,34 @@ export default function DashboardPage({
       )}
 
       {/* Foundations Checkpoint Modal */}
-      <FoundationsCheckpointModal
-        isOpen={isCheckpointOpen}
-        onClose={() => setIsCheckpointOpen(false)}
-        goal={goal}
-        onGoalUpdated={onGoalUpdated}
-        onStartNextWeekPlan={() => {
-          setIsCheckpointOpen(false);
-          openContinuationPlan();
-        }}
-        onOpenProofLesson={handleOpenProofLesson}
-      />
+      {(hasOpenedCheckpoint || isCheckpointOpen) && (
+        <FoundationsCheckpointModal
+          isOpen={isCheckpointOpen}
+          onClose={() => setIsCheckpointOpen(false)}
+          goal={goal}
+          onGoalUpdated={onGoalUpdated}
+          onStartNextWeekPlan={() => {
+            setIsCheckpointOpen(false);
+            openContinuationPlan();
+          }}
+          onOpenProofLesson={handleOpenProofLesson}
+        />
+      )}
 
       {/* Next-Week Continuation Plan Modal */}
-      <ContinuationPlanModal
-        isOpen={isContinuationPlanOpen}
-        onClose={() => setIsContinuationPlanOpen(false)}
-        goal={goal}
-        catalog={catalog}
-        initialPlan={continuationSeed}
-        onGoalUpdated={onGoalUpdated}
-        onPlanAccepted={() => {
-          setSavedNotice('Next-week study plan saved and active.');
-        }}
-      />
+      {(hasOpenedContinuation || isContinuationPlanOpen) && (
+        <ContinuationPlanModal
+          isOpen={isContinuationPlanOpen}
+          onClose={() => setIsContinuationPlanOpen(false)}
+          goal={goal}
+          catalog={catalog}
+          initialPlan={continuationSeed}
+          onGoalUpdated={onGoalUpdated}
+          onPlanAccepted={() => {
+            setSavedNotice('Next-week study plan saved and active.');
+          }}
+        />
+      )}
     </div>
   );
 }

@@ -624,3 +624,89 @@ Post-publish: bbab876 pushed to audit branch and main. Vercel success and new li
 - Final scripts/verify-continuation-release.ps1 PASS: server132, client97, build, weekly6, continuation integration5, continuation9, Atlas9, isolation10, workspace14, whitespace.
 - Actual changes, acceptance evidence and owner walkthrough: docs/WEEKLY-EXECUTION-RESULT.md. Existing labelled synthetic preview remains http://127.0.0.1:5173/dashboard?view=week.
 - No server/database/curriculum/dependency/env edits, production data operations, commit, push, merge or deploy. Per-allocation time is not tracked; UI and tests reflect per-activity completion and full estimated effort when replanning.
+
+## 2026-10-19 — Quick Check-ins & Time Sliders / local READY
+- Completed 3/3 stages on `codex/quick-checkins-time-sliders`.
+- Implemented tactile native range sliders in `AvailabilityPicker.jsx` with dynamic progress fill, Rest/min badges, tick buttons, keyboard stepping, 30m/60m weekday presets, and non-zero validation.
+- Created `ReflectionCheckIn.jsx` with compact single-choice radios ("How did this feel?", "What needs another look?") and optional note disclosure in `ProofStudio.jsx` across all 4 reflection contexts.
+- Documented contract in `contracts/API-V1.md`; added `checkIn` schema validation and idempotency conflict handling in `goalSchemas.js`, `goal.js`, and `apiFixture.js`.
+- Added `quickCheckinsSliders.test.js` (3 unit/integration tests), 2 server route tests in `workspaceRoutes.test.js`, and 4 browser scenarios in `verify-quick-checkins-sliders.cjs`.
+- Final `./scripts/verify-continuation-release.ps1` PASS: 134 server tests, 100 client tests, Vite production build, weekly 6/6, continuation integration 5/5, continuation 9/9, Atlas 9/9, quick check-ins 4/4, isolation 10/10, workspace 14/14, whitespace diff check.
+- Multi-viewport and multi-theme screenshots captured in `client/.local/checkins-sliders-evidence/` with zero horizontal overflow down to 320px width.
+- Full details, test matrix, and owner walkthrough in `docs/QUICK-CHECKINS-SLIDERS-RESULT.md`.
+- Labelled synthetic preview remains active on `http://127.0.0.1:5173`.
+- Zero commit, push, merge, or deployment; collaborator curriculum preserved untouched; all changes uncommitted in working tree.
+# 2026-10-19 — Quick check-ins/sliders independent review
+
+Corrected saved variant fallback, variant-scoped trace note drafts, explicit lesson check-in clearing and omission-aware retries, and radio-group keyboard navigation. Added route/fixture/browser regressions and corrected misleading screenshot capture targets. Full local release gate passed (135 server, 101 client tests; all 11 groups); final evidence-only harness changes passed a separate 4/4 rerun. See `docs/QUICK-CHECKINS-SLIDERS-INDEPENDENT-REVIEW.md`. Synthetic-only verification; no commit, push, merge, deployment or production data changes.
+
+
+## 2026-10-19 — First-Time Student Learning Journey / local READY
+- Completed Stages 0, 1, 2, and 3 for NextStep's first-time student learning journey across Today, Atlas, and Proof Studio without adding a second dashboard or isolated onboarding modal.
+- Stage 0 & Shared Helpers: Established baseline in `docs/FIRST-SESSION-PROGRESS.md`, implemented `hasRecordedCurriculumActivity(goal)` in `workspace.js` to differentiate new from established curriculum students while preserving Starter Track separation.
+- Stage 1 (Today Starting Point): Rendered prominent `first-session-card` on Today for new students with recommended lesson title, 15m duration, suitability reason, educational two-track explanation, and direct Proof Studio navigation. Automatically transitions out once curriculum activity is recorded.
+- Stage 2 (Proof Studio Learning Loop): Added compact responsive `Learning Loop Guide` (`Understand → Predict → Check → Save` for traced lessons, `Understand → Check → Save` for exercise-free lessons). Added granular remaining count derivation on disabled save (`Verify X more trace steps and the boundary check to enable saving`) and `#jump-to-requirement-btn` targeting unanswered steps/boundary checks with reduced-motion support. Self-reported check-ins remain optional and never falsely grant save eligibility.
+- Stage 3 (Obvious Progress & Next Actions): Added `exerciseSaveResults` banner confirming server-recorded status, distinguishing trace save from lesson completion, and rendering dynamic next action buttons ("Complete Lesson Invariant Check", "Try Linked Practice", or "Next Lesson").
+- Responsive Mobile Layout: Compacted mobile stepper and header spacing so mobile trace first answer button document Y sits comfortably at 1317.0px (< 1350px limit, required scroll 545.0px < 550px limit).
+- Testing & Verification: Added `firstSession.test.js` (5 unit tests FS01-FS05), `verify-first-session.cjs` (6 browser scenarios S1-S6), and integrated into `scripts/verify-continuation-release.ps1`.
+- Full Release Gate PASS: 135 server tests, 106 client tests, Vite production build, Weekly execution 6/6, Continuation integration 5/5, Continuation 9/9, Atlas & Proof 9/9, Quick check-ins 4/4, First session 6/6, State isolation 10/10, Workspace 12/12, git whitespace check clean.
+- Evidence screenshots in `client/.local/first-session-evidence/` across 1440, 1024, 390, and 320px viewports with zero errors. Full details in `docs/FIRST-SESSION-RESULT.md`.
+- Synthetic preview server remains active on `http://127.0.0.1:5173`.
+- Strictly observed working rules: zero commits, pushes, merges, deployments, or changes to `server/data/curriculum/**`. All changes uncommitted in working tree.
+
+## 2026-10-19 — First-session independent local review
+
+Corrected guide mode/focus navigation, variant-scoped save status, conditional hook ordering, undefined next-lesson callback, prerequisite-aware next lessons, and optional-note success copy. Added actual-focus, save-failure/retry, variant-isolation, return-focus, and eligibility regressions. Full 12-group local gate passed (135 server, 107 client tests; workspace 14/14). Final single-use focus cleanup then passed the focused 6/6 browser suite, client 107/107 tests, and a new production build. Fresh first-time mobile invitation checked at 390/320px. See `docs/FIRST-SESSION-INDEPENDENT-REVIEW.md` for precise sequencing and limitations. All changes remain local and uncommitted; no publication or live data changes.
+
+## 2026-10-19 — Owner screenshot: availability spacing repair
+
+Replaced the forced four-column day grid with available-width sizing (minimum 220px per card, bounded to narrow containers), separated time tick buttons, and prevented duration badges from wrapping. Improved card spacing, weekly-total placement and deadline option descriptions/focus/semantic radio color. No scheduling behavior or stored values changed. Fresh isolated onboarding/planner checks passed at 1122/1440/1024/390/320px where applicable across all six themes: no clipped ticks, overlapping header labels or page overflow. Desktop and mobile screenshots inspected in `client/.local/availability-spacing/`. Quick check-ins/sliders 4/4 and workspace 14/14 passed; production build and whitespace checks passed. Existing bundle-size advisory remains. All changes remain uncommitted; no push/deployment.
+
+## 2026-10-19 — Confirmation-email localhost redirect repair
+
+Confirmed the signup adapter explicitly requested window.location.origin + /login, producing loopback destinations for local real-auth signup. Added a shared redirect resolver: local/non-browser calls default to the public NextStep login; hosted HTTPS signup keeps its deployment origin; optional public VITE_AUTH_REDIRECT_URL supports explicit development overrides. No existing environment files changed. Confirmation UI displays the requested destination; Supabase hash-fragment expiry/errors are now visible. Updated the auth runbook/template with the public Site URL, exact login allow-list, and intact ConfirmationURL email template guidance.
+
+Verification: client 111/111 tests, production build, whitespace check; mocked browser signup verified the actual adapter's public redirect, no premature session, and expired-link error on a fresh return. All signup network responses were mocked: no real account or email was created. Browser dashboard access was unavailable; owner was given six steps to set Authentication > URL Configuration. Supabase Site URL, allow-list, custom email template, email delivery and real confirmation remain unverified until owner configures/tests them. No commit, push or deployment; unrelated in-progress performance changes preserved.
+
+## 2026-10-19 — Loading Performance & Code-Splitting / local READY
+
+- Completed loading performance and route/view-level code-splitting milestone without altering product behavior, state isolation, scheduling, curriculum, grading rules, or database schemas.
+- Production Bundle Measurements:
+  - Initial entry chunk before splitting: `dist/assets/index-Bh5oE74g.js`: **553.55 kB** (uncompressed) │ **139.79 kB** (gzipped). Emitted Vite `> 500 kB` bundle warning.
+  - Initial entry chunk after splitting: `dist/assets/index-CRloPvnW.js`: **344.50 kB** (uncompressed) │ **97.99 kB** (gzipped).
+  - Absolute Reduction: **-209.05 kB (-37.8%)** uncompressed │ **-41.80 kB (-29.9%)** gzipped.
+  - Vite `> 500 kB` warning completely eliminated; all chunks comfortably below threshold.
+- On-Demand Isolated Chunks:
+  - Secondary workspace views: `ProofStudio` (73.19 kB), `ReviewView` (29.12 kB), `AtlasView` (23.21 kB), `PracticeLibraryView` (13.65 kB), `WeeklyPlanView` (8.88 kB), `RoadmapView` (7.47 kB), `InsightsView` (6.04 kB).
+  - Heavy modals: `FoundationsCheckpointModal` (18.81 kB), `ContinuationPlanModal` (17.04 kB).
+  - Secondary route pages: `RecoveryPage` (8.88 kB), `OnboardingPage` (7.37 kB), `NotFoundPage` (1.35 kB).
+- Architectural & Accessibility Implementation:
+  - `AsyncViewBoundary.jsx`: Created `ChunkErrorBoundary` catching dynamic import failures with accessible alert (`role="alert"`) and visible, keyboard-accessible "Retry loading" action.
+  - `createLazyView`: Factory with native ES module cache-busting query retry (`?retry=${Date.now()}`), bypassing Chromium's internal failed module map cache.
+  - Accessible theme-matched loading states: `ViewLoadingFallback` and `ModalLoadingFallback` use `role="status"`, `aria-live="polite"`, `aria-busy="true"` and screen-reader announcements.
+  - Keyboard Focus & Destination Restoration: Updated `WorkspaceNav.jsx` with animation-frame polling (`tryFocus`) ensuring destination headings (`view-<id>` or `<id>-heading`) receive focus once lazy chunks mount.
+  - Replanning Synchrony: Pre-mounted `ContinuationPlanModal` when on `view=week` (returning null while closed) ensuring instant synchronous dialog mounting and checkbox rendering during weekly execution replanning.
+- Automated Verification Suites:
+  - Added `verify-loading-performance.cjs` with 6 Playwright browser scenarios covering: S1 (Cold load chunk economy), S2 (On-demand navigation across all 7 views), S3 (Browser back/forward history preservation), S4 (Throttled network `role="status"` loading states), S5 (Simulated chunk-load failure and in-place retry), S6 (Heavy dialogs on-demand loading and focus restoration). All 6/6 passed.
+  - Integrated into `./scripts/verify-continuation-release.ps1`.
+- Full Continuation Release Gate PASS (All 13 Checks):
+  - Server regressions: 132/132 passed
+  - Client regressions: 107/107 passed
+  - Production build: Vite build clean, 0 warnings
+  - Weekly execution & non-destructive replanning: 6/6 passed
+  - Continuation failure-path integration: passed
+  - Completed starter to accepted continuation: 9/9 passed
+  - Atlas and Proof regressions: 9/9 passed
+  - Quick check-ins and time sliders: 4/4 passed
+  - First-time student learning journey: 6/6 passed
+  - Loading performance and code-splitting: 6/6 passed
+  - State isolation regressions: 10/10 passed
+  - Starter workspace regressions: 14/14 passed
+  - Whitespace validation: `git -c core.safecrlf=false diff --check` clean (0 errors)
+- Result Documentation: Full measurements and walkthrough written in `docs/PERFORMANCE-LOADING-RESULT.md`.
+- Active Loopback Server: Running on `http://127.0.0.1:5173`.
+- Strictly Observed Guardrails: Zero commit, push, merge, deployment, `.env` edits, dependency changes, curriculum changes (`server/data/curriculum/**`), scheduling algorithm changes, or database migrations. All work preserved uncommitted in branch `codex/quick-checkins-time-sliders`.
+
+## 2026-10-20 — Owner-authorized checkpoint publication
+
+Owner authorized review, commit, push and PR after reporting successful real signup. Refreshed origin/main to ebc4f98 and fast-forwarded the identical baseline without disturbing work. Independently reviewed the deferred views/dialogs; corrected pending-dialog cancellation, temporary dialog keyboard/focus/scroll handling, and same-origin module retry. Added delayed cancellation regression and fixed browser readiness races without changing grading assertions. Final 13-group release gate passed (135 server, 111 client, loading 7/7 and all workspace suites); final copy-only loading/error update also received a fresh production build. See `docs/CHECKPOINT-RELEASE-2026-10-20.md`. Publication scope is the checkpoint branch and PR, with merge and production deployment separate. Existing environment files, dependencies, curriculum and DB schema preserved.

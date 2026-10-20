@@ -75,6 +75,12 @@ export const DEMO_ACCOUNTS = [
     name: 'Divya Iyer (Starter Completed)',
     description: 'Completed all 12 starter missions; ready for foundations checkpoint.',
     initialState: 'completed'
+  },
+  {
+    email: 'student.firsttime@nextstep.local',
+    name: 'Aarav Sharma (First-Time Curriculum Student)',
+    description: 'Student who completed Mission 1 on Starter Track, but has not yet started curriculum.',
+    initialState: 'firsttime'
   }
 ];
 
@@ -538,7 +544,14 @@ function createInitialSeedGoal(stateType, userEmail) {
   let completions = {};
   let studyWorkspace = normalizeStudyWorkspace({});
 
-  if (stateType === 'active') {
+  if (stateType === 'firsttime') {
+    completions['m01'] = {
+      completedAt: yesterdayIso,
+      outcome: 'independent',
+      reflection: 'Completed first starter mission.'
+    };
+    studyWorkspace = normalizeStudyWorkspace({});
+  } else if (stateType === 'active') {
     completions['m01'] = {
       completedAt: yesterdayIso,
       outcome: 'independent',
@@ -1315,7 +1328,8 @@ export const apiFixture = {
     status,
     completedSections,
     reflection,
-    knowledgeCheckPassed
+    knowledgeCheckPassed,
+    checkIn
   }) {
     await new Promise((r) => setTimeout(r, 30));
     if (!currentUser) throw { status: 401, code: 'UNAUTHORIZED', message: 'Sign in required.' };
@@ -1334,16 +1348,61 @@ export const apiFixture = {
       throw { status: 422, code: 'VALIDATION_ERROR', message: 'Invalid lesson status.' };
     }
 
+    if (checkIn !== undefined && checkIn !== null) {
+      if (typeof checkIn !== 'object' || checkIn.version !== 1) {
+        throw { status: 422, code: 'VALIDATION_ERROR', message: 'Invalid checkIn version.' };
+      }
+      if (checkIn.confidence && !['ready', 'needs_example', 'unsure'].includes(checkIn.confidence)) {
+        throw { status: 422, code: 'VALIDATION_ERROR', message: 'Invalid checkIn confidence enum.' };
+      }
+      if (checkIn.focus && !['invariant', 'update_order', 'edge_cases', 'none'].includes(checkIn.focus)) {
+        throw { status: 422, code: 'VALIDATION_ERROR', message: 'Invalid checkIn focus enum.' };
+      }
+      const extraKeys = Object.keys(checkIn).filter((k) => !['version', 'confidence', 'focus'].includes(k));
+      if (extraKeys.length > 0) {
+        throw { status: 422, code: 'VALIDATION_ERROR', message: `Unrecognized keys in checkIn: ${extraKeys.join(', ')}` };
+      }
+    }
+
+    const normalizedCheckIn = checkIn && typeof checkIn === 'object' ? {
+      version: 1,
+      ...(checkIn.confidence ? { confidence: checkIn.confidence } : {}),
+      ...(checkIn.focus ? { focus: checkIn.focus } : {})
+    } : null;
+
     const goal = JSON.parse(raw);
     const workspace = normalizeStudyWorkspace(goal.studyWorkspace);
     const existingRecord = workspace.lessonProgress[lessonId];
 
+    const trimmedReflection =
+      typeof reflection === 'string' ? reflection.trim().slice(0, 500) : (reflection ?? existingRecord?.reflection ?? null);
+
     if (existingRecord && existingRecord.lastRequestId === requestId) {
-      return {
-        data: {
-          goal: deriveGoalStats(goal),
-          lessonProgress: existingRecord
-        }
+      const existingCheckIn = existingRecord.checkIn ? {
+        version: existingRecord.checkIn.version || 1,
+        ...(existingRecord.checkIn.confidence ? { confidence: existingRecord.checkIn.confidence } : {}),
+        ...(existingRecord.checkIn.focus ? { focus: existingRecord.checkIn.focus } : {})
+      } : null;
+      const checkInMatches =
+        (existingRecord.lastRequestCheckInProvided ?? Boolean(existingCheckIn)) === (checkIn !== undefined) &&
+        (checkIn === undefined || JSON.stringify(normalizedCheckIn) === JSON.stringify(existingCheckIn));
+      const isIdentical =
+        existingRecord.status === status &&
+        (existingRecord.reflection ?? null) === (trimmedReflection ?? null) &&
+        checkInMatches;
+
+      if (isIdentical) {
+        return {
+          data: {
+            goal: deriveGoalStats(goal),
+            lessonProgress: existingRecord
+          }
+        };
+      }
+      throw {
+        status: 409,
+        code: 'REQUEST_CONFLICT',
+        message: 'A lesson progress update with this requestId was already recorded with different content.'
       };
     }
 
@@ -1355,8 +1414,6 @@ export const apiFixture = {
     }
 
     const nowIso = new Date().toISOString();
-    const trimmedReflection =
-      typeof reflection === 'string' ? reflection.trim().slice(0, 500) : (reflection ?? existingRecord?.reflection ?? null);
 
     const updatedRecord = {
       lessonId,
@@ -1368,6 +1425,8 @@ export const apiFixture = {
       reflection: trimmedReflection,
       knowledgeCheckPassed:
         knowledgeCheckPassed !== undefined ? Boolean(knowledgeCheckPassed) : Boolean(existingRecord?.knowledgeCheckPassed),
+      checkIn: checkIn === undefined ? (existingRecord?.checkIn ?? null) : normalizedCheckIn,
+      lastRequestCheckInProvided: checkIn !== undefined,
       lastRequestId: requestId,
       updatedAt: nowIso
     };
@@ -1404,7 +1463,8 @@ export const apiFixture = {
     hintRevealed = false,
     referenceRevealed = false,
     reflection = null,
-    outcome
+    outcome,
+    checkIn
   }) {
     await new Promise((r) => setTimeout(r, 30));
     if (!currentUser) throw { status: 401, code: 'UNAUTHORIZED', message: 'Sign in required.' };
@@ -1424,6 +1484,28 @@ export const apiFixture = {
       throw { status: 422, code: 'INCOMPLETE_TRACE', message: 'Trace steps and edge case verification must be completed.' };
     }
 
+    if (checkIn !== undefined && checkIn !== null) {
+      if (typeof checkIn !== 'object' || checkIn.version !== 1) {
+        throw { status: 422, code: 'VALIDATION_ERROR', message: 'Invalid checkIn version.' };
+      }
+      if (checkIn.confidence && !['ready', 'needs_example', 'unsure'].includes(checkIn.confidence)) {
+        throw { status: 422, code: 'VALIDATION_ERROR', message: 'Invalid checkIn confidence enum.' };
+      }
+      if (checkIn.focus && !['invariant', 'update_order', 'edge_cases', 'none'].includes(checkIn.focus)) {
+        throw { status: 422, code: 'VALIDATION_ERROR', message: 'Invalid checkIn focus enum.' };
+      }
+      const extraKeys = Object.keys(checkIn).filter((k) => !['version', 'confidence', 'focus'].includes(k));
+      if (extraKeys.length > 0) {
+        throw { status: 422, code: 'VALIDATION_ERROR', message: `Unrecognized keys in checkIn: ${extraKeys.join(', ')}` };
+      }
+    }
+
+    const normalizedCheckIn = checkIn && typeof checkIn === 'object' ? {
+      version: 1,
+      ...(checkIn.confidence ? { confidence: checkIn.confidence } : {}),
+      ...(checkIn.focus ? { focus: checkIn.focus } : {})
+    } : null;
+
     const grading = gradeExerciseAttempt({ exerciseId, variantKey, stepAnswers, edgeChoiceId });
     if (!grading.valid) {
       throw { status: 422, code: grading.code || 'VALIDATION_ERROR', message: grading.message };
@@ -1442,13 +1524,21 @@ export const apiFixture = {
 
     const existingAttempt = existingList.find((a) => a.attemptId === attemptId);
     if (existingAttempt) {
+      const existingCheckIn = existingAttempt.checkIn ? {
+        version: existingAttempt.checkIn.version || 1,
+        ...(existingAttempt.checkIn.confidence ? { confidence: existingAttempt.checkIn.confidence } : {}),
+        ...(existingAttempt.checkIn.focus ? { focus: existingAttempt.checkIn.focus } : {})
+      } : null;
+      const checkInMatches = JSON.stringify(normalizedCheckIn) === JSON.stringify(existingCheckIn);
+
       if (
         existingAttempt.outcome === authoritativeOutcome &&
         (existingAttempt.variantKey || 'primary') === variantKey &&
         existingAttempt.mistakeCount === mistakeCount &&
         existingAttempt.hintRevealed === Boolean(hintRevealed) &&
         existingAttempt.referenceRevealed === Boolean(referenceRevealed) &&
-        (existingAttempt.reflection ?? null) === normalizedReflection
+        (existingAttempt.reflection ?? null) === normalizedReflection &&
+        checkInMatches
       ) {
         return {
           data: {
@@ -1489,6 +1579,7 @@ export const apiFixture = {
       hintRevealed: Boolean(hintRevealed),
       referenceRevealed: Boolean(referenceRevealed),
       reflection: normalizedReflection,
+      ...(normalizedCheckIn ? { checkIn: normalizedCheckIn } : {}),
       savedAt: nowIso,
       nextReviewDate: addDays(today, daysToAdd)
     };

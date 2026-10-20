@@ -366,10 +366,17 @@ Save lesson progress, reflection, knowledge check outcome, or selected topic in 
   "status": "completed",
   "completedSections": ["explanation", "worked_example", "trace", "edge_case", "knowledge_check", "reflection"],
   "reflection": "Check membership before inserting so an element never matches itself.",
-  "knowledgeCheckOptionId": "kc_les_hashing_01_b"
+  "knowledgeCheckOptionId": "kc_les_hashing_01_b",
+  "checkIn": {
+    "version": 1,
+    "confidence": "ready",
+    "focus": "invariant"
+  }
 }
 ```
 - Server validates `lessonId` and `topicId` against published curriculum, grades `knowledgeCheckOptionId` server-side against authoritative curriculum, enforces `requestId` idempotency (identical retry returns 200 without version bump; conflicting payload with same `requestId` returns 409 `REQUEST_CONFLICT`), and updates `studyWorkspace.lessonProgress[lessonId]` with CAS.
+- `checkIn`: Optional bounded object `{ version: 1, confidence: "ready"|"needs_example"|"unsure", focus: "invariant"|"update_order"|"edge_cases"|"none" }`. Unknown versions or keys are rejected.
+  Omission preserves a saved lesson check-in; explicit `null` clears it. The lesson record retains `lastRequestCheckInProvided` to distinguish these operations during idempotent retries.
 - Recording lesson progress never claims verified mastery and never alters starter `m01`–`m12` completions or XP.
 
 ### POST /api/goal/workspace/exercise — authenticated
@@ -389,7 +396,12 @@ Record an interactive Proof trace/reasoning exercise attempt with authoritative 
   "mistakeCount": 1,
   "hintRevealed": false,
   "referenceRevealed": true,
-  "reflection": "Forgot that index 1 value 5 stays in the set when index 2 is checked."
+  "reflection": "Forgot that index 1 value 5 stays in the set when index 2 is checked.",
+  "checkIn": {
+    "version": 1,
+    "confidence": "needs_example",
+    "focus": "update_order"
+  }
 }
 ```
 - **Authoritative Grading**: Server grades every `stepAnswer` and `edgeChoiceId` against the authoritative (answer-key-bearing) curriculum. Incomplete traces or incorrect choices are rejected with HTTP 422 (`VALIDATION_ERROR`).
@@ -397,7 +409,8 @@ Record an interactive Proof trace/reasoning exercise attempt with authoritative 
   - `needed_reference` if `referenceRevealed` is true.
   - `with_hint` if `hintRevealed` is true or `mistakeCount > 0`.
   - `independent` only if zero mistakes, no hint, and no reference reveal.
-- **CAS & Idempotency**: Computes server-assigned `savedAt` and `nextReviewDate` in `Asia/Kolkata`, caps history at 20 attempts per exercise, and enforces `attemptId` idempotency (identical retry returns 200; altered payload with same `attemptId` returns 409 `ATTEMPT_CONFLICT`).
+- **CAS & Idempotency**: Computes server-assigned `savedAt` and `nextReviewDate` in `Asia/Kolkata`, caps history at 20 attempts per exercise, and enforces `attemptId` idempotency (identical retry returns 200; altered payload or changed checkIn with same `attemptId` returns 409 `ATTEMPT_CONFLICT`).
+- `checkIn`: Optional bounded self-reported check-in `{ version: 1, confidence: "ready"|"needs_example"|"unsure", focus: "invariant"|"update_order"|"edge_cases"|"none" }`. Unknown enum values or extra keys return 422 `VALIDATION_ERROR`. Check-in choices never alter algorithmic grading, score, or review due dates.
 
 ### POST /api/goal/workspace/practice — authenticated
 Record a self-reported attempt on an external practice problem reference.

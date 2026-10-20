@@ -2,10 +2,21 @@ import React, { useState, useEffect } from 'react';
 import { Routes, Route, Navigate, useNavigate } from 'react-router-dom';
 import AppShell from './components/AppShell.jsx';
 import LoginPage from './pages/LoginPage.jsx';
-import OnboardingPage from './pages/OnboardingPage.jsx';
 import DashboardPage from './pages/DashboardPage.jsx';
-import RecoveryPage from './pages/RecoveryPage.jsx';
-import NotFoundPage from './pages/NotFoundPage.jsx';
+import { createLazyView } from './components/workspace/AsyncViewBoundary.jsx';
+
+const OnboardingPage = createLazyView(
+  () => import('./pages/OnboardingPage.jsx'),
+  'Onboarding'
+);
+const RecoveryPage = createLazyView(
+  () => import('./pages/RecoveryPage.jsx'),
+  'Schedule Recovery'
+);
+const NotFoundPage = createLazyView(
+  () => import('./pages/NotFoundPage.jsx'),
+  'Page Not Found'
+);
 import LoadingState from './components/LoadingState.jsx';
 import ErrorNotice from './components/ErrorNotice.jsx';
 import { apiService, isFixtureMode, onSessionExpired } from './services/apiService.js';

@@ -12,9 +12,10 @@ Log in to the Supabase Project Dashboard and configure the following under **Aut
 
 ### A. URL Configuration (`Authentication` → `URL Configuration`)
 - **Site URL**:
-  - **Local Development**: `http://localhost:5173`
-  - **Production Deployment (Vercel)**: `https://<your-project>.vercel.app` (replace with your exact production domain)
+  - **Shared production project**: `https://next-step-six-theta.vercel.app`.
+  - Keep this public URL even while testing a local copy. Do not switch the shared project's default to localhost.
 - **Redirect URLs (Allow list)**:
+  - `https://next-step-six-theta.vercel.app/login`
   - `http://localhost:5173/**`
   - `http://localhost:5173/login`
   - `http://localhost:5173/onboarding`
@@ -22,7 +23,11 @@ Log in to the Supabase Project Dashboard and configure the following under **Aut
   - `https://<your-project>.vercel.app/login`
   - `https://<your-project>.vercel.app/onboarding`
 
-> **Note:** Supabase rejects authentication redirects with `redirect_to` addresses that do not match the Site URL or one of the entries in Redirect URLs.
+> **Note:** A requested redirect outside the allow-list can fall back to Site URL. Fixing client code alone does not fix a localhost Site URL in the dashboard. Do not remove other existing entries without checking their consumers.
+
+Local live-auth signups now request the public login URL so their email links also work on another device. Hosted HTTPS deployments request their own `/login` origin. Optional `VITE_AUTH_REDIRECT_URL` explicitly overrides this destination; allow-list that exact URL. Use loopback overrides only for intentional development, preferably on a separate Supabase project. Existing `.env` files were not changed; restart Vite after changing a Vite environment setting.
+
+The labelled synthetic preview does not send real Supabase email. Test real signup on the deployed website or normal live-auth development server. The confirmation screen shows the requested return host; it does not verify Supabase's dashboard settings.
 
 ### B. Auth Providers (`Authentication` → `Providers` → `Email`)
 - **Enable Email provider**: `Enabled` (ON)
@@ -40,7 +45,9 @@ Log in to the Supabase Project Dashboard and configure the following under **Aut
   <p>Follow this link to confirm your account on NextStep:</p>
   <p><a href="{{ .ConfirmationURL }}">Confirm your email</a></p>
   ```
-- **Redirect URL in Link**: Defaults to `{{ .SiteURL }}`. If configured, set redirect to `{{ .SiteURL }}/login`.
+- Keep the link's `href` as `{{ .ConfirmationURL }}` so Supabase performs verification. Do not replace it with a direct Site URL, login URL or localhost link. Check custom templates for hardcoded localhost URLs.
+
+After correcting settings, request a fresh confirmation email through the signup flow. An old email retains its old destination and may already be expired or used. Do not share full confirmation links: they contain private tokens.
 
 ---
 

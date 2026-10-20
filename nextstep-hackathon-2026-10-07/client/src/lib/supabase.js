@@ -7,6 +7,8 @@
  * and confirmation URL return handling.
  */
 
+import { resolveConfirmationRedirect } from './authRedirect.js';
+
 const STORAGE_KEY = 'nextstep_supabase_session';
 
 function getEnvConfig() {
@@ -15,7 +17,8 @@ function getEnvConfig() {
   const automatedTest = Boolean(procEnv?.NODE_TEST_CONTEXT);
   const url = metaEnv?.VITE_SUPABASE_URL || procEnv?.VITE_SUPABASE_URL || (automatedTest ? 'https://supabase.local' : '');
   const key = metaEnv?.VITE_SUPABASE_PUBLISHABLE_KEY || procEnv?.VITE_SUPABASE_PUBLISHABLE_KEY || (automatedTest ? 'test-anon-key' : '');
-  return { url, key };
+  const authRedirectUrl = metaEnv?.VITE_AUTH_REDIRECT_URL || procEnv?.VITE_AUTH_REDIRECT_URL || '';
+  return { url, key, authRedirectUrl };
 }
 
 let authListeners = [];
@@ -95,6 +98,14 @@ export const supabaseAuth = {
   checkAuthFromUrl() {
     const win = typeof window !== 'undefined' ? window : (typeof globalThis !== 'undefined' && globalThis.window ? globalThis.window : null);
     if (!win || !win.location) return null;
+
+    // Supabase may return expired/invalid confirmation errors in either location.
+    for (const raw of [win.location.hash?.replace(/^#/, ''), win.location.search]) {
+      const params = new URLSearchParams(raw || '');
+      if (params.get('error_description') || params.get('error')) {
+        return { error: params.get('error_description') || params.get('error') };
+      }
+    }
 
     // 1. Check hash fragment (Implicit flow redirect: #access_token=...&refresh_token=...)
     if (win.location.hash && win.location.hash.includes('access_token=')) {
@@ -325,7 +336,8 @@ export const supabaseAuth = {
       throw err;
     }
 
-    const redirectUrl = typeof window !== 'undefined' ? `${window.location.origin}/login` : '';
+    const { authRedirectUrl } = getEnvConfig();
+    const redirectUrl = resolveConfirmationRedirect(typeof window !== 'undefined' ? window.location.origin : '', authRedirectUrl);
     const endpoint = `${url}/auth/v1/signup${redirectUrl ? `?redirect_to=${encodeURIComponent(redirectUrl)}` : ''}`;
 
     let response;
@@ -416,7 +428,8 @@ export const supabaseAuth = {
       user: userObj,
       token: null,
       session: null,
-      confirmationRequired: true
+      confirmationRequired: true,
+      confirmationRedirectUrl: redirectUrl
     };
   },
 

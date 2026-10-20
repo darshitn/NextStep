@@ -41,7 +41,7 @@ export default function LoginPage({ onUserAuthenticated }) {
 
       // Outcome B: Confirmation required, no session returned
       if (result.confirmationRequired) {
-        return { confirmationRequired: true };
+        return { confirmationRequired: true, confirmationRedirectUrl: result.confirmationRedirectUrl };
       }
 
       // Outcome A: Session returned directly (auto-confirm enabled)

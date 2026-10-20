@@ -137,13 +137,13 @@ export default function GoalForm({ onSubmit, isLoading = false, error = null }) 
             </label>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <label
-                className={`p-3.5 rounded-xl border cursor-pointer transition-all flex flex-col gap-1 ${
+                className={`deadline-mode-option p-4 rounded-xl border cursor-pointer transition-colors flex flex-col gap-2 ${
                   deadlineMode === 'flexible'
-                    ? 'ui-bg-soft-a20 ui-border-border ui-text-ink shadow-sm ring-1 ring-brand-500/40'
+                    ? 'ui-bg-soft-a20 ui-border-border ui-text-ink shadow-sm'
                     : 'ui-bg-soft-a50 ui-border-border ui-text-ink hover:ui-bg-surface'
                 }`}
               >
-                <div className="flex items-center justify-between">
+                <div className="flex items-start justify-between gap-3">
                   <span className="font-semibold text-sm">Flexible Deadline (Recommended)</span>
                   <input
                     type="radio"
@@ -154,19 +154,19 @@ export default function GoalForm({ onSubmit, isLoading = false, error = null }) 
                     className="accent-brand-500"
                   />
                 </div>
-                <span className="text-[11px] ui-text-muted leading-tight">
+                <span className="text-xs ui-text-muted leading-relaxed">
                   Automatically extends target date when schedule recoveries occur.
                 </span>
               </label>
 
               <label
-                className={`p-3.5 rounded-xl border cursor-pointer transition-all flex flex-col gap-1 ${
+                className={`deadline-mode-option p-4 rounded-xl border cursor-pointer transition-colors flex flex-col gap-2 ${
                   deadlineMode === 'fixed'
-                    ? 'ui-bg-soft-a20 ui-border-border ui-text-ink shadow-sm ring-1 ring-brand-500/40'
+                    ? 'ui-bg-soft-a20 ui-border-border ui-text-ink shadow-sm'
                     : 'ui-bg-soft-a50 ui-border-border ui-text-ink hover:ui-bg-surface'
                 }`}
               >
-                <div className="flex items-center justify-between">
+                <div className="flex items-start justify-between gap-3">
                   <span className="font-semibold text-sm">Fixed Deadline</span>
                   <input
                     type="radio"
@@ -177,7 +177,7 @@ export default function GoalForm({ onSubmit, isLoading = false, error = null }) 
                     className="accent-brand-500"
                   />
                 </div>
-                <span className="text-[11px] ui-text-muted leading-tight">
+                <span className="text-xs ui-text-muted leading-relaxed">
                   Strict calendar deadline; flags overflow workload if behind schedule.
                 </span>
               </label>
