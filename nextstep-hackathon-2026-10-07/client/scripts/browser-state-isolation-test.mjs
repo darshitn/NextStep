@@ -119,13 +119,24 @@ async function runSuite() {
   await takeScreenshot(page, '00-workspace-initial.png');
 
   const selectNav = async (name) => {
+    const labelMap = {
+      Atlas: '(?:Learning path|Atlas)',
+      Proof: '(?:Learn & practise|Learn|Proof)',
+      Week: '(?:My week|Week)',
+      Roadmap: '(?:Starter track|Roadmap)',
+      Insights: '(?:Progress|Insights)',
+      Practice: 'Practice',
+      Review: 'Review',
+      Today: 'Today'
+    };
+    const pattern = labelMap[name] || name;
     const directLocator = page
       .locator('.workspace-nav')
-      .getByRole('button', { name: new RegExp('^' + name + '(?:\\s|$)') })
+      .getByRole('button', { name: new RegExp('^' + pattern + '(?:\\s|$)') })
       .or(
         page
           .locator('.workspace-nav')
-          .getByRole('tab', { name: new RegExp('^' + name + '(?:\\s|$)') })
+          .getByRole('tab', { name: new RegExp('^' + pattern + '(?:\\s|$)') })
       );
 
     const count = await directLocator.count();
@@ -141,11 +152,11 @@ async function runSuite() {
       await moreTrigger.click();
       const menuLocator = page
         .locator('.workspace-nav-dropdown')
-        .getByRole('menuitem', { name: new RegExp('^' + name + '(?:\\s|$)') })
+        .getByRole('menuitem', { name: new RegExp('^' + pattern + '(?:\\s|$)') })
         .or(
           page
             .locator('.workspace-nav-dropdown')
-            .getByRole('button', { name: new RegExp('^' + name + '(?:\\s|$)') })
+            .getByRole('button', { name: new RegExp('^' + pattern + '(?:\\s|$)') })
         );
       return menuLocator.first().click();
     }
@@ -468,16 +479,16 @@ async function runSuite() {
   await page.waitForTimeout(100);
   assert.equal(
     await page.evaluate(() => document.activeElement?.id),
-    'menu-nav-week',
-    'Opening via ArrowDown must focus first menu item (Week)'
+    'menu-nav-atlas',
+    'Opening via ArrowDown must focus first menu item (Learning path / Atlas)'
   );
 
   await page.keyboard.press('ArrowDown');
   await page.waitForTimeout(50);
   assert.equal(
     await page.evaluate(() => document.activeElement?.id),
-    'menu-nav-roadmap',
-    'ArrowDown must move focus to Roadmap after Week'
+    'menu-nav-practice',
+    'ArrowDown must move focus to Practice after Learning path'
   );
 
   await page.keyboard.press('Escape');

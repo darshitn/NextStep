@@ -176,8 +176,8 @@ export default function AtlasView({
       {/* Header & View Mode Toggle */}
       <div className="flex items-start justify-between gap-4 flex-wrap">
         <div>
-          <h2 id="atlas-heading" className="text-xl font-bold ui-text-ink tracking-tight">
-            Curriculum Atlas &amp; Prerequisite Map
+          <h2 id="atlas-heading" data-guide="atlas-heading" className="text-xl font-bold ui-text-ink tracking-tight">
+            Learning path &amp; Prerequisite Map
           </h2>
           <p className="text-sm ui-text-muted mt-1">
             {atlas.topics.length} structured DSA topics · {atlas.completedLessonsCount}/
@@ -540,13 +540,14 @@ export default function AtlasView({
           <div
             className="lg:col-span-7 space-y-6"
             role="list"
+            data-guide="atlas-topics-map"
             aria-label="Curriculum topics map"
           >
             {groupedLanes.map(([laneNum, laneTopics]) => (
               <div key={laneNum} className="space-y-3">
                 <div className="flex items-center justify-between border-b ui-border-border pb-1.5">
                   <h4 className="text-xs font-bold uppercase tracking-wider ui-text-muted">
-                    Stage {laneNum} · {STAGE_TITLES[laneNum] || `Stage ${laneNum}`}
+                    {STAGE_TITLES[laneNum] ? `Stage ${laneNum} · ${STAGE_TITLES[laneNum]}` : `Stage ${laneNum}`}
                   </h4>
                   <span className="text-xs ui-text-muted font-medium">
                     {laneTopics.length} Topics

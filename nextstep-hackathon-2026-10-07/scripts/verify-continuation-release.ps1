@@ -28,6 +28,7 @@ try {
   Invoke-Check 'Loading performance and code-splitting' 'node' @('client/scripts/verify-loading-performance.cjs', $PlaywrightModule, $PreviewUrl)
   Invoke-Check 'State isolation regressions' 'node' @('client/scripts/browser-state-isolation-test.mjs', $PreviewUrl)
   Invoke-Check 'Starter workspace regressions' 'node' @('client/scripts/verify-workspace.cjs', $PlaywrightModule, $PreviewUrl)
+  Invoke-Check 'First-use usability milestone' 'node' @('client/scripts/verify-first-use.cjs', $PlaywrightModule, $PreviewUrl)
   Invoke-Check 'Whitespace validation' 'git' @('-c', 'core.safecrlf=false', 'diff', '--check')
   Write-Host "`nCONTINUATION LOCAL RELEASE GATE: PASS. Production verification and publication are separate."
 } finally { Pop-Location }

@@ -47,7 +47,9 @@ async function textContrast(page) {
  await page.getByRole('button',{name:'Sign In to NextStep',exact:true}).click();
  await page.locator('.workspace-nav').waitFor();
  const select = async (name) => {
-  const directLocator = page.locator('.workspace-nav').getByRole('button', { name: new RegExp('^' + name + '(?:\\s|$)') }).or(page.locator('.workspace-nav').getByRole('tab', { name: new RegExp('^' + name + '(?:\\s|$)') }));
+  const labelMap = { Atlas: '(?:Learning path|Atlas)', Proof: '(?:Learn & practise|Learn|Proof)', Week: '(?:My week|Week)', Roadmap: '(?:Starter track|Roadmap)', Insights: '(?:Progress|Insights)', Practice: 'Practice', Review: 'Review', Today: 'Today' };
+  const pattern = labelMap[name] || name;
+  const directLocator = page.locator('.workspace-nav').getByRole('button', { name: new RegExp('^' + pattern + '(?:\\s|$)') }).or(page.locator('.workspace-nav').getByRole('tab', { name: new RegExp('^' + pattern + '(?:\\s|$)') }));
   const count = await directLocator.count();
   for (let i = 0; i < count; i++) {
    const el = directLocator.nth(i);
@@ -56,7 +58,7 @@ async function textContrast(page) {
   const moreTrigger = page.locator('#nav-more-trigger');
   if (await moreTrigger.isVisible()) {
    await moreTrigger.click();
-   const menuLocator = page.locator('.workspace-nav-dropdown').getByRole('menuitem', { name: new RegExp('^' + name + '(?:\\s|$)') }).or(page.locator('.workspace-nav-dropdown').getByRole('button', { name: new RegExp('^' + name + '(?:\\s|$)') }));
+   const menuLocator = page.locator('.workspace-nav-dropdown').getByRole('menuitem', { name: new RegExp('^' + pattern + '(?:\\s|$)') }).or(page.locator('.workspace-nav-dropdown').getByRole('button', { name: new RegExp('^' + pattern + '(?:\\s|$)') }));
    return menuLocator.first().click();
   }
   return directLocator.first().click();

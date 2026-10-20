@@ -50,6 +50,7 @@ const ContinuationPlanModal = createLazyView(
 );
 import LoadingState from '../components/LoadingState.jsx';
 import ErrorNotice from '../components/ErrorNotice.jsx';
+import InteractiveGuide from '../components/workspace/InteractiveGuide.jsx';
 import { apiService } from '../services/apiService.js';
 import {
   deriveWorkspaceStats,
@@ -66,6 +67,7 @@ import {
 } from '../services/workspace.js';
 
 export default function DashboardPage({
+  user,
   goal,
   onGoalUpdated,
   catalog,
@@ -91,6 +93,17 @@ export default function DashboardPage({
   const [selectedLessonId, setSelectedLessonId] = useState(null);
   const [selectedExerciseId, setSelectedExerciseId] = useState(null);
   const [highlightedProblemId, setHighlightedProblemId] = useState(null);
+
+  // Interactive Walkthrough Guide state
+  const [isGuideOpen, setIsGuideOpen] = useState(false);
+  const [guideChapter, setGuideChapter] = useState('start_learning');
+  const guideTriggerRef = useRef(null);
+
+  const handleOpenGuide = (chapterId = 'start_learning', triggerEl = null) => {
+    setGuideChapter(chapterId);
+    guideTriggerRef.current = triggerEl || document.activeElement;
+    setIsGuideOpen(true);
+  };
 
   // Checkpoint & Continuation modals - lazy loaded on demand
   const [isCheckpointOpen, setIsCheckpointOpen] = useState(false);
@@ -607,10 +620,12 @@ export default function DashboardPage({
     return res?.data;
   };
 
-  const handleOpenProofLesson = ({ topicId, lessonId, exerciseId }) => {
+  const [selectedProofMode, setSelectedProofMode] = useState(null);
+  const handleOpenProofLesson = ({ topicId, lessonId, exerciseId, mode }) => {
     if (topicId) setSelectedTopicId(topicId);
     if (lessonId) setSelectedLessonId(lessonId);
     setSelectedExerciseId(exerciseId || null);
+    if (mode) setSelectedProofMode(mode);
     handleSelectView('proof');
   };
 
@@ -800,6 +815,8 @@ export default function DashboardPage({
               onResumeTimer={handleResumeTimer}
               onResetTimer={handleResetTimer}
               onSelectTimerPreset={handleSelectTimerPreset}
+              user={user}
+              onOpenGuide={handleOpenGuide}
             />
           )}
 
@@ -826,6 +843,7 @@ export default function DashboardPage({
             <ProofStudio
               goal={goal}
               catalog={catalog}
+              initialMode={selectedProofMode}
               selectedTopicId={selectedTopicId}
               selectedLessonId={selectedLessonId}
               selectedExerciseId={selectedExerciseId}
@@ -933,6 +951,17 @@ export default function DashboardPage({
           }}
         />
       )}
+
+      {/* Interactive Getting-Started Walkthrough */}
+      <InteractiveGuide
+        isOpen={isGuideOpen}
+        onClose={() => setIsGuideOpen(false)}
+        user={user}
+        activeView={activeView}
+        onSelectView={handleSelectView}
+        initialChapter={guideChapter}
+        triggerRef={guideTriggerRef}
+      />
     </div>
   );
 }

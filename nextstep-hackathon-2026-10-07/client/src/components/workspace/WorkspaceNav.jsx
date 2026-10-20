@@ -11,16 +11,25 @@ import {
   ChevronDown
 } from 'lucide-react';
 
-const NAV_ITEMS = [
-  { id: 'today', label: 'Today', icon: Calendar, primary: true },
-  { id: 'week', label: 'Week', icon: Calendar, primary: false },
-  { id: 'atlas', label: 'Atlas', icon: Compass, primary: true },
-  { id: 'proof', label: 'Proof', icon: Code2, primary: true },
-  { id: 'practice', label: 'Practice', icon: ExternalLink, primary: true },
-  { id: 'roadmap', label: 'Roadmap', icon: ListOrdered, primary: false },
-  { id: 'review', label: 'Review', icon: RotateCcw, showBadge: true, primary: false },
-  { id: 'insights', label: 'Insights', icon: TrendingUp, primary: false }
+const STUDY_ITEMS = [
+  { id: 'today', label: 'Today', mobileLabel: 'Today', icon: Calendar },
+  { id: 'proof', label: 'Learn & practise', mobileLabel: 'Learn', icon: Code2 },
+  { id: 'week', label: 'My week', mobileLabel: 'My week', icon: Calendar },
+  { id: 'atlas', label: 'Learning path', mobileLabel: 'Learning path', icon: Compass },
+  { id: 'practice', label: 'Practice', mobileLabel: 'Practice', icon: ExternalLink },
+  { id: 'review', label: 'Review', mobileLabel: 'Review', icon: RotateCcw, showBadge: true }
 ];
+
+const TRACK_ITEMS = [
+  { id: 'roadmap', label: 'Starter track', mobileLabel: 'Starter track', icon: ListOrdered },
+  { id: 'insights', label: 'Progress', mobileLabel: 'Progress', icon: TrendingUp }
+];
+
+const NAV_ITEMS = [...STUDY_ITEMS, ...TRACK_ITEMS];
+
+const MOBILE_PRIMARY_IDS = ['today', 'proof', 'week'];
+const MOBILE_PRIMARY_ITEMS = MOBILE_PRIMARY_IDS.map((id) => NAV_ITEMS.find((item) => item.id === id));
+const MOBILE_SECONDARY_ITEMS = NAV_ITEMS.filter((item) => !MOBILE_PRIMARY_IDS.includes(item.id));
 
 export default function WorkspaceNav({ activeView, onSelectView, unresolvedReviewCount = 0 }) {
   const [moreOpen, setMoreOpen] = useState(false);
@@ -51,8 +60,8 @@ export default function WorkspaceNav({ activeView, onSelectView, unresolvedRevie
   }, [moreOpen]);
 
   const activeItem = NAV_ITEMS.find((item) => item.id === activeView);
-  const isMoreItemActive = activeItem && !activeItem.primary;
-  const secondaryItems = NAV_ITEMS.filter((item) => !item.primary);
+  const isMoreItemActive = MOBILE_SECONDARY_ITEMS.some((item) => item.id === activeView);
+  const secondaryItems = MOBILE_SECONDARY_ITEMS;
 
   const handleTriggerKeyDown = (e) => {
     if (e.key === 'ArrowDown' || e.key === 'Enter' || e.key === ' ') {
@@ -114,48 +123,60 @@ export default function WorkspaceNav({ activeView, onSelectView, unresolvedRevie
     requestAnimationFrame(() => tryFocus(0));
   };
 
+  const renderNavBtn = (item) => {
+    const Icon = item.icon;
+    const isActive = activeView === item.id;
+    const hasBadge = item.showBadge && unresolvedReviewCount > 0;
+
+    return (
+      <button
+        key={item.id}
+        type="button"
+        id={`nav-${item.id}`}
+        data-view={item.id}
+        data-guide={`nav-${item.id}`}
+        role="tab"
+        aria-selected={isActive}
+        aria-current={isActive ? 'page' : undefined}
+        className={`workspace-nav-btn ${isActive ? 'active' : ''}`}
+        onClick={() => onSelectView(item.id)}
+      >
+        <Icon size={18} aria-hidden="true" />
+        <span>{item.label}</span>
+        {hasBadge && (
+          <span
+            className="workspace-nav-btn-badge"
+            aria-label={`${unresolvedReviewCount} review item${unresolvedReviewCount === 1 ? '' : 's'}`}
+          >
+            {unresolvedReviewCount}
+          </span>
+        )}
+      </button>
+    );
+  };
+
   return (
     <nav className="workspace-nav" aria-label="Workspace views">
       {/* 1. Desktop Rail (Visible on >= 768px via CSS) */}
       <div className="workspace-nav-desktop">
         <div className="workspace-nav-list" role="tablist" aria-orientation="vertical">
-          {NAV_ITEMS.map((item) => {
-            const Icon = item.icon;
-            const isActive = activeView === item.id;
-            const hasBadge = item.showBadge && unresolvedReviewCount > 0;
+          <div className="px-3 pt-1 pb-1 text-[11px] font-bold uppercase tracking-wider ui-text-muted select-none">
+            Study
+          </div>
+          {STUDY_ITEMS.map(renderNavBtn)}
 
-            return (
-              <button
-                key={item.id}
-                type="button"
-                id={`nav-${item.id}`}
-                role="tab"
-                aria-selected={isActive}
-                aria-current={isActive ? 'page' : undefined}
-                className={`workspace-nav-btn ${isActive ? 'active' : ''}`}
-                onClick={() => onSelectView(item.id)}
-              >
-                <Icon size={18} aria-hidden="true" />
-                <span>{item.label}</span>
-                {hasBadge && (
-                  <span
-                    className="workspace-nav-btn-badge"
-                    aria-label={`${unresolvedReviewCount} review item${unresolvedReviewCount === 1 ? '' : 's'}`}
-                  >
-                    {unresolvedReviewCount}
-                  </span>
-                )}
-              </button>
-            );
-          })}
+          <div className="px-3 pt-3 pb-1 text-[11px] font-bold uppercase tracking-wider ui-text-muted select-none border-t ui-border-border mt-2">
+            Track
+          </div>
+          {TRACK_ITEMS.map(renderNavBtn)}
         </div>
       </div>
 
       {/* 2. Mobile Compact Navigation Bar (Visible on < 768px via CSS) */}
       <div className="workspace-nav-mobile">
         <div className="workspace-nav-mobile-bar" role="tablist">
-          {/* Primary View Buttons */}
-          {NAV_ITEMS.filter((item) => item.primary).map((item) => {
+          {/* Primary View Buttons: Today / Learn / My week */}
+          {MOBILE_PRIMARY_ITEMS.map((item) => {
             const Icon = item.icon;
             const isActive = activeView === item.id;
 
@@ -164,6 +185,8 @@ export default function WorkspaceNav({ activeView, onSelectView, unresolvedRevie
                 key={`mobile-${item.id}`}
                 type="button"
                 id={`mobile-nav-${item.id}`}
+                data-view={item.id}
+                data-guide={`mobile-nav-${item.id}`}
                 role="tab"
                 aria-selected={isActive}
                 aria-current={isActive ? 'page' : undefined}
@@ -174,7 +197,7 @@ export default function WorkspaceNav({ activeView, onSelectView, unresolvedRevie
                 }}
               >
                 <Icon size={16} aria-hidden="true" />
-                <span>{item.label}</span>
+                <span>{item.mobileLabel || item.label}</span>
               </button>
             );
           })}
@@ -185,9 +208,10 @@ export default function WorkspaceNav({ activeView, onSelectView, unresolvedRevie
               ref={triggerRef}
               type="button"
               id="nav-more-trigger"
+              data-guide="nav-more-trigger"
               aria-haspopup="menu"
               aria-expanded={moreOpen}
-              aria-label={isMoreItemActive ? `More views (current: ${activeItem.label})` : 'More navigation views'}
+              aria-label={isMoreItemActive ? `More views (current: ${activeItem?.label || 'selected'})` : 'More navigation views'}
               className={`workspace-nav-mobile-btn ${isMoreItemActive ? 'active' : ''}`}
               onClick={() => {
                 setMoreOpen((prev) => {
@@ -228,6 +252,7 @@ export default function WorkspaceNav({ activeView, onSelectView, unresolvedRevie
                       key={`menu-${item.id}`}
                       type="button"
                       id={`menu-nav-${item.id}`}
+                      data-view={item.id}
                       role="menuitem"
                       aria-current={isActive ? 'page' : undefined}
                       className={`workspace-nav-menu-item ${isActive ? 'active' : ''}`}

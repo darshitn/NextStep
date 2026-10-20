@@ -710,3 +710,68 @@ Verification: client 111/111 tests, production build, whitespace check; mocked b
 ## 2026-10-20 — Owner-authorized checkpoint publication
 
 Owner authorized review, commit, push and PR after reporting successful real signup. Refreshed origin/main to ebc4f98 and fast-forwarded the identical baseline without disturbing work. Independently reviewed the deferred views/dialogs; corrected pending-dialog cancellation, temporary dialog keyboard/focus/scroll handling, and same-origin module retry. Added delayed cancellation regression and fixed browser readiness races without changing grading assertions. Final 13-group release gate passed (135 server, 111 client, loading 7/7 and all workspace suites); final copy-only loading/error update also received a fresh production build. See `docs/CHECKPOINT-RELEASE-2026-10-20.md`. Publication scope is the checkpoint branch and PR, with merge and production deployment separate. Existing environment files, dependencies, curriculum and DB schema preserved.
+
+
+## 2026-10-20 — First-Use Usability Milestone / local READY
+
+- Implemented NextStep's first-use usability milestone answering: "What should I do now?", "Where can I find things?", "What did I finish, and what comes next?".
+- One Obvious Starting Point:
+  - Implemented `deriveTodayPrimaryAction` enforcing deterministic precedence (1. Explicit resumable activity > 2. Pending accepted weekly plan session > 3. Account-appropriate state recommendation).
+  - Single dominant Today hero activity card displaying activity title, duration, plain-language reason, dominant action button, and secondary alternative route. Stacked duplicate recommendations eliminated.
+  - Added unit test suite `todayAction.test.js` (7 tests TA01–TA07) covering all account states.
+- Plain-Language Navigation:
+  - Updated visible labels: `Learning path` (Atlas), `Learn & practise` (Proof), `My week` (Week), `Starter track` (Roadmap), `Progress` (Insights).
+  - Grouped desktop rail into Study vs Track; configured mobile primary bar (`Today` / `Learn` / `My week` / `More`) with accessible More sheet.
+  - Distinguish "No curriculum plan yet" from daily rest/capacity on `My week`, with clear route to Starter track missions.
+  - Atlas neutral fallback headings (e.g., `Stage 5`, eliminating `Stage 5 · Stage 5`).
+- Optional Interactive Walkthrough Guide:
+  - Built `InteractiveGuide.jsx` and `guideService.js`: dismissible first-use invitation ("Want a quick walkthrough?") and persistent "Getting started" replay trigger.
+  - 3 task-oriented chapters: Start learning (5 steps max), Plan my week, Understand my progress.
+  - Non-blocking SVG spotlight (`pointer-events: none`) keeping controls operable; mobile bottom sheet away from targets; keyboard Escape dismissal with focus restoration; missing-target fallback; localStorage preference isolation; zero mutations to learning answers or schedules.
+  - Added unit test suite `guide.test.js` (3 tests G01–G03).
+- Plain-Language Lesson Finish:
+  - Upgraded learning strip to `Learn → Try → Check → Finish`; genuinely new lessons begin in Learn mode.
+  - Unambiguous visual distinction between saving evaluated trace attempts and completing lesson prerequisite graph.
+- Verification & Multi-Viewport Audit:
+  - Added dedicated Playwright suite `client/scripts/verify-first-use.cjs` (7/7 passed).
+  - Multi-viewport audit across 1440x900, 1024x768, 390x844, 320x568 and all 6 theme variants: 0 horizontal overflow at 320px; dominant hero button visible in initial 390x844 viewport (Y=321px < 844px).
+  - Full local release gate (`scripts/verify-continuation-release.ps1`) PASS: Server 135/135, Client 121/121, clean production build (17.71s), Weekly execution 6/6, Continuation integration 5/5, Continuation 9/9, Atlas & Proof 9/9, Quick check-ins 4/4, First session 6/6, Loading performance 7/7, State isolation 10/10, Starter workspace 14/14, Whitespace check clean.
+- Evidence screenshots in `client/.local/first-use-evidence/2026-10-20T08-24-23-060Z`. Detailed report in `docs/FIRST-USE-IMPLEMENTATION-RESULT.md`.
+- Working rules strictly observed: zero commits, pushes, merges, deployments, `.env` edits, dependency changes, curriculum changes, recommendation algorithm changes, or DB migrations. All changes uncommitted in branch `codex/quick-checkins-time-sliders`.
+- Loopback preview remains active on `http://127.0.0.1:5173`.
+
+## 2026-10-20 — First-Use Usability Independent Review Repairs (R1–R3) / local READY
+
+- Repaired interactive walkthrough guide according to `docs/FIRST-USE-INDEPENDENT-REVIEW.md` (R1–R3 only):
+  - **R1 (Teaching steps reachable & mode synchronization)**:
+    - Added rendered anchors `data-guide="proof-try-container"` (Checkpoint prompt and choices container) and `data-guide="proof-save-section"` (Trace attempt and reflection form) in `ProofStudio.jsx`.
+    - Added identical anchors for exercise-free lesson views so both interactive and conceptual lessons are truthfully supported.
+    - Added automatic mode synchronization: Step 4/5 synchronizes to Try/Trace mode; Step 3 synchronizes to Learn mode.
+    - In Step 2, advancing observes opening the actual recommended lesson (`today-primary-action-btn`), rather than a generic view switch.
+    - Replaced static 1.5s timeout with `MutationObserver` and dynamic retry rescan so lazy content is caught instantly without leaving the user stranded.
+  - **R2 (Replay reset & focus restoration)**:
+    - `InteractiveGuide.jsx` resets `currentStepIdx` to `0` (Step 1) and chapter to `initialChapter` on open/replay.
+    - Wired `guideTriggerRef` in `DashboardPage.jsx` and `TodayView.jsx` (`triggerRef.current = triggerEl || document.activeElement`).
+    - On Escape or Close, restores focus to the exact launching control (`[data-guide="getting-started-trigger"]`) with fallback to Today view.
+    - Added screen-reader step announcement (`sr-only` `aria-live="polite"`). Spotlight maintains `pointer-events: none` ensuring highlighted controls remain operable.
+  - **R3 (Behavioral browser coverage & in-memory fallback)**:
+    - Reviewer probe script `client/.local/usability-audit/review-guide.cjs` verified: `focusRestored: true`, `replayStep: "1"`, `step4Missing: false`, `step4AnchorCount: 1`, `step5Missing: false`.
+    - Implemented account-scoped `inMemoryGuidePrefs` Map and `normalizeGuidePreferences(raw)` shape validation in `guideService.js`. Added unit tests G04 (storage-denied in-memory fallback) and G05 (malformed JSON recovery) in `guide.test.js`.
+    - Expanded Playwright suite `client/scripts/verify-first-use.cjs` to traverse all 5 steps, assert visible targets without fallback alerts, test focus restoration, assert step reset on replay, verify mobile non-overlap geometry, and confirm zero learning or schedule writes.
+    - Integrated `verify-first-use.cjs` into `scripts/verify-continuation-release.ps1` as Gate 13.
+- Verification Results:
+  - Server unit & route regressions: 135/135 passed (10.78s)
+  - Client unit regressions: 123/123 passed (including TA01–TA07 and G01–G05)
+  - Production build: clean in 14.80s (0 errors, 0 warnings)
+  - First-use Playwright suite (`verify-first-use.cjs`): 8/8 passed (including FU05b)
+  - Full local release gate (`scripts/verify-continuation-release.ps1`): ALL 14 GATES PASSED
+  - Reviewer probe (`review-guide.cjs`): 100% passed
+  - Whitespace validation (`git -c core.safecrlf=false diff --check`): clean (0 errors)
+- Follow-Up Repairs (2026-10-20):
+  - Defect 1: Spotlight geometry listeners (`scroll`, `resize`) always installed and cleaned up; auto-scroll separated from manual scroll (`delta = 0` on mobile scroll). Removed laggy transition.
+  - Defect 2: Branch Step 2 by recommended activity type (`data-action-type`). For `student.completed`, Step 2 explains Foundations Checkpoint and ends guide cleanly upon opening (`dialogs: 1`, `missing: false`, zero overlap).
+  - Reviewer follow-up probe (`review-guide-repair.cjs`): `delta: 0`, `firsttime.dialogs: 1`, `completed.dialogs: 1`, `missing: false`.
+- Preserved existing dirty work; zero commits, pushes, merges, deployments, `.env` edits, dependency changes, or DB migrations. Branch `codex/quick-checkins-time-sliders` clean and intact. Loopback preview remains active on `http://127.0.0.1:5173`.
+
+## 2026-10-20 - Owner-authorized first-use release checkpoint
+Created codex/first-use-experience from the identical PR6 baseline and preserved all implementation changes. Independently ran the full 14-group release gate: PASS (135 server, 123 client, first-use 8/8 and all existing browser regressions). Reviewed staged scope and secret-shaped values; no private/generated content included. See docs/FIRST-USE-RELEASE-2026-10-20.md. Owner authorized commit, push and PR; merge/deployment and real novice acceptance remain separate. No environment, dependencies, DB or curriculum-content changes.

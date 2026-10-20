@@ -144,6 +144,7 @@ export default function App() {
               <Navigate to="/login" replace />
             ) : (
               <DashboardPage
+                user={user}
                 goal={goal}
                 onGoalUpdated={setGoal}
                 catalog={catalog}
@@ -161,6 +162,7 @@ export default function App() {
               <Navigate to="/login" replace />
             ) : (
               <DashboardPage
+                user={user}
                 goal={goal}
                 onGoalUpdated={setGoal}
                 catalog={catalog}
@@ -177,6 +179,7 @@ export default function App() {
               <Navigate to="/login" replace />
             ) : (
               <DashboardPage
+                user={user}
                 goal={goal}
                 onGoalUpdated={setGoal}
                 catalog={catalog}
@@ -193,6 +196,7 @@ export default function App() {
               <Navigate to="/login" replace />
             ) : (
               <DashboardPage
+                user={user}
                 goal={goal}
                 onGoalUpdated={setGoal}
                 catalog={catalog}
