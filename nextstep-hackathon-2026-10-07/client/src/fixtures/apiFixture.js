@@ -156,6 +156,8 @@ export function normalizeStudyWorkspace(rawWorkspace) {
     practiceAttempts: base.practiceAttempts && typeof base.practiceAttempts === 'object' ? base.practiceAttempts : {},
     studyPlan: base.studyPlan && typeof base.studyPlan === 'object' ? base.studyPlan : null,
     continuation: normalizeContinuation(base.continuation),
+    activePracticeSession: base.activePracticeSession && typeof base.activePracticeSession === 'object' ? base.activePracticeSession : null,
+    practiceSessionHistory: Array.isArray(base.practiceSessionHistory) ? base.practiceSessionHistory.slice(-5) : [],
     updatedAt: base.updatedAt || null
   };
 }
@@ -752,6 +754,62 @@ try {
   // SSR or Storage disabled
 }
 
+function canonicalizeUpdatePayload(payload) {
+  if (!payload || typeof payload !== 'object') return null;
+  const status = payload.status || 'in_progress';
+  const currentTaskIndex =
+    payload.currentTaskIndex !== undefined && payload.currentTaskIndex !== null
+      ? Number(payload.currentTaskIndex)
+      : null;
+
+  let completedTask = null;
+  if (payload.completedTask && typeof payload.completedTask === 'object') {
+    completedTask = {
+      taskId: payload.completedTask.taskId || null,
+      notes:
+        payload.completedTask.notes !== undefined && payload.completedTask.notes !== null
+          ? String(payload.completedTask.notes)
+          : null,
+      attemptId:
+        payload.completedTask.attemptId !== undefined && payload.completedTask.attemptId !== null
+          ? String(payload.completedTask.attemptId)
+          : null
+    };
+  }
+
+  return {
+    status,
+    currentTaskIndex,
+    completedTask
+  };
+}
+
+function areUpdatePayloadsIdentical(receipt, currentPayload) {
+  if (!receipt) return false;
+  const currentCanonical = canonicalizeUpdatePayload(currentPayload);
+  if (receipt.canonicalPayload) {
+    const receiptCanonical = canonicalizeUpdatePayload(receipt.canonicalPayload);
+    return JSON.stringify(receiptCanonical) === JSON.stringify(currentCanonical);
+  }
+  // Fallback for legacy receipt format without canonicalPayload property
+  const isStatusSame = (receipt.status || 'in_progress') === (currentPayload.status || 'in_progress');
+  const isTaskSame = (receipt.completedTaskId || null) === (currentPayload.completedTask ? currentPayload.completedTask.taskId : null);
+  const isIndexSame =
+    currentPayload.currentTaskIndex === undefined ||
+    receipt.currentTaskIndex === currentPayload.currentTaskIndex;
+  const isNotesSame =
+    (receipt.notes !== undefined && receipt.notes !== null ? String(receipt.notes) : null) ===
+    (currentPayload.completedTask && currentPayload.completedTask.notes !== undefined && currentPayload.completedTask.notes !== null
+      ? String(currentPayload.completedTask.notes)
+      : null);
+  const isAttemptSame =
+    (receipt.attemptId !== undefined && receipt.attemptId !== null ? String(receipt.attemptId) : null) ===
+    (currentPayload.completedTask && currentPayload.completedTask.attemptId !== undefined && currentPayload.completedTask.attemptId !== null
+      ? String(currentPayload.completedTask.attemptId)
+      : null);
+  return isStatusSame && isTaskSame && isIndexSame && isNotesSame && isAttemptSame;
+}
+
 export const apiFixture = {
   isFixture: true,
 
@@ -901,6 +959,29 @@ export const apiFixture = {
 
     safeStorage.setItem(storageKey, JSON.stringify(newGoal));
     return { data: { goal: deriveGoalStats(newGoal) } };
+  },
+
+  // Rename Goal
+  async renameGoal({ goalName, expectedVersion }) {
+    if (!currentUser) throw { status: 401, code: 'UNAUTHORIZED', message: 'Sign in to access your goal.' };
+    if (!goalName || typeof goalName !== 'string' || !goalName.trim() || goalName.trim().length > 80) {
+      throw { status: 422, code: 'VALIDATION_ERROR', message: 'Enter a goal name of 1 to 80 characters and a valid version.' };
+    }
+    const storageKey = STORAGE_KEY_PREFIX + currentUser.id;
+    const raw = safeStorage.getItem(storageKey);
+    if (!raw) throw { status: 404, code: 'GOAL_NOT_FOUND', message: 'Create your goal first.' };
+
+    const goal = JSON.parse(raw);
+    if (expectedVersion !== undefined && goal.version !== expectedVersion) {
+      throw { status: 409, code: 'VERSION_CONFLICT', message: 'Your goal changed. Refresh and try again.' };
+    }
+
+    goal.goalName = goalName.trim();
+    goal.version = (goal.version || 1) + 1;
+    goal.updatedAt = new Date().toISOString();
+
+    safeStorage.setItem(storageKey, JSON.stringify(goal));
+    return { data: { goal: deriveGoalStats(goal) } };
   },
 
   // Complete Mission
@@ -2427,6 +2508,512 @@ export const apiFixture = {
       data: {
         goal: deriveGoalStats(goal),
         studyPlan: savedStudyPlan
+      }
+    };
+  },
+
+  async startPracticeSession({
+    expectedVersion,
+    sessionId,
+    timeBudgetMinutes,
+    title,
+    reason,
+    tasks
+  }) {
+    if (!currentUser) throw { status: 401, code: 'UNAUTHORIZED', message: 'Sign in required.' };
+    const storageKey = STORAGE_KEY_PREFIX + currentUser.id;
+    let goal = null;
+    try {
+      const raw = safeStorage.getItem(storageKey);
+      if (raw) goal = JSON.parse(raw);
+    } catch (e) {}
+
+    if (!goal) {
+      const err = new Error('No active goal found');
+      err.status = 404;
+      err.code = 'GOAL_NOT_FOUND';
+      throw err;
+    }
+
+    const workspace = normalizeStudyWorkspace(goal.studyWorkspace);
+
+    // Enforce total effort <= timeBudgetMinutes
+    const totalEstimatedMinutes = (tasks || []).reduce((sum, t) => sum + (t.estimatedMinutes || 0), 0);
+    if (totalEstimatedMinutes > timeBudgetMinutes) {
+      const err = new Error(`Total task estimated duration (${totalEstimatedMinutes} mins) exceeds selected time budget (${timeBudgetMinutes} mins).`);
+      err.status = 422;
+      err.code = 'BUDGET_EXCEEDED';
+      throw err;
+    }
+
+    // Validate targets against curriculum fixture
+    const publishedLessons = curriculumData?.lessons || [];
+    const publishedExercises = curriculumData?.exercises || [];
+    const publishedPractice = curriculumData?.practiceProblems || [];
+    const lessonById = new Map(publishedLessons.map((l) => [l.id, l]));
+    const exerciseById = new Map(publishedExercises.map((e) => [e.id, e]));
+    const practiceById = new Map(publishedPractice.map((p) => [p.id, p]));
+
+    for (const task of tasks || []) {
+      const lesson = lessonById.get(task.lessonId);
+      if (!lesson) {
+        const err = new Error(`Task references unknown or unpublished lesson ${task.lessonId}.`);
+        err.status = 422;
+        err.code = 'INVALID_TASK_TARGET';
+        throw err;
+      }
+      if (lesson.topicId !== task.topicId) {
+        const err = new Error(`Lesson ${task.lessonId} belongs to topic ${lesson.topicId}, not ${task.topicId}.`);
+        err.status = 422;
+        err.code = 'INVALID_TASK_TARGET';
+        throw err;
+      }
+
+      if (task.exerciseId) {
+        const exercise = exerciseById.get(task.exerciseId);
+        if (!exercise) {
+          const err = new Error(`Task references unknown or unpublished exercise ${task.exerciseId}.`);
+          err.status = 422;
+          err.code = 'INVALID_TASK_TARGET';
+          throw err;
+        }
+        if (exercise.topicId !== task.topicId || exercise.lessonId !== task.lessonId) {
+          const err = new Error(`Exercise ${task.exerciseId} does not belong to lesson ${task.lessonId} and topic ${task.topicId}.`);
+          err.status = 422;
+          err.code = 'INVALID_TASK_TARGET';
+          throw err;
+        }
+        if (task.variantKey === 'alternate' && !exercise.alternateVariant) {
+          const err = new Error(`Alternate variant does not exist for exercise ${task.exerciseId}.`);
+          err.status = 422;
+          err.code = 'INVALID_TASK_TARGET';
+          throw err;
+        }
+        if (task.variantKey === 'primary' && !exercise.primaryVariant) {
+          const err = new Error(`Primary variant does not exist for exercise ${task.exerciseId}.`);
+          err.status = 422;
+          err.code = 'INVALID_TASK_TARGET';
+          throw err;
+        }
+      }
+
+      if (task.problemId) {
+        const problem = practiceById.get(task.problemId);
+        if (!problem) {
+          const err = new Error(`Task references unknown or unpublished practice problem ${task.problemId}.`);
+          err.status = 422;
+          err.code = 'INVALID_TASK_TARGET';
+          throw err;
+        }
+        if (problem.topicId !== task.topicId) {
+          const err = new Error(`Practice problem ${task.problemId} belongs to topic ${problem.topicId}, not ${task.topicId}.`);
+          err.status = 422;
+          err.code = 'INVALID_TASK_TARGET';
+          throw err;
+        }
+      }
+    }
+
+    // Prevent resurrection of finalized sessions
+    const inHistory = (workspace.practiceSessionHistory || []).some((h) => h.sessionId === sessionId);
+    if (inHistory) {
+      const err = new Error('A practice session with this ID has already been completed or finalized.');
+      err.status = 409;
+      err.code = 'SESSION_FINALIZED';
+      throw err;
+    }
+
+    const existingSession = workspace.activePracticeSession;
+
+    if (existingSession && existingSession.sessionId === sessionId) {
+      const isIdentical =
+        existingSession.timeBudgetMinutes === timeBudgetMinutes &&
+        existingSession.title === title &&
+        existingSession.reason === reason &&
+        existingSession.tasks.length === tasks.length &&
+        existingSession.tasks.every((t, i) =>
+          t.taskId === tasks[i].taskId &&
+          t.targetId === tasks[i].targetId &&
+          t.activityType === tasks[i].activityType &&
+          t.lessonId === tasks[i].lessonId &&
+          (t.exerciseId || null) === (tasks[i].exerciseId || null) &&
+          (t.problemId || null) === (tasks[i].problemId || null) &&
+          (t.variantKey || 'primary') === (tasks[i].variantKey || 'primary') &&
+          t.estimatedMinutes === tasks[i].estimatedMinutes
+        );
+
+      if (isIdentical) {
+        return {
+          data: {
+            goal: deriveGoalStats(goal),
+            activePracticeSession: existingSession
+          }
+        };
+      }
+      const err = new Error('Session conflict');
+      err.status = 409;
+      err.code = 'SESSION_CONFLICT';
+      throw err;
+    }
+
+    if (goal.version !== expectedVersion) {
+      const err = new Error('Goal version changed');
+      err.status = 409;
+      err.code = 'VERSION_CONFLICT';
+      throw err;
+    }
+
+    if (existingSession && existingSession.sessionId !== sessionId) {
+      const err = new Error(`An active practice session (${existingSession.sessionId}) is already in progress. Abandon or complete it before starting a new session.`);
+      err.status = 409;
+      err.code = 'ACTIVE_SESSION_EXISTS';
+      throw err;
+    }
+
+    const nowIso = new Date().toISOString();
+    const stampedTasks = tasks.map((t, idx) => {
+      const exAttempts = (t.exerciseId && workspace.exerciseAttempts[t.exerciseId]) || [];
+      return {
+        ...t,
+        taskId: t.taskId || `task_${idx + 1}`,
+        variantKey: t.variantKey || (t.exerciseId ? 'primary' : undefined),
+        baselineTimestamp: nowIso,
+        baselineAttemptCount: exAttempts.length,
+        baselineLatestAttemptId: exAttempts.length > 0 ? exAttempts[exAttempts.length - 1].attemptId : null,
+        status: 'pending'
+      };
+    });
+
+    const newActiveSession = {
+      sessionId,
+      startedAt: nowIso,
+      timeBudgetMinutes,
+      title,
+      reason,
+      status: 'in_progress',
+      currentTaskIndex: 0,
+      tasks: stampedTasks,
+      replayReceipts: []
+    };
+
+    goal.version += 1;
+    goal.studyWorkspace = {
+      ...workspace,
+      activePracticeSession: newActiveSession,
+      updatedAt: nowIso
+    };
+    goal.updatedAt = nowIso;
+    safeStorage.setItem(storageKey, JSON.stringify(goal));
+
+    return {
+      data: {
+        goal: deriveGoalStats(goal),
+        activePracticeSession: newActiveSession
+      }
+    };
+  },
+
+  async updatePracticeSession({
+    expectedVersion,
+    sessionId,
+    updateId,
+    status,
+    currentTaskIndex,
+    completedTask
+  }) {
+    if (!currentUser) throw { status: 401, code: 'UNAUTHORIZED', message: 'Sign in required.' };
+    const storageKey = STORAGE_KEY_PREFIX + currentUser.id;
+    let goal = null;
+    try {
+      const raw = safeStorage.getItem(storageKey);
+      if (raw) goal = JSON.parse(raw);
+    } catch (e) {}
+
+    if (!goal) {
+      const err = new Error('No active goal found');
+      err.status = 404;
+      err.code = 'GOAL_NOT_FOUND';
+      throw err;
+    }
+
+    const workspace = normalizeStudyWorkspace(goal.studyWorkspace);
+    const existingSession = workspace.activePracticeSession;
+
+    if (!existingSession || existingSession.sessionId !== sessionId) {
+      const inHistory = (workspace.practiceSessionHistory || []).find((h) => h.sessionId === sessionId);
+      if (inHistory) {
+        const historyReceipts = Array.isArray(inHistory.replayReceipts) ? inHistory.replayReceipts : [];
+        const existingReceipt = historyReceipts.find((r) => r.updateId === updateId);
+        if (existingReceipt) {
+          const isIdentical = areUpdatePayloadsIdentical(existingReceipt, {
+            status,
+            currentTaskIndex,
+            completedTask
+          });
+
+          if (isIdentical) {
+            return {
+              data: {
+                goal: deriveGoalStats(goal),
+                activePracticeSession: null,
+                sessionSummary: inHistory
+              }
+            };
+          }
+          const err = new Error('An update with this updateId was already processed with different parameters.');
+          err.status = 409;
+          err.code = 'UPDATE_CONFLICT';
+          throw err;
+        }
+
+        if (inHistory.status === status) {
+          return {
+            data: {
+              goal: deriveGoalStats(goal),
+              activePracticeSession: null,
+              sessionSummary: inHistory
+            }
+          };
+        }
+        const err = new Error(`Session ${sessionId} was already finalized with status '${inHistory.status}'.`);
+        err.status = 409;
+        err.code = 'SESSION_CONFLICT';
+        throw err;
+      }
+      const err = new Error('Active session not found');
+      err.status = 404;
+      err.code = 'SESSION_NOT_FOUND';
+      throw err;
+    }
+
+    // Replay receipts check
+    const receipts = Array.isArray(existingSession.replayReceipts) ? existingSession.replayReceipts : [];
+    const existingReceipt = receipts.find((r) => r.updateId === updateId);
+    if (existingReceipt) {
+      const isIdentical = areUpdatePayloadsIdentical(existingReceipt, {
+        status,
+        currentTaskIndex,
+        completedTask
+      });
+
+      if (isIdentical) {
+        return {
+          data: {
+            goal: deriveGoalStats(goal),
+            activePracticeSession: existingSession,
+            sessionSummary: existingReceipt.sessionSummary || null
+          }
+        };
+      }
+      const err = new Error('An update with this updateId was already processed with different parameters.');
+      err.status = 409;
+      err.code = 'UPDATE_CONFLICT';
+      throw err;
+    }
+
+    if (goal.version !== expectedVersion) {
+      const err = new Error('Goal version changed');
+      err.status = 409;
+      err.code = 'VERSION_CONFLICT';
+      throw err;
+    }
+
+    const nowIso = new Date().toISOString();
+    let updatedTasks = [...existingSession.tasks];
+    let resolvedAuthoritativeEvidence = null;
+    let resolvedAttemptId = null;
+
+    if (completedTask) {
+      const targetTask = existingSession.tasks.find((t) => t.taskId === completedTask.taskId);
+      if (!targetTask) {
+        const err = new Error(`Task ${completedTask.taskId} not found in active practice session.`);
+        err.status = 422;
+        err.code = 'INVALID_TASK_ID';
+        throw err;
+      }
+
+      if (targetTask.activityType === 'worked_example') {
+        resolvedAuthoritativeEvidence = 'viewed';
+        resolvedAttemptId = null;
+      } else if (targetTask.activityType === 'practice_problem') {
+        resolvedAuthoritativeEvidence = 'self_reported';
+        resolvedAttemptId = null;
+      } else if (targetTask.activityType === 'trace_retry' || targetTask.activityType === 'boundary_retry') {
+        const exAttempts = workspace.exerciseAttempts[targetTask.exerciseId] || [];
+        const targetVariant = targetTask.variantKey || 'primary';
+
+        const freshAttempts = exAttempts.filter((att, idx) => {
+          const matchesVariant = (att.variantKey || 'primary') === targetVariant;
+          if (!matchesVariant) return false;
+          if (targetTask.baselineAttemptCount !== undefined && idx >= targetTask.baselineAttemptCount) {
+            return true;
+          }
+          if (att.savedAt && targetTask.baselineTimestamp && att.savedAt > targetTask.baselineTimestamp) {
+            return true;
+          }
+          return false;
+        });
+
+        let matchingAttempt = null;
+        if (completedTask.attemptId) {
+          matchingAttempt = freshAttempts.find((a) => a.attemptId === completedTask.attemptId) || null;
+        } else {
+          matchingAttempt = freshAttempts[freshAttempts.length - 1] || null;
+        }
+
+        if (!matchingAttempt) {
+          const err = new Error(`No fresh evaluated exercise attempt found for exercise ${targetTask.exerciseId} (variant: ${targetVariant}). Please complete and save the trace in Proof Studio first.`);
+          err.status = 422;
+          err.code = 'UNVERIFIED_ATTEMPT';
+          throw err;
+        }
+
+        if (matchingAttempt.outcome === 'independent' && (!matchingAttempt.mistakeCount || matchingAttempt.mistakeCount === 0)) {
+          resolvedAuthoritativeEvidence = 'verified';
+        } else {
+          resolvedAuthoritativeEvidence = 'hinted';
+        }
+        resolvedAttemptId = matchingAttempt.attemptId || null;
+      } else {
+        resolvedAuthoritativeEvidence = 'self_reported';
+        resolvedAttemptId = null;
+      }
+
+      updatedTasks = updatedTasks.map((t) => {
+        if (t.taskId === completedTask.taskId) {
+          return {
+            ...t,
+            status: 'completed',
+            result: {
+              completedAt: nowIso,
+              evidenceType: resolvedAuthoritativeEvidence,
+              notes: completedTask.notes || null,
+              attemptId: resolvedAttemptId
+            }
+          };
+        }
+        return t;
+      });
+    }
+
+    if (status === 'completed') {
+      const hasPending = updatedTasks.some((t) => t.status !== 'completed' && t.status !== 'skipped');
+      if (hasPending) {
+        const err = new Error('Cannot mark session as completed while tasks are still pending. Complete all tasks or abandon the session.');
+        err.status = 422;
+        err.code = 'INCOMPLETE_SESSION';
+        throw err;
+      }
+    }
+
+    let nextTaskIndex = currentTaskIndex !== undefined ? currentTaskIndex : existingSession.currentTaskIndex;
+    if (completedTask && currentTaskIndex === undefined) {
+      const nextPending = updatedTasks.findIndex((t) => t.status === 'pending');
+      if (nextPending !== -1) {
+        nextTaskIndex = nextPending;
+      }
+    }
+
+    let finalActiveSession = null;
+    let finalHistory = workspace.practiceSessionHistory || [];
+    let sessionSummary = null;
+
+    if (status === 'completed' || status === 'abandoned') {
+      const viewedCount = updatedTasks.filter((t) => t.result?.evidenceType === 'viewed').length;
+      const verifiedCount = updatedTasks.filter((t) => t.result?.evidenceType === 'verified').length;
+      const hintedCount = updatedTasks.filter((t) => t.result?.evidenceType === 'hinted').length;
+      const selfReportedCount = updatedTasks.filter((t) => t.result?.evidenceType === 'self_reported').length;
+      const completedTasksCount = updatedTasks.filter((t) => t.status === 'completed').length;
+      const topicsCovered = Array.from(new Set(updatedTasks.map((t) => t.topicId)));
+
+      const canonicalPayload = canonicalizeUpdatePayload({
+        status,
+        currentTaskIndex,
+        completedTask
+      });
+
+      const newReceipt = {
+        updateId,
+        timestamp: nowIso,
+        status,
+        currentTaskIndex: nextTaskIndex,
+        completedTaskId: completedTask ? completedTask.taskId : null,
+        notes: completedTask && completedTask.notes !== undefined && completedTask.notes !== null
+          ? String(completedTask.notes)
+          : null,
+        attemptId: completedTask && completedTask.attemptId !== undefined && completedTask.attemptId !== null
+          ? String(completedTask.attemptId)
+          : null,
+        canonicalPayload,
+        evidenceType: resolvedAuthoritativeEvidence
+      };
+
+      sessionSummary = {
+        sessionId,
+        startedAt: existingSession.startedAt,
+        completedAt: nowIso,
+        timeBudgetMinutes: existingSession.timeBudgetMinutes,
+        status,
+        tasksCount: updatedTasks.length,
+        completedTasksCount,
+        viewedCount,
+        verifiedCount,
+        hintedCount,
+        selfReportedCount,
+        topicsCovered,
+        replayReceipts: [...receipts.slice(-9), newReceipt]
+      };
+
+      finalHistory = [...finalHistory.slice(-4), sessionSummary];
+      finalActiveSession = null;
+    } else {
+      const canonicalPayload = canonicalizeUpdatePayload({
+        status,
+        currentTaskIndex,
+        completedTask
+      });
+
+      const newReceipt = {
+        updateId,
+        timestamp: nowIso,
+        status,
+        currentTaskIndex: nextTaskIndex,
+        completedTaskId: completedTask ? completedTask.taskId : null,
+        notes: completedTask && completedTask.notes !== undefined && completedTask.notes !== null
+          ? String(completedTask.notes)
+          : null,
+        attemptId: completedTask && completedTask.attemptId !== undefined && completedTask.attemptId !== null
+          ? String(completedTask.attemptId)
+          : null,
+        canonicalPayload,
+        evidenceType: resolvedAuthoritativeEvidence
+      };
+      const boundedReceipts = [...receipts.slice(-9), newReceipt];
+
+      finalActiveSession = {
+        ...existingSession,
+        status,
+        currentTaskIndex: Math.min(nextTaskIndex, updatedTasks.length - 1),
+        tasks: updatedTasks,
+        replayReceipts: boundedReceipts
+      };
+    }
+
+    goal.version += 1;
+    goal.studyWorkspace = {
+      ...workspace,
+      activePracticeSession: finalActiveSession,
+      practiceSessionHistory: finalHistory,
+      updatedAt: nowIso
+    };
+    goal.updatedAt = nowIso;
+    safeStorage.setItem(storageKey, JSON.stringify(goal));
+
+    return {
+      data: {
+        goal: deriveGoalStats(goal),
+        activePracticeSession: finalActiveSession,
+        sessionSummary
       }
     };
   }

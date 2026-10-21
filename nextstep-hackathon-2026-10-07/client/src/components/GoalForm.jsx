@@ -84,7 +84,7 @@ export default function GoalForm({ onSubmit, isLoading = false, error = null }) 
           <div>
             <label htmlFor="goal-name" className="block text-sm font-semibold ui-text-ink mb-2">What are you working toward?</label>
             <input id="goal-name" required maxLength={80} value={goalName} onChange={e => setGoalName(e.target.value)} pattern=".*\S.*" className="w-full rounded-xl ui-bg-surface border ui-border-border px-4 py-3 ui-text-ink" />
-            <p className="text-xs ui-text-muted mt-2">Your goal name is personal. Your plan begins with 12 foundational DSA starter missions, with complete access to the full curriculum library in Atlas and Proof Studio.</p>
+            <p className="text-xs ui-text-muted mt-2">Your goal name is personal. Your plan begins with 12 foundational DSA starter missions, with complete access to the full curriculum library in Learning path and Learn &amp; practise.</p>
           </div>
           {/* Selected Track Banner */}
           <div className="p-4 rounded-xl ui-bg-surface-a90 border ui-border-border flex items-center justify-between">

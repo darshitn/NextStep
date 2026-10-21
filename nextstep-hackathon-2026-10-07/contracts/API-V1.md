@@ -671,3 +671,174 @@ Atomically accepts and persists the previewed continuation plan into `goal.state
   - Falls back to server preview cache if `previewToken` is omitted.
   - A supplied `revisitItemIds` must exactly match the canonical preview list, or apply returns 409 `PREVIEW_MISMATCH` without mutation. Omitting the list preserves the authenticated preview flags. Older previews without this binding require regeneration (409 `PREVIEW_REQUIRED`).
 - **Response**: HTTP 200 `{"data": {"goal": Goal, "studyPlan": SavedStudyPlan}}`
+
+---
+
+## Targeted Practice Session Extensions (Track B)
+
+### Additive State Structure: `goal.state.studyWorkspace`
+
+```json
+{
+  "activePracticeSession": {
+    "sessionId": "11111111-2222-3333-4444-555555555555",
+    "startedAt": "2026-10-21T09:00:00.000Z",
+    "timeBudgetMinutes": 20,
+    "title": "Targeted Reinforcement",
+    "reason": "Reinforcing invariant evaluation.",
+    "status": "in_progress",
+    "currentTaskIndex": 0,
+    "tasks": [
+      {
+        "taskId": "task_1",
+        "activityType": "worked_example",
+        "targetId": "les_arrays_01",
+        "lessonId": "les_arrays_01",
+        "exerciseId": "ex_arrays_01",
+        "title": "Review Worked Example: Prefix Invariants",
+        "topicId": "topic_arrays",
+        "topicTitle": "Arrays & Hashing",
+        "estimatedMinutes": 8,
+        "reason": "You requested an example on this lesson.",
+        "evidenceType": "viewed",
+        "status": "pending",
+        "baselineTimestamp": "2026-10-21T09:00:00.000Z",
+        "baselineAttemptCount": 0
+      }
+    ],
+    "replayReceipts": [
+      {
+        "updateId": "44444444-5555-6666-7777-888888888888",
+        "timestamp": "2026-10-21T09:05:00.000Z",
+        "status": "in_progress",
+        "currentTaskIndex": 1,
+        "completedTaskId": "task_1",
+        "evidenceType": "viewed",
+        "attemptId": null
+      }
+    ]
+  },
+  "practiceSessionHistory": [
+    {
+      "sessionId": "00000000-1111-2222-3333-444444444444",
+      "startedAt": "2026-10-20T10:00:00.000Z",
+      "completedAt": "2026-10-20T10:20:00.000Z",
+      "timeBudgetMinutes": 20,
+      "status": "completed",
+      "tasksCount": 2,
+      "completedTasksCount": 2,
+      "viewedCount": 1,
+      "verifiedCount": 1,
+      "hintedCount": 0,
+      "selfReportedCount": 0,
+      "topicsCovered": ["topic_arrays"]
+    }
+  ]
+}
+```
+
+- **Bounds & Retention**:
+  - `activePracticeSession`: At most 1 active session at any time. Max 3 tasks.
+  - `replayReceipts`: Capped at the 10 most recent update receipts within the active session.
+  - `practiceSessionHistory`: Bounded array capped at maximum 5 compact session summaries (FIFO eviction).
+  - Tasks count: between 1 and 3 tasks inclusive.
+  - Total task estimated minutes sum MUST NOT exceed `timeBudgetMinutes`.
+
+### POST /api/goal/workspace/practice-session/start — authenticated
+Starts a new bounded targeted practice session and persists it into `goal.state.studyWorkspace.activePracticeSession`.
+
+- **Request Body**:
+```json
+{
+  "expectedVersion": 2,
+  "sessionId": "11111111-2222-3333-4444-555555555555",
+  "timeBudgetMinutes": 20,
+  "title": "Reinforcement Session",
+  "reason": "Targeted practice for Prefix Invariants.",
+  "tasks": [
+    {
+      "taskId": "task_1",
+      "activityType": "worked_example",
+      "targetId": "les_arrays_01",
+      "lessonId": "les_arrays_01",
+      "exerciseId": "ex_arrays_01",
+      "title": "Review Worked Example: Prefix Invariants",
+      "topicId": "topic_arrays",
+      "topicTitle": "Arrays & Hashing",
+      "estimatedMinutes": 8,
+      "reason": "You requested an example on this lesson."
+    },
+    {
+      "taskId": "task_2",
+      "activityType": "trace_retry",
+      "targetId": "ex_arrays_01",
+      "lessonId": "les_arrays_01",
+      "exerciseId": "ex_arrays_01",
+      "variantKey": "primary",
+      "title": "Proof Trace: Best Time to Buy and Sell Stock",
+      "topicId": "topic_arrays",
+      "topicTitle": "Arrays & Hashing",
+      "estimatedMinutes": 10,
+      "reason": "Reinforce invariant evaluation."
+    }
+  ]
+}
+```
+
+- **Validation Rules**:
+  - `timeBudgetMinutes`: Must be 10, 20, or 30.
+  - `tasks`: Array of 1 to 3 tasks. Task IDs must be unique within the session.
+  - Total effort: Sum of `estimatedMinutes` across all tasks must be `<= timeBudgetMinutes`. (Throws `422 BUDGET_EXCEEDED` if exceeded).
+  - Canonical target relationships:
+    - `lessonId` must exist in published curriculum.
+    - If `exerciseId` is specified, it must exist and belong to `lessonId` and `topicId`.
+    - If `variantKey` is specified, it must exist in `exercise.variants`.
+    - If `problemId` is specified, it must exist in published practice problems and match `topicId`.
+    - For uncompleted lessons, prerequisites must be satisfied or the activity must be an eligible studied revisit.
+  - Single active session constraint: If an active session already exists with a different `sessionId`, rejected with `409 ACTIVE_SESSION_EXISTS`.
+  - Finalized protection: If `sessionId` exists in `practiceSessionHistory`, rejected with `409 SESSION_FINALIZED` (cannot resurrect finalized session).
+  - Idempotency: Repeating with identical canonical fields and same `sessionId` returns HTTP 200 without version bump. Altered payload with same `sessionId` returns `409 SESSION_CONFLICT`.
+  - Stale version: Returns `409 VERSION_CONFLICT` if `expectedVersion !== goal.version`.
+
+- **Response**: HTTP 200 `{"data": {"goal": Goal, "activePracticeSession": PracticeSession}}`
+
+### POST /api/goal/workspace/practice-session/update — authenticated
+Updates task progress, pauses, completes, or abandons an active practice session.
+
+- **Request Body**:
+```json
+{
+  "expectedVersion": 3,
+  "sessionId": "11111111-2222-3333-4444-555555555555",
+  "updateId": "44444444-5555-6666-7777-888888888888",
+  "status": "in_progress",
+  "currentTaskIndex": 1,
+  "completedTask": {
+    "taskId": "task_1",
+    "attemptId": "optional-uuid",
+    "notes": "Studied the worked example."
+  }
+}
+```
+
+- **Authoritative Evidence Rules (Server-Enforced)**:
+  - Client cannot dictate `evidenceType`. Evidence is derived strictly by the server:
+    - `worked_example`: Always recorded as `viewed`.
+    - `practice_problem`: Always recorded as `self_reported`.
+    - `trace_retry` or `boundary_retry`:
+      - Server checks `goal.state.studyWorkspace.exerciseAttempts[task.exerciseId]`.
+      - Requires a fresh evaluated attempt saved AFTER `task.baselineTimestamp` matching `task.variantKey` (default `'primary'`).
+      - If `attemptId` is supplied, it is resolved exclusively within fresh, matching-variant attempts saved after baseline. Any historical attempt (saved before baseline) or mismatched-variant attempt is rejected.
+      - Authoritative classification:
+        - If `attempt.outcome === 'independent'` and `mistakeCount === 0`: `verified`.
+        - If `attempt.outcome === 'with_hint'` or `mistakeCount > 0` or `supported`: `hinted`.
+      - If no matching fresh evaluated attempt is found: rejects completion with `422 UNVERIFIED_ATTEMPT` ("No fresh evaluated exercise attempt found for exercise <id> (variant: <variant>).").
+  - Completion requirement: `status: "completed"` requires all tasks to be completed (`status: "completed"`). Incomplete tasks block completion with `422 INCOMPLETE_SESSION` (must finish all tasks or mark `status: "abandoned"`).
+  - Finalization: When status is `completed` or `abandoned`, produces compact `sessionSummary`, appends to `practiceSessionHistory` (capped at 5), and clears `activePracticeSession` to `null`.
+  - Replay receipts & idempotency:
+    - Bounded `replayReceipts` (capped at 10) store canonical normalized payloads including `status`, `currentTaskIndex`, and `completedTask` (`taskId`, `notes`, `attemptId`).
+    - If `updateId` matches a previously recorded receipt with an identical canonical payload, returns HTTP 200 with original data without version bump.
+    - If `updateId` matches but any payload field differs (e.g. altered notes, attemptId, status, or task index), returns `409 UPDATE_CONFLICT`.
+    - If `expectedVersion !== goal.version` and `updateId` is not in receipts, returns `409 VERSION_CONFLICT`.
+
+- **Response**: HTTP 200 `{"data": {"goal": Goal, "activePracticeSession": PracticeSession | null, "sessionSummary": SessionSummary | null}}`

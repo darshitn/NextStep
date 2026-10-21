@@ -155,11 +155,11 @@ async function verifyNoHorizontalOverflow(page, label) {
       // Verify continuation buttons
       const chkBtn = page.getByRole('button', { name: /Check My Foundations/i });
       const planBtn = page.getByRole('button', { name: /Choose My Next Step/i });
-      const atlasBtn = page.getByRole('button', { name: /Explore Atlas/i });
+      const atlasBtn = page.getByRole('button', { name: /Explore Learning path/i }).first();
 
       assert.ok(await chkBtn.isVisible(), 'Check My Foundations button rendered');
       assert.ok(await planBtn.isVisible(), 'Choose My Next Step button rendered');
-      assert.ok(await atlasBtn.isVisible(), 'Explore Atlas button rendered');
+      assert.ok(await atlasBtn.isVisible(), 'Explore Learning path button rendered');
 
       await page.screenshot({ path: path.join(outDir, '01-today-starter-completed.png') });
     });

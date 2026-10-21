@@ -274,5 +274,21 @@ export const apiService = {
     } catch (err) {
       return handleApiError(err);
     }
+  },
+
+  async startPracticeSession(payload) {
+    try {
+      return await liveApi.startPracticeSession(payload);
+    } catch (err) {
+      return handleApiError(err);
+    }
+  },
+
+  async updatePracticeSession(payload) {
+    try {
+      return await liveApi.updatePracticeSession(payload);
+    } catch (err) {
+      return handleApiError(err);
+    }
   }
 };

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { useNavigate, useSearchParams, useParams, useLocation } from 'react-router-dom';
 import '../workspace.css';
 
@@ -12,7 +12,7 @@ const WeeklyPlanView = createLazyView(
 );
 const AtlasView = createLazyView(
   () => import('../components/workspace/AtlasView.jsx'),
-  'Knowledge Atlas'
+  'Learning path'
 );
 const ProofStudio = createLazyView(
   () => import('../components/workspace/ProofStudio.jsx'),
@@ -46,6 +46,16 @@ const FoundationsCheckpointModal = createLazyView(
 const ContinuationPlanModal = createLazyView(
   () => import('../components/workspace/ContinuationPlanModal.jsx'),
   'Continuation Plan',
+  { isModal: true }
+);
+const PracticeSessionProposalModal = createLazyView(
+  () => import('../components/workspace/PracticeSessionProposalModal.jsx'),
+  'Practice Proposal',
+  { isModal: true }
+);
+const PracticeSessionModal = createLazyView(
+  () => import('../components/workspace/PracticeSessionModal.jsx'),
+  'Practice Session',
   { isModal: true }
 );
 import LoadingState from '../components/LoadingState.jsx';
@@ -116,6 +126,34 @@ export default function DashboardPage({
     setHasOpenedContinuation(true);
     setIsContinuationPlanOpen(true);
   };
+
+  // Practice session modals - lazy loaded on demand
+  const [isPracticeProposalOpen, setIsPracticeProposalOpen] = useState(false);
+  const [hasOpenedPracticeProposal, setHasOpenedPracticeProposal] = useState(false);
+  const [isPracticeSessionOpen, setIsPracticeSessionOpen] = useState(false);
+  const [hasOpenedPracticeSession, setHasOpenedPracticeSession] = useState(false);
+
+  const activePracticeSession = goal?.studyWorkspace?.activePracticeSession || null;
+
+  const handleOpenPracticeProposal = useCallback(() => {
+    setHasOpenedPracticeProposal(true);
+    setIsPracticeProposalOpen(true);
+  }, []);
+
+  const handleOpenPracticeSession = useCallback(() => {
+    setHasOpenedPracticeSession(true);
+    setIsPracticeSessionOpen(true);
+  }, []);
+
+  const handlePracticeSessionStarted = useCallback((session, updatedGoal) => {
+    if (updatedGoal && onGoalUpdated) onGoalUpdated(updatedGoal);
+    setHasOpenedPracticeSession(true);
+    setIsPracticeSessionOpen(true);
+  }, [onGoalUpdated]);
+
+  const handlePracticeSessionUpdated = useCallback((session, updatedGoal) => {
+    if (updatedGoal && onGoalUpdated) onGoalUpdated(updatedGoal);
+  }, [onGoalUpdated]);
 
   useEffect(() => {
     if (isCheckpointOpen && !hasOpenedCheckpoint) {
@@ -621,11 +659,27 @@ export default function DashboardPage({
   };
 
   const [selectedProofMode, setSelectedProofMode] = useState(null);
-  const handleOpenProofLesson = ({ topicId, lessonId, exerciseId, mode }) => {
+  const [selectedProofVariantKey, setSelectedProofVariantKey] = useState(null);
+  const [selectedProofSection, setSelectedProofSection] = useState(null);
+
+  const handleOpenProofLesson = (arg1, maybeLessonId, maybeExerciseId, maybeMode, maybeVariantKey, maybeSection) => {
+    let topicId, lessonId, exerciseId, mode, variantKey, section;
+    if (typeof arg1 === 'object' && arg1 !== null) {
+      ({ topicId, lessonId, exerciseId, mode, variantKey, section } = arg1);
+    } else {
+      topicId = arg1;
+      lessonId = maybeLessonId;
+      exerciseId = maybeExerciseId;
+      mode = maybeMode;
+      variantKey = maybeVariantKey;
+      section = maybeSection;
+    }
     if (topicId) setSelectedTopicId(topicId);
     if (lessonId) setSelectedLessonId(lessonId);
-    setSelectedExerciseId(exerciseId || null);
+    if (exerciseId !== undefined) setSelectedExerciseId(exerciseId || null);
     if (mode) setSelectedProofMode(mode);
+    if (variantKey) setSelectedProofVariantKey(variantKey);
+    if (section) setSelectedProofSection(section);
     handleSelectView('proof');
   };
 
@@ -817,6 +871,9 @@ export default function DashboardPage({
               onSelectTimerPreset={handleSelectTimerPreset}
               user={user}
               onOpenGuide={handleOpenGuide}
+              onOpenPracticeProposal={handleOpenPracticeProposal}
+              onOpenPracticeSession={handleOpenPracticeSession}
+              activePracticeSession={activePracticeSession}
             />
           )}
 
@@ -836,6 +893,7 @@ export default function DashboardPage({
               onPreviewWorkspacePlan={handlePreviewWorkspacePlan}
               onApplyWorkspacePlan={handleApplyWorkspacePlan}
               onSelectView={handleSelectView}
+              onOpenContinuationPlan={() => openContinuationPlan()}
             />
           )}
 
@@ -844,6 +902,8 @@ export default function DashboardPage({
               goal={goal}
               catalog={catalog}
               initialMode={selectedProofMode}
+              initialVariantKey={selectedProofVariantKey}
+              initialSection={selectedProofSection}
               selectedTopicId={selectedTopicId}
               selectedLessonId={selectedLessonId}
               selectedExerciseId={selectedExerciseId}
@@ -897,6 +957,9 @@ export default function DashboardPage({
                 onSaveRecallAttempt={handleSaveRecallAttempt}
                 goal={goal}
                 onRefresh={handleRefresh}
+                onOpenPracticeProposal={handleOpenPracticeProposal}
+                onOpenPracticeSession={handleOpenPracticeSession}
+                activePracticeSession={activePracticeSession}
               />
             </div>
           )}
@@ -948,6 +1011,37 @@ export default function DashboardPage({
           onGoalUpdated={onGoalUpdated}
           onPlanAccepted={() => {
             setSavedNotice('Next-week study plan saved and active.');
+          }}
+        />
+      )}
+
+      {/* Practice Session Proposal Modal */}
+      {(hasOpenedPracticeProposal || isPracticeProposalOpen) && (
+        <PracticeSessionProposalModal
+          isOpen={isPracticeProposalOpen}
+          onClose={() => setIsPracticeProposalOpen(false)}
+          goal={goal}
+          catalog={catalog}
+          onSessionStarted={handlePracticeSessionStarted}
+        />
+      )}
+
+      {/* Guided Practice Session Runner Modal */}
+      {(hasOpenedPracticeSession || isPracticeSessionOpen) && (
+        <PracticeSessionModal
+          isOpen={isPracticeSessionOpen}
+          onClose={() => setIsPracticeSessionOpen(false)}
+          goal={goal}
+          catalog={catalog}
+          activeSession={activePracticeSession}
+          onSessionUpdated={handlePracticeSessionUpdated}
+          onOpenProofStudio={(nav) => {
+            setIsPracticeSessionOpen(false);
+            handleOpenProofLesson(nav);
+          }}
+          onOpenContinuationPlan={() => {
+            setIsPracticeSessionOpen(false);
+            openContinuationPlan();
           }}
         />
       )}

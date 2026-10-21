@@ -775,3 +775,115 @@ Owner authorized review, commit, push and PR after reporting successful real sig
 
 ## 2026-10-20 - Owner-authorized first-use release checkpoint
 Created codex/first-use-experience from the identical PR6 baseline and preserved all implementation changes. Independently ran the full 14-group release gate: PASS (135 server, 123 client, first-use 8/8 and all existing browser regressions). Reviewed staged scope and secret-shaped values; no private/generated content included. See docs/FIRST-USE-RELEASE-2026-10-20.md. Owner authorized commit, push and PR; merge/deployment and real novice acceptance remain separate. No environment, dependencies, DB or curriculum-content changes.
+
+## 2026-10-21 — Overnight Adaptive Practice Milestone (Stages 0–5) / local READY
+
+- **Executed**: Overnight implementation specification in `docs/ANTIGRAVITY-ADAPTIVE-PRACTICE-OVERNIGHT.md`.
+- **Branch**: `codex/adaptive-practice` (uncommitted, unpushed).
+- **Elapsed Time**: ~57 minutes (`2026-10-20T18:19:04Z` to `2026-10-20T19:16:30Z`).
+- **Capabilities Delivered**:
+  - **Explainable Reinforcement & Search Index**: Pure functions `deriveAdaptiveReinforcement` and `buildCurriculumSearchIndex` consuming check-ins (`needs_example`, `unsure`, `focus: invariant/update_order/edge_cases`), mistakes, assistance, and due recall dates. Newer independent success resolves older uncertainty; self-report alone never erases evaluated difficulty. 16 unit tests in `adaptiveReinforcement.test.js`.
+  - **Guided Practice Session ("Practise what needs work")**: Bounded persistence schema (`activePracticeSession` + capped 5-item `practiceSessionHistory` in `studyWorkspace`). 10m (1 task), 20m (1-2 tasks), 30m (up to 3 tasks) time budgets. Endpoints `POST /api/goal/workspace/practice-session/start` and `/update`. Proposal modal with task exclusion and regeneration; practice runner with authentic separated summary (viewed, verified, hinted, self-reported). 8 server tests in `practiceSessionRoutes.test.js` + 5 client tests in `practiceSession.test.js`.
+  - **Topic Evidence & Next Week**: Compact topic cards in Atlas/Learning path with factual evidence (completed lessons, solo vs supported traces, self-reported practice, due reviews, unresolved signals). Plain-language descriptive states (`not_started`, `learning`, `practise_again`, `recent_evidence`) with zero fabricated mastery claims. Actionable "Show why" drawers and direct practice triggers. "Plan my next week" continuation planner seeds due reviews and targeted revisits without mutating the 12/12 starter track. 6 unit tests in `topicEvidence.test.js`.
+  - **Integration & Design**: Integrated practice banners into `TodayView` and `ReviewView`. Fully styled using semantic tokens (`ui-bg-surface`, `ui-border-border`, `ui-text-ink`, `ui-text-accent`, etc.) across *Frosted Sage*, *Midnight Ink*, and *Calm Slate*. Responsive across 1440, 1024, 390, and 320px with zero horizontal scroll. Lazy loading for practice modals. Zero new external dependencies.
+  - **Verification & Local Release Gate**: Dedicated 7-scenario Playwright suite `client/scripts/verify-adaptive-practice.cjs` passing 7/7 checks and capturing 14 visual evidence screenshots. Integrated into `scripts/verify-continuation-release.ps1`.
+- **Verification Results**:
+  - Server unit & route tests: 143/143 PASS (exit 0)
+  - Client unit tests: 150/150 PASS (exit 0)
+  - Curriculum validation: 12 topics, 48 lessons, 18 exercises, 120 practice problems, 0 schema errors (exit 0)
+  - Production build: Vite v5.4.21, 1640 modules in 14.63s, clean lazy chunks (exit 0)
+  - All 15 groups in `scripts/verify-continuation-release.ps1` PASSED:
+    - Weekly execution: 6/6 PASS
+    - Continuation integration: 5/5 PASS
+    - Completed starter to continuation: PASS
+    - Atlas & Proof: 9/9 PASS
+    - Quick check-ins: 4/4 PASS
+    - First session: 6/6 PASS
+    - Loading performance: 6/6 PASS
+    - State isolation: 10/10 PASS
+    - Starter workspace: 14/14 PASS
+    - First-use usability: 8/8 PASS
+    - Adaptive practice & topic evidence: 7/7 PASS
+    - Whitespace check: 0 issues PASS
+- **Preservation & Working Rules**:
+  - Changes left uncommitted and unpushed on branch `codex/adaptive-practice`.
+  - Synthetic test accounts strictly used (`student.active@nextstep.local`, `student.completed@nextstep.local`).
+  - No database migrations, SQL modifications, or external npm dependencies.
+  - Loopback dev preview server running and healthy at `http://127.0.0.1:5173`.
+- **Artifacts**: Full report in `docs/ADAPTIVE-PRACTICE-RESULT.md`, progress ledger in `docs/ADAPTIVE-PRACTICE-PROGRESS.md`, evidence screenshots in `client/.local/adaptive-practice-evidence/2026-10-20T19-14-59-972Z/`.
+
+## 2026-10-21 — Adaptive Practice Session-Integrity Repairs (R1–R5) / local READY
+
+- **Executed**: Bounded repair handoff specified in `docs/ADAPTIVE-PRACTICE-INDEPENDENT-REVIEW.md`.
+- **Branch**: `codex/adaptive-practice` (uncommitted, unpushed).
+- **Repairs Implemented**:
+  - **R1 (Server authoritative evidence)**: Prohibited client-forged verified labels; normalized worked examples to `viewed` and external problems to `self_reported`; enforced authentic fresh graded attempt in `exerciseAttempts` matching `exerciseId`, `variantKey`, and `baselineTimestamp` for trace/boundary tasks (422 `UNVERIFIED_ATTEMPT` if missing); required knowledge check server evaluation.
+  - **R2 (Unsafe retries and lifecycle replacement)**: Enforced single active practice session (409 `ACTIVE_SESSION_EXISTS`); added canonical request hash validation for start idempotency (200 for identical retries, 409 `SESSION_CONFLICT` for altered payloads); guarded finalized sessions against resurrection (409 `SESSION_FINALIZED`); implemented bounded `replayReceipts` (max 10) for update idempotency; added non-destructive "Refresh Workspace & Keep Choices" banner on 409 `VERSION_CONFLICT`.
+  - **R3 (Target navigation & authentic completion)**: Fixed `DashboardPage.jsx` `handleOpenProofLesson` signature to handle structured target options `{ topicId, lessonId, exerciseId, mode, variantKey, section }`; wired `initialVariantKey` and `initialSection` into `ProofStudio.jsx`; eliminated the fake "Mark Trace Completed & Continue" bypass button; integrated fresh evaluated attempt detection and authoritative summary badges in `PracticeSessionModal.jsx`.
+  - **R4 (Proposal validation)**: Server-side validation for total task effort vs budget (422 `BUDGET_EXCEEDED`), duplicate task IDs (400 `INVALID_PAYLOAD`), and deep catalog target hierarchy and variant consistency (422 `INVALID_TASK_TARGET`); mirrored in `apiFixture.js`.
+  - **R5 (Contract specification & durable regressions)**: Documented all practice session endpoints, schemas, error codes, and bounds in `contracts/API-V1.md`; added 10 server regression tests (PS09–PS18) in `practiceSessionRoutes.test.js`; expanded Playwright harness `verify-adaptive-practice.cjs` with Scenario 8 and genuine Proof Studio step completion in Scenario 2.
+- **Verification Results**:
+  - Server unit & route tests: 155/155 PASS (exit 0, including PS19 & PS20)
+  - Reviewer independent probes: 9/9 PASS (exit 0)
+  - Client unit tests: 152/152 PASS (exit 0, including PSP06 & PSP07)
+  - Curriculum validation: 12 topics, 48 lessons, 18 exercises, 120 practice problems, 0 schema errors PASS (exit 0)
+  - Production build: clean in 12.27s (exit 0)
+  - Playwright browser suite: 8/8 scenarios PASS (exit 0)
+  - Full local release gate (`verify-continuation-release.ps1`): ALL 15 GATES PASSED (exit 0)
+  - Whitespace check (`git diff --check`): clean (0 issues)
+- **Repair Verification Follow-Up (2026-10-21)**:
+  - Defect 1: Supplied attempt IDs resolved exclusively within fresh, matching-variant attempts saved strictly after task baseline timestamp. Unfiltered historical-attempt fallback removed in live and fixture routes.
+  - Defect 2: Canonical normalized payloads compared for replay receipts (including notes and attempt ID). Identical retries return 200 without version bump; altered same-ID requests return 409 `UPDATE_CONFLICT`.
+- **Artifacts**: Repair result documented in `docs/ADAPTIVE-PRACTICE-REPAIR-RESULT.md`.
+
+## 2026-10-21 — Comprehensive End-to-End Local QA Pass & Defect Repairs / local READY
+
+- **Executed**: End-to-end user-perspective quality audit and implementation ownership across all 10 stages (0 through 9).
+- **Branch**: `codex/adaptive-practice` (uncommitted, unpushed).
+- **Elapsed Time**: ~1 hour 16 minutes (`2026-10-21 17:18:00 IST` to `2026-10-21 18:34:00 IST`).
+- **Feature Inventory & Scope**:
+  - Validated 68 granular test checklist items in `docs/FULL-LOCAL-QA-INVENTORY.md` across 12 product domains.
+  - Initialized fresh synthetic accounts and completed all 12 starter missions (M01–M12) in sequence through the real browser UI with alternating outcomes, unique reflections, and reload checkpoints (M03, M06, M09).
+  - Traversed full Learning Path (12 Atlas topics, 48 lessons), interactive Proof Studio traces (hints, loop invariants, primary & alternate variants, boundary checks), exercise-free lesson, and deterministic 18-exercise matrix (36 variants, 88 steps, 18 boundary checks).
+  - Tested Practice Library search and filters across 120 problems, Review Queue (11 items, 1-5 recall ratings), Progress Insights JSON export, Foundations Checkpoint evaluation, and My Week continuation scheduling.
+  - Verified Adaptive Practice session lifecycle across 10m/20m/30m budgets, CAS concurrency, and replay idempotency.
+  - Executed responsive geometry audit across 4 viewports (1440, 1024, 390, 320px) on all 7 views.
+- **Defects Confirmed & Repaired**:
+  - **QA-001 (P2, Synthetic Fixture Parity)**: Missing `renameGoal` method on `apiFixture` in `client/src/fixtures/apiFixture.js`. Implemented `renameGoal({ goalName, expectedVersion })` with validation (1-80 chars), 409 `VERSION_CONFLICT` CAS check, safeStorage persistence, and version bumping. Retested 100% pass.
+  - **QA-002 (P2, Responsive Usability)**: Horizontal overflow on Review Queue at 320px viewport (`scrollWidth=331 > innerWidth=320`). Replaced `shrink-0` with `w-full sm:w-auto max-w-full text-center` and `<span className="truncate">` in `client/src/components/workspace/ReviewView.jsx`. Zero overflow confirmed across all 7 views at 320px.
+- **Verification Results**:
+  - Server unit & route tests: 155/155 PASS (exit 0)
+  - Client unit tests: 152/152 PASS (exit 0)
+  - Vite production build: 1640 modules in 15.54s, dist/ verified clean (exit 0)
+  - Stage QA browser suites (Stages 0, 2, 3, 4, 5, 6, 7): 48/48 PASS (exit 0)
+  - Permanent Playwright suites: `verify-adaptive-practice.cjs` (8/8 PASS), `verify-continuation.cjs` (9/9 PASS)
+  - Full local release gate (`verify-continuation-release.ps1`): ALL 15 GATES PASSED (exit 0)
+  - Whitespace check (`git diff --check`): clean (0 issues)
+- **Artifacts**: Progress ledger in `docs/FULL-LOCAL-QA-PROGRESS.md`, defect ledger in `docs/FULL-LOCAL-QA-FINDINGS.md`, complete report in `docs/FULL-LOCAL-QA-RESULT.md`, screenshots and traces in `client/.local/full-local-qa/2026-10-21T11-48-00Z/`.
+
+## 2026-10-21 - QA evidence correction and independent release review
+Corrected full-local QA documentation: 92 inventory rows (15 independently verified, 68 reported passes, 8 partial, 1 pending), 27 actual screenshots, real preset/timer behavior and mission names. Disclosed that fixture trace evaluation is separate from exhaustive lesson/trace browser coverage and live/novice acceptance. Independently ran the complete release gate: all 15 groups PASS (155 server, 152 client, build). Changed/untracked path and secret-shaped-value scan reviewed 41 files with no findings; no dependency/DB/curriculum-content paths changed. See docs/FULL-LOCAL-QA-RESULT.md. Ready for publication review of bounded milestone; no commit, push, merge or deployment performed.
+
+## 2026-10-21 — Repository Maintenance, Documentation Hub & Branch Audit / local READY
+
+- **Executed**: Repository maintainer audit across root and nested application directories.
+- **Branch**: `codex/adaptive-practice` (HEAD: `6453358`, uncommitted, preserved).
+- **Deliverables**:
+  - Root `README.md` (`D:\Projects\BuildToShip\README.md`): Modernized GitHub landing page with nested directory notice, live deployment links, architecture, complete student journey, verified curriculum inventory (12 topics, 48 lessons, 18 trace exercises, 120 practice problems), exact local setup commands, normal dev vs synthetic preview modes, test/build commands, and truthful verification boundaries.
+  - Nested `README.md` & `START-HERE.md`: Synchronized milestones and directory navigation; clarified `START-HERE.md` as primary operational authority.
+  - Master Documentation Hub (`docs/README.md`): Categorized index organizing 76+ documents into Setup, Contracts & Architecture, QA Testing, Chronological Milestones (Phases 1–9), and Repository Governance.
+  - Maintenance Plan (`docs/REPOSITORY-MAINTENANCE-PLAN.md`): Complete inventory, classification (Categories 1–5), target reorganization schema, and candidate deletion audit. Physical file moves/deletions deferred under Current-State Rule to preserve uncommitted feature code.
+  - Branch Audit (`docs/BRANCH-AUDIT.md`): Audited 11 local and 13 remote branches against `origin/main` (`20f8b01`). Confirmed all PR branches (#1–#7) are 100% merged. Prepared safe candidate list (9 local, 12 remote branches) for owner review with execution script.
+  - Maintenance Result (`docs/REPOSITORY-MAINTENANCE-RESULT.md`): Comprehensive report documenting changes, deferred actions, verification commands, and publication next steps.
+- **Verification**:
+  - `git -c core.safecrlf=false diff --check`: PASS (0 warnings/errors).
+  - Markdown link checker: PASS (100% of internal links resolve to existing files).
+  - Curriculum validation: PASS (12 topics, 48 lessons, 18 exercises, 120 practice problems).
+  - Server tests: 155/155 PASS (exit 0).
+  - Client tests: 152/152 PASS (exit 0).
+  - Production build: Vite clean in 15.54s (exit 0).
+  - Release gate script (`verify-continuation-release.ps1`): ALL 15 GATES PASS.
+  - Uncommitted feature work: 100% preserved; no commit, push, merge, or deployment performed.
+
+## 2026-10-21 - Authorized adaptive checkpoint and judge-facing repository publication
+Owner authorized improving the public description and pushing the verified changes. Reviewed current branch and fast-forwarded its identical baseline to origin/main 20f8b01 without disturbing work. Adaptive feature/repairs and QA evidence are separated from public README/governance polish in local commits. Full independent 15-group gate passed (155 server, 152 client, build; adaptive browser 8/8). Root README now includes actual synthetic UI screenshot, evaluator walkthrough and accurate curriculum/checkpoint/provider information. Checked 139 local links with no missing targets; private/generated path and secret-shaped value scan found no issues. Publication scope is branch and PR; merge, deployment, branch pruning and physical folder changes remain separate. See docs/ADAPTIVE-PRACTICE-RELEASE-2026-10-21.md.

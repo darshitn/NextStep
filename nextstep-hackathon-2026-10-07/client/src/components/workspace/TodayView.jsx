@@ -73,7 +73,11 @@ export default function TodayView({
   onSelectTimerPreset,
   // Interactive Guide props
   user,
-  onOpenGuide
+  onOpenGuide,
+  // Adaptive Practice props
+  onOpenPracticeProposal,
+  onOpenPracticeSession,
+  activePracticeSession
 }) {
   const planState = deriveActiveStudyPlanSession(goal?.studyWorkspace);
   const activeSession = planState.activeSession;
@@ -342,7 +346,7 @@ export default function TodayView({
                 <span>Two complementary learning tracks</span>
               </p>
               <p>
-                The <strong>12-mission Starter Track</strong> builds daily study habits and foundational problem-solving pacing. The <strong>Curriculum Path</strong> covers formal invariants, interactive proof traces, and practice problems in Topic Atlas and Proof Studio. You can pursue both in parallel at your own pace.
+                The <strong>12-mission Starter Track</strong> builds daily study habits and foundational problem-solving pacing. The <strong>Curriculum Path</strong> covers formal invariants, interactive proof traces, and practice problems in Learning path and Learn &amp; practise. You can pursue both in parallel at your own pace.
               </p>
             </div>
           )}
@@ -405,6 +409,26 @@ export default function TodayView({
                   <span>Starter track (12 missions)</span>
                 </button>
               </div>
+            </div>
+          )}
+
+          {/* Practise what needs work proposal entry */}
+          {onOpenPracticeProposal && (
+            <div className="pt-3 border-t ui-border-border flex items-center justify-between gap-2 flex-wrap text-xs">
+              <span className="text-xs ui-text-muted">Targeted practice:</span>
+              <button
+                type="button"
+                onClick={activePracticeSession ? onOpenPracticeSession : onOpenPracticeProposal}
+                className="secondary-button text-xs py-1.5 px-3 flex items-center gap-1.5 ui-border-border ui-bg-soft ui-text-accent hover:ui-bg-surface transition-colors"
+              >
+                <Sparkles className="w-3.5 h-3.5" />
+                <span>
+                  {activePracticeSession
+                    ? `Resume practice session (${(activePracticeSession.currentTaskIndex || 0) + 1}/${activePracticeSession.tasks?.length || 0})`
+                    : 'Practise what needs work (10–30 min)'}
+                </span>
+                <ArrowRight className="w-3 h-3" />
+              </button>
             </div>
           )}
         </section>
@@ -531,7 +555,7 @@ export default function TodayView({
                     className="px-4 py-2.5 rounded-xl text-xs font-semibold ui-text-muted hover:ui-text-ink hover:ui-bg-soft flex items-center justify-center gap-1.5 transition-colors"
                   >
                     <Compass className="w-4 h-4" />
-                    <span>Explore Atlas</span>
+                    <span>Explore Learning path</span>
                   </button>
                 </div>
               </section>
@@ -584,7 +608,7 @@ export default function TodayView({
                           className="secondary-button text-xs py-1.5 px-3 flex items-center gap-1"
                         >
                           <Compass className="w-3.5 h-3.5" />
-                          <span>Explore Atlas</span>
+                          <span>Explore Learning path</span>
                         </button>
                       </div>
                     </div>
