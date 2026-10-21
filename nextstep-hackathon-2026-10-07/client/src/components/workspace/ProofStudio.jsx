@@ -59,6 +59,8 @@ export default function ProofStudio({
   selectedLessonId,
   selectedExerciseId,
   initialMode = null,
+  initialVariantKey = null,
+  initialSection = null,
   onSelectTopic,
   onSelectLesson,
   onSelectExercise,
@@ -142,6 +144,15 @@ export default function ProofStudio({
   const [exerciseReflections, setExerciseReflections] = useState({});
   const [traceCheckIns, setTraceCheckIns] = useState({});
   const [variantKeys, setVariantKeys] = useState({});
+
+  useEffect(() => {
+    if (activeExerciseId && initialVariantKey && ['primary', 'alternate'].includes(initialVariantKey)) {
+      setVariantKeys((prev) => ({
+        ...prev,
+        [activeExerciseId]: initialVariantKey
+      }));
+    }
+  }, [activeExerciseId, initialVariantKey]);
   const [traceStates, setTraceStates] = useState({});
   const [pendingAttemptIds, setPendingAttemptIds] = useState({});
   const [referenceDataMap, setReferenceDataMap] = useState({});
@@ -184,6 +195,12 @@ export default function ProofStudio({
     setProofMode(mode);
     setNavigationTarget({ id, lessonId: activeLessonId, traceKey });
   };
+
+  useEffect(() => {
+    if (initialSection) {
+      navigateToProofTarget(initialSection, initialMode || 'trace');
+    }
+  }, [initialSection, initialMode]);
 
   const defaultTraceState = useMemo(() => ({
     currentStepIdx: 0,
@@ -243,7 +260,7 @@ export default function ProofStudio({
       <section id="view-proof" className="workspace-content">
         <div className="workspace-empty-state">
           <h3>No lesson selected</h3>
-          <p>Choose a topic from Atlas to begin interactive Proof reasoning.</p>
+          <p>Choose a topic from Learning path to begin interactive Proof reasoning.</p>
         </div>
       </section>
     );
@@ -732,7 +749,7 @@ export default function ProofStudio({
               onClick={() => onSelectView('atlas')}
               className="secondary-button text-xs py-1 px-2.5"
             >
-              <span>Back to Atlas</span>
+              <span>Back to Learning path</span>
             </button>
           </div>
         </div>
@@ -1721,7 +1738,7 @@ export default function ProofStudio({
                           onClick={() => onSelectView('atlas')}
                           className="primary-button text-xs py-1.5 px-3 flex items-center gap-1"
                         >
-                          <span>Explore Topic Atlas</span>
+                          <span>Explore Learning path</span>
                           <ArrowRight size={12} aria-hidden="true" />
                         </button>
                       )}
@@ -1924,7 +1941,7 @@ export default function ProofStudio({
                               onClick={() => onSelectView('atlas')}
                               className="primary-button text-xs py-1.5 px-3 flex items-center gap-1"
                             >
-                              <span>Explore Topic Atlas</span>
+                              <span>Explore Learning path</span>
                               <ArrowRight size={12} aria-hidden="true" />
                             </button>
                           )}
@@ -2053,7 +2070,7 @@ export default function ProofStudio({
                             onClick={() => onSelectView('atlas')}
                             className="primary-button text-xs py-1.5 px-3 flex items-center gap-1"
                           >
-                            <span>Explore Topic Atlas</span>
+                            <span>Explore Learning path</span>
                             <ArrowRight size={12} aria-hidden="true" />
                           </button>
                         )}

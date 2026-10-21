@@ -284,3 +284,66 @@ export const continuationPlanApplySchema = z.object({
   targetDate: z.string().regex(isoDateRegex).optional(),
   previewToken: z.string().optional()
 }).strict();
+
+export const practiceSessionTaskSchema = z.object({
+  taskId: z.string().min(1).max(60),
+  activityType: z.enum(['worked_example', 'trace_retry', 'boundary_retry', 'lesson_check', 'practice_problem']),
+  targetId: z.string().min(1).max(80),
+  lessonId: z.string().regex(/^les_[a-z0-9_]+$/),
+  exerciseId: z.string().regex(/^ex_[a-z0-9_]+$/).nullable().optional(),
+  problemId: z.string().regex(/^prac_[a-z0-9_]+$/).nullable().optional(),
+  variantKey: z.enum(['primary', 'alternate']).optional(),
+  title: z.string().min(1).max(140),
+  topicId: z.string().regex(/^topic_[a-z0-9_]+$/),
+  topicTitle: z.string().min(1).max(140),
+  estimatedMinutes: z.number().int().min(1).max(40),
+  reason: z.string().min(1).max(500),
+  evidenceType: z.string().max(80).optional(),
+  section: z.string().max(40).optional(),
+  status: z.enum(['pending', 'in_progress', 'completed', 'skipped']).default('pending'),
+  baselineTimestamp: z.string().optional()
+}).strict();
+
+export const practiceSessionStartSchema = z.object({
+  expectedVersion: z.number().int().positive(),
+  sessionId: z.string().uuid(),
+  timeBudgetMinutes: z.union([z.literal(10), z.literal(20), z.literal(30)]),
+  title: z.string().min(1).max(140),
+  reason: z.string().min(1).max(500),
+  tasks: z.array(practiceSessionTaskSchema).min(1).max(3)
+}).strict().superRefine((data, ctx) => {
+  const sumMinutes = data.tasks.reduce((sum, t) => sum + (t.estimatedMinutes || 0), 0);
+  if (sumMinutes > data.timeBudgetMinutes) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: `Total task estimated duration (${sumMinutes} mins) exceeds selected time budget (${data.timeBudgetMinutes} mins).`,
+      path: ['tasks']
+    });
+  }
+  const taskIds = new Set();
+  for (let i = 0; i < data.tasks.length; i++) {
+    const id = data.tasks[i].taskId;
+    if (taskIds.has(id)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: `Duplicate taskId "${id}" in session tasks.`,
+        path: ['tasks', i, 'taskId']
+      });
+    }
+    taskIds.add(id);
+  }
+});
+
+export const practiceSessionUpdateSchema = z.object({
+  expectedVersion: z.number().int().positive(),
+  sessionId: z.string().uuid(),
+  updateId: z.string().uuid(),
+  status: z.enum(['in_progress', 'paused', 'completed', 'abandoned']),
+  currentTaskIndex: z.number().int().min(0).max(2).optional(),
+  completedTask: z.object({
+    taskId: z.string().min(1).max(60),
+    evidenceType: z.enum(['viewed', 'verified', 'hinted', 'self_reported']).optional(),
+    notes: z.string().trim().max(500).nullable().optional(),
+    attemptId: z.string().nullable().optional()
+  }).strict().optional()
+}).strict();

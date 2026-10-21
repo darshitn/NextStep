@@ -612,6 +612,14 @@ export function deriveTopicAtlasModel(goal, catalog, now = new Date()) {
   const practiceAttempts = ws.practiceAttempts || {};
   const todayIST = localDay(now);
 
+  let adaptiveReinforcements = [];
+  try {
+    const res = deriveAdaptiveReinforcement(goal, catalog, now);
+    adaptiveReinforcements = Array.isArray(res?.items) ? res.items : [];
+  } catch (err) {
+    adaptiveReinforcements = [];
+  }
+
   const lessonsByTopic = new Map();
   for (const lesson of curriculum.lessons || []) {
     if (!lessonsByTopic.has(lesson.topicId)) lessonsByTopic.set(lesson.topicId, []);
@@ -652,10 +660,24 @@ export function deriveTopicAtlasModel(goal, catalog, now = new Date()) {
     const inProgressLessons = topicLessons.filter((l) => lessonProgress[l.id]?.status === 'in_progress');
     totalCompletedLessons += completedLessons.length;
 
-    const completedExercises = topicExercises.filter(
+    // Distinct verified traces and split outcomes
+    const verifiedExercises = topicExercises.filter(
       (ex) => Array.isArray(exerciseAttempts[ex.id]) && exerciseAttempts[ex.id].length > 0
     );
-    totalCompletedExercises += completedExercises.length;
+    const distinctTracesVerifiedCount = verifiedExercises.length;
+    const independentTracesCount = verifiedExercises.filter((ex) =>
+      exerciseAttempts[ex.id].some((a) => a.outcome === 'independent')
+    ).length;
+    const supportedTracesCount = verifiedExercises.filter(
+      (ex) => !exerciseAttempts[ex.id].some((a) => a.outcome === 'independent')
+    ).length;
+    totalCompletedExercises += distinctTracesVerifiedCount;
+
+    // External practice problems logged (self-reported)
+    const externalPracticeLogged = topicPractice.filter(
+      (p) => Array.isArray(practiceAttempts[p.id]) && practiceAttempts[p.id].length > 0
+    );
+    const externalPracticeCount = externalPracticeLogged.length;
 
     const solvedPractice = topicPractice.filter((p) => {
       const list = practiceAttempts[p.id];
@@ -663,21 +685,42 @@ export function deriveTopicAtlasModel(goal, catalog, now = new Date()) {
     });
     totalSolvedPractice += solvedPractice.length;
 
-    let dueReviewCount = 0;
+    // Due reviews
+    const dueReviews = [];
     for (const ex of topicExercises) {
       const list = exerciseAttempts[ex.id];
       const latest = Array.isArray(list) && list.length > 0 ? list[list.length - 1] : null;
       if (latest && (latest.nextReviewDate <= todayIST || latest.outcome !== 'independent')) {
-        dueReviewCount += 1;
+        dueReviews.push({
+          id: ex.id,
+          title: ex.title,
+          type: 'exercise',
+          reason: latest.nextReviewDate <= todayIST
+            ? `Recall review due (${latest.nextReviewDate})`
+            : 'Completed with assistance — unassisted retry recommended',
+          exerciseId: ex.id,
+          lessonId: ex.lessonId
+        });
       }
     }
     for (const p of topicPractice) {
       const list = practiceAttempts[p.id];
       const latest = Array.isArray(list) && list.length > 0 ? list[list.length - 1] : null;
-      if (latest && (latest.needsReview || latest.nextReviewDate <= todayIST)) {
-        dueReviewCount += 1;
+      if (latest && (latest.needsReview || (latest.nextReviewDate && latest.nextReviewDate <= todayIST))) {
+        dueReviews.push({
+          id: p.id,
+          title: p.title,
+          type: 'practice',
+          reason: latest.needsReview ? 'Self-reported review flag' : `Recall review due (${latest.nextReviewDate})`,
+          practiceId: p.id
+        });
       }
     }
+
+    // Unresolved reinforcement signals
+    const topicReinforcements = adaptiveReinforcements.filter((r) => r.topicId === topic.id);
+    const unresolvedSignalCount = topicReinforcements.length;
+    const dueReviewCount = dueReviews.length;
 
     const missingPrerequisites = (topic.prerequisites || [])
       .filter((prereqId) => !topicCompletionMap.get(prereqId))
@@ -688,16 +731,41 @@ export function deriveTopicAtlasModel(goal, catalog, now = new Date()) {
 
     const prerequisitesMet = missingPrerequisites.length === 0;
 
+    // Descriptive states (Not started, Learning, Practise again, Recent evidence)
     let status = 'not_started';
-    if (topicLessons.length > 0 && completedLessons.length === topicLessons.length) {
-      status = dueReviewCount > 0 ? 'needs_review' : 'completed';
+    let statusLabel = 'Not started';
+    let statusExplanation = '';
+
+    if (dueReviewCount > 0 || unresolvedSignalCount > 0) {
+      status = 'practise_again';
+      statusLabel = 'Practise again';
+      const parts = [];
+      if (dueReviewCount > 0) {
+        parts.push(`${dueReviewCount} due recall ${dueReviewCount === 1 ? 'review' : 'reviews'}`);
+      }
+      if (unresolvedSignalCount > 0) {
+        parts.push(`${unresolvedSignalCount} unresolved reinforcement ${unresolvedSignalCount === 1 ? 'signal' : 'signals'}`);
+      }
+      statusExplanation = `${parts.join(' and ')} require unassisted practice.`;
+    } else if (topicLessons.length > 0 && completedLessons.length === topicLessons.length) {
+      status = 'recent_evidence';
+      statusLabel = 'Recent evidence';
+      statusExplanation = 'All published lessons completed with no pending reviews or unresolved blockers.';
     } else if (
       completedLessons.length > 0 ||
       inProgressLessons.length > 0 ||
-      completedExercises.length > 0 ||
-      solvedPractice.length > 0
+      distinctTracesVerifiedCount > 0 ||
+      externalPracticeCount > 0
     ) {
-      status = dueReviewCount > 0 ? 'needs_review' : 'in_progress';
+      status = 'learning';
+      statusLabel = 'Learning';
+      statusExplanation = 'Lessons in progress; prerequisites active.';
+    } else {
+      status = 'not_started';
+      statusLabel = 'Not started';
+      statusExplanation = prerequisitesMet
+        ? 'Prerequisites met — ready to start first lesson.'
+        : `Waiting on prerequisite topic: ${missingPrerequisites.map((p) => p.title).join(', ')}.`;
     }
 
     const nextLesson =
@@ -706,9 +774,49 @@ export function deriveTopicAtlasModel(goal, catalog, now = new Date()) {
       topicLessons[0] ||
       null;
 
+    let actionableTarget = null;
+    if (topicReinforcements.length > 0) {
+      const r = topicReinforcements[0];
+      actionableTarget = {
+        type: 'reinforcement',
+        title: r.title || r.targetTitle || r.sourceTitle,
+        reason: r.reason,
+        lessonId: r.lessonId || r.sourceLessonId || r.sourceItem?.id,
+        exerciseId: r.exerciseId || r.sourceExerciseId,
+        practiceId: r.problemId,
+        actionableRoute: r.targetType === 'exercise' ? 'proof_exercise' : r.targetType === 'practice' ? 'practice_problem' : 'proof_lesson'
+      };
+    } else if (dueReviews.length > 0) {
+      const dr = dueReviews[0];
+      actionableTarget = {
+        type: dr.type,
+        title: dr.title,
+        reason: dr.reason,
+        lessonId: dr.lessonId,
+        exerciseId: dr.exerciseId,
+        practiceId: dr.practiceId,
+        actionableRoute: dr.type === 'practice' ? 'practice_problem' : 'proof_exercise'
+      };
+    } else if (nextLesson) {
+      actionableTarget = {
+        type: 'lesson',
+        title: nextLesson.title,
+        reason: 'Next lesson in topic progression',
+        lessonId: nextLesson.id,
+        exerciseId: nextLesson.exerciseId,
+        actionableRoute: 'proof_lesson'
+      };
+    }
+
     return {
       ...topic,
       status,
+      statusLabel,
+      statusExplanation,
+      isCompleted: status === 'recent_evidence',
+      isNeedsReview: status === 'practise_again',
+      isInProgress: status === 'learning',
+      isNotStarted: status === 'not_started',
       prerequisitesMet,
       missingPrerequisites,
       lessons: topicLessons,
@@ -716,11 +824,21 @@ export function deriveTopicAtlasModel(goal, catalog, now = new Date()) {
       practiceProblems: topicPractice,
       completedLessonsCount: completedLessons.length,
       totalLessonsCount: topicLessons.length,
-      completedExercisesCount: completedExercises.length,
+      completedExercisesCount: distinctTracesVerifiedCount,
       totalExercisesCount: topicExercises.length,
+      hasTraces: topicExercises.length > 0,
+      distinctTracesVerifiedCount,
+      independentTracesCount,
+      supportedTracesCount,
+      externalPracticeCount,
       solvedPracticeCount: solvedPractice.length,
       totalPracticeCount: topicPractice.length,
+      isPracticeSelfReported: true,
+      dueReviews,
       dueReviewCount,
+      unresolvedReinforcements: topicReinforcements,
+      unresolvedSignalCount,
+      actionableTarget,
       nextLesson
     };
   });
@@ -730,7 +848,7 @@ export function deriveTopicAtlasModel(goal, catalog, now = new Date()) {
     topicMap: Object.fromEntries(enrichedTopics.map((t) => [t.id, t])),
     prerequisiteEdges: curriculum.prerequisiteEdges || [],
     sources: curriculum.sources || [],
-    completedTopicsCount: enrichedTopics.filter((t) => t.status === 'completed').length,
+    completedTopicsCount: enrichedTopics.filter((t) => t.status === 'recent_evidence' || t.status === 'completed').length,
     completedLessonsCount: totalCompletedLessons,
     totalLessonsCount: (curriculum.lessons || []).length,
     completedExercisesCount: totalCompletedExercises,
@@ -954,7 +1072,30 @@ export function deriveExplainableRecommendation(goal, catalog, now = new Date())
     }
   }
 
-  // 4. First uncompleted lesson in topic order whose prerequisites are met
+  // 4. Check unresolved adaptive reinforcement struggles (e.g. needs_example, unsure, focus areas)
+  const adaptive = deriveAdaptiveReinforcement(goal, catalog, now);
+  const struggle = adaptive.unresolvedStruggles?.[0];
+  if (struggle) {
+    const topic = topicById.get(struggle.topicId);
+    return {
+      kind: 'adaptive_reinforcement',
+      title: struggle.title,
+      topicId: struggle.topicId,
+      topicTitle: topic?.title || struggle.topicTitle,
+      lessonId: struggle.lessonId,
+      exerciseId: struggle.exerciseId,
+      problemId: struggle.problemId,
+      estimatedMinutes: struggle.estimatedMinutes,
+      badge: struggle.badge,
+      reason: struggle.reason,
+      evidenceType: struggle.evidenceType,
+      focusArea: struggle.focusArea,
+      variantKey: struggle.variantKey,
+      section: struggle.section
+    };
+  }
+
+  // 5. First uncompleted lesson in topic order whose prerequisites are met
   for (const lesson of curriculum.lessons) {
     const prog = lessonProgress[lesson.id];
     if (prog?.status === 'completed') continue;
@@ -1248,6 +1389,35 @@ export function deriveCandidateActivities(goal, catalog, initialPlan) {
   }
 
   // 1. Checkpoint revisits
+  try {
+    const res = deriveAdaptiveReinforcement(goal, catalog, new Date());
+    const reinforcements = Array.isArray(res?.items) ? res.items : [];
+    for (const r of reinforcements) {
+      if (candidates.length >= 3) break;
+      const targetId = r.targetId || r.exerciseId || r.lessonId || r.sourceLessonId || r.sourceItem?.id;
+      if (targetId && !addedIds.has(targetId)) {
+        addedIds.add(targetId);
+        const item = lessonById.get(targetId) || curriculum?.exercises?.find((e) => e.id === targetId);
+        const topic = topicById.get(r.topicId);
+        candidates.push({
+          id: targetId,
+          title: r.title || r.targetTitle || item?.title || targetId,
+          topicId: r.topicId,
+          topicTitle: topic ? topic.title : r.topicId,
+          type: 'revisit',
+          badge: (r.activityType === 'exercise' || (targetId && targetId.startsWith('ex_')))
+            ? 'Due Proof Review'
+            : (targetId && targetId.startsWith('prac_'))
+            ? 'Due Practice Review'
+            : 'Targeted Reinforcement',
+          reason: r.reason,
+          estimatedMinutes: item?.estimatedMinutes || ((targetId && targetId.startsWith('ex_')) ? 15 : 20)
+        });
+      }
+    }
+  } catch (err) {
+    // Graceful fallback
+  }
   if (latestAttempt?.topicResults) {
     for (const [topicId, tr] of Object.entries(latestAttempt.topicResults)) {
       if (tr.revisitRecommended && tr.recommendedAction?.lessonId && !addedIds.has(tr.recommendedAction.lessonId)) {
@@ -1666,4 +1836,883 @@ export function deriveTodayPrimaryAction({
   }
 
   return null;
+}
+
+/**
+ * Builds a small, derived searchable index over published curriculum entities:
+ * lessons, topics, exercises, and practice problems.
+ * Enables fast lookup and token-based search over patterns, boundary conditions, and titles.
+ */
+export function buildCurriculumSearchIndex(catalog) {
+  const curriculum = catalog?.curriculum || {};
+  const topics = Array.isArray(curriculum.topics) ? curriculum.topics : [];
+  const lessons = Array.isArray(curriculum.lessons) ? curriculum.lessons : [];
+  const exercises = Array.isArray(curriculum.exercises) ? curriculum.exercises : [];
+  const practiceProblems = Array.isArray(curriculum.practiceProblems) ? curriculum.practiceProblems : [];
+
+  const topicById = new Map(topics.map((t) => [t.id, t]));
+  const lessonById = new Map(lessons.map((l) => [l.id, l]));
+  const exerciseById = new Map(exercises.map((e) => [e.id, e]));
+  const practiceById = new Map(practiceProblems.map((p) => [p.id, p]));
+
+  const exercisesByLessonId = new Map();
+  for (const ex of exercises) {
+    if (ex.lessonId) {
+      exercisesByLessonId.set(ex.lessonId, ex);
+    }
+  }
+
+  const practiceByLessonId = new Map();
+  for (const prac of practiceProblems) {
+    for (const lid of prac.lessonIds || []) {
+      if (!practiceByLessonId.has(lid)) {
+        practiceByLessonId.set(lid, []);
+      }
+      practiceByLessonId.get(lid).push(prac);
+    }
+  }
+
+  const lessonsByTopicId = new Map();
+  for (const lesson of lessons) {
+    if (!lessonsByTopicId.has(lesson.topicId)) {
+      lessonsByTopicId.set(lesson.topicId, []);
+    }
+    lessonsByTopicId.get(lesson.topicId).push(lesson);
+  }
+
+  function search(query, limit = 10) {
+    if (!query || typeof query !== 'string' || query.trim().length === 0) {
+      return [];
+    }
+    const terms = query.toLowerCase().trim().split(/\s+/).filter(Boolean);
+    const results = [];
+
+    for (const lesson of lessons) {
+      const topic = topicById.get(lesson.topicId);
+      const text = `${lesson.title} ${lesson.keyTakeaway || ''} ${lesson.explanation || ''} ${lesson.edgeCase?.scenario || ''} ${topic?.title || ''}`.toLowerCase();
+      const matchScore = terms.reduce((score, term) => score + (text.includes(term) ? 1 : 0), 0);
+      if (matchScore > 0) {
+        results.push({
+          type: 'lesson',
+          id: lesson.id,
+          title: lesson.title,
+          topicId: lesson.topicId,
+          topicTitle: topic?.title || lesson.topicId,
+          score: matchScore,
+          lesson
+        });
+      }
+    }
+
+    for (const ex of exercises) {
+      const topic = topicById.get(ex.topicId);
+      const text = `${ex.title} ${ex.objective || ''} ${ex.instructions || ''} ${ex.edgeCaseCheck?.question || ''} ${topic?.title || ''}`.toLowerCase();
+      const matchScore = terms.reduce((score, term) => score + (text.includes(term) ? 1 : 0), 0);
+      if (matchScore > 0) {
+        results.push({
+          type: 'exercise',
+          id: ex.id,
+          title: ex.title,
+          topicId: ex.topicId,
+          topicTitle: topic?.title || ex.topicId,
+          score: matchScore,
+          exercise: ex
+        });
+      }
+    }
+
+    for (const p of practiceProblems) {
+      const topic = topicById.get(p.topicId);
+      const text = `${p.title} ${p.pattern || ''} ${p.keyEdgeCase || ''} ${p.whyRecommended || ''} ${p.provider || ''} ${topic?.title || ''}`.toLowerCase();
+      const matchScore = terms.reduce((score, term) => score + (text.includes(term) ? 1 : 0), 0);
+      if (matchScore > 0) {
+        results.push({
+          type: 'practice',
+          id: p.id,
+          title: p.title,
+          topicId: p.topicId,
+          topicTitle: topic?.title || p.topicId,
+          score: matchScore,
+          problem: p
+        });
+      }
+    }
+
+    results.sort((a, b) => b.score - a.score);
+    return results.slice(0, limit);
+  }
+
+  return {
+    curriculum,
+    topics,
+    lessons,
+    exercises,
+    practiceProblems,
+    topicById,
+    lessonById,
+    exerciseById,
+    practiceById,
+    exercisesByLessonId,
+    practiceByLessonId,
+    lessonsByTopicId,
+    search
+  };
+}
+
+/**
+ * Pure, deterministic adaptive reinforcement derivation.
+ * Consumes:
+ * - Authoritative trace outcomes, mistakes, hints, and reference usage
+ * - Existing review dates and latest successful attempts
+ * - Lesson completion and student checkIn (confidence: ready / needs_example / unsure; focus: invariant / update_order / edge_cases)
+ * - Self-reported external practice logs
+ * - Prerequisite DAG and topic structure
+ *
+ * Conflict / stale resolution policy:
+ * 1. A newer relevant evaluated attempt (independent, zero mistakes) postdating an older uncertainty/struggle resolves it.
+ * 2. Self-report alone ('ready') cannot erase an evaluated difficulty without an unassisted retry.
+ * 3. Unknown check-in or focus values are safely ignored without throwing.
+ * 4. Exercise-free lessons route to their own worked example / knowledge check, never an unrelated fallback exercise.
+ */
+export function deriveAdaptiveReinforcement(goal, catalog, now = new Date()) {
+  const index = buildCurriculumSearchIndex(catalog);
+  const {
+    topics,
+    lessons,
+    exercises,
+    practiceProblems,
+    topicById,
+    lessonById,
+    exerciseById,
+    practiceById,
+    exercisesByLessonId,
+    practiceByLessonId
+  } = index;
+
+  if (lessons.length === 0) {
+    return {
+      items: [],
+      dueReviews: [],
+      unresolvedStruggles: [],
+      supportedTraces: [],
+      practiceReviews: [],
+      recommendedNextStep: null
+    };
+  }
+
+  const ws = goal?.studyWorkspace || {};
+  const lessonProgress = ws.lessonProgress || {};
+  const exerciseAttempts = ws.exerciseAttempts || {};
+  const practiceAttempts = ws.practiceAttempts || {};
+  const todayIST = localDay(now);
+
+  const parseTime = (ts) => {
+    if (!ts) return 0;
+    const ms = Date.parse(ts);
+    return isNaN(ms) ? 0 : ms;
+  };
+
+  // Map of latest independent, zero-mistake successful attempt timestamp per exercise
+  const latestIndependentSuccessTimeByExercise = new Map();
+  for (const [exId, attempts] of Object.entries(exerciseAttempts)) {
+    if (!Array.isArray(attempts)) continue;
+    for (const att of attempts) {
+      if (att && att.outcome === 'independent' && (!att.mistakeCount || att.mistakeCount === 0)) {
+        const t = parseTime(att.savedAt);
+        const curr = latestIndependentSuccessTimeByExercise.get(exId) || 0;
+        if (t > curr) {
+          latestIndependentSuccessTimeByExercise.set(exId, t);
+        }
+      }
+    }
+  }
+
+  const items = [];
+  const dueReviews = [];
+  const unresolvedStruggles = [];
+  const supportedTraces = [];
+  const practiceReviews = [];
+
+  // Valid checkIn enums
+  const VALID_CONFIDENCES = new Set(['ready', 'needs_example', 'unsure']);
+  const VALID_FOCUSES = new Set(['invariant', 'update_order', 'edge_cases', 'none']);
+
+  // 1. Process Lesson Progress (check-ins and reflections)
+  for (const [lessonId, prog] of Object.entries(lessonProgress)) {
+    const lesson = lessonById.get(lessonId);
+    if (!lesson) continue;
+    const topic = topicById.get(lesson.topicId);
+    const checkIn = prog?.checkIn;
+    const completedAtTime = parseTime(prog?.completedAt || prog?.updatedAt);
+
+    const attachedExercise = lesson.exerciseId ? exerciseById.get(lesson.exerciseId) : exercisesByLessonId.get(lessonId);
+    const exId = attachedExercise?.id;
+    const latestSuccessTime = exId ? (latestIndependentSuccessTimeByExercise.get(exId) || 0) : 0;
+    const isSupersededByNewerSuccess = latestSuccessTime > completedAtTime && completedAtTime > 0;
+
+    if (checkIn && typeof checkIn === 'object') {
+      const conf = VALID_CONFIDENCES.has(checkIn.confidence) ? checkIn.confidence : null;
+      const focus = VALID_FOCUSES.has(checkIn.focus) ? checkIn.focus : null;
+
+      if (conf === 'needs_example' && !isSupersededByNewerSuccess) {
+        unresolvedStruggles.push({
+          id: `struggle-ne-${lessonId}`,
+          targetType: attachedExercise ? 'exercise' : 'lesson',
+          targetId: attachedExercise ? attachedExercise.id : lessonId,
+          lessonId,
+          exerciseId: attachedExercise ? attachedExercise.id : null,
+          problemId: lesson.recommendedPracticeIds?.[0] || null,
+          topicId: lesson.topicId,
+          topicTitle: topic?.title || lesson.topicId,
+          title: lesson.title,
+          badge: 'Worked Example Needed',
+          evidenceType: 'check_in_needs_example',
+          focusArea: focus && focus !== 'none' ? focus : null,
+          variantKey: 'primary',
+          section: 'example',
+          reason: `You indicated needing another example on "${lesson.title}". Revisit the step-by-step worked example before attempting interactive proof verification.`,
+          explanation: `Study the step-by-step invariant trace in "${lesson.title}" to clarify the algorithm's mechanics.`,
+          sourceItem: { id: lessonId, type: 'lesson', title: lesson.title },
+          estimatedMinutes: 10,
+          isSelfReported: true,
+          isVerified: false,
+          savedAtTime: completedAtTime
+        });
+      }
+
+      if (conf === 'unsure' && !isSupersededByNewerSuccess) {
+        unresolvedStruggles.push({
+          id: `struggle-unsure-${lessonId}`,
+          targetType: 'lesson',
+          targetId: lessonId,
+          lessonId,
+          exerciseId: attachedExercise ? attachedExercise.id : null,
+          problemId: lesson.recommendedPracticeIds?.[0] || null,
+          topicId: lesson.topicId,
+          topicTitle: topic?.title || lesson.topicId,
+          title: lesson.title,
+          badge: 'Concept Review',
+          evidenceType: 'check_in_unsure',
+          focusArea: focus && focus !== 'none' ? focus : null,
+          variantKey: 'primary',
+          section: 'check',
+          reason: `You noted feeling unsure on "${lesson.title}". Review the core invariant explanation and knowledge check to build confidence.`,
+          explanation: `A quick self-check on "${lesson.title}" will build confidence on the core concept without pressure.`,
+          sourceItem: { id: lessonId, type: 'lesson', title: lesson.title },
+          estimatedMinutes: 8,
+          isSelfReported: true,
+          isVerified: false,
+          savedAtTime: completedAtTime
+        });
+      }
+
+      if (focus === 'invariant' && !isSupersededByNewerSuccess) {
+        unresolvedStruggles.push({
+          id: `struggle-foc-inv-${lessonId}`,
+          targetType: attachedExercise ? 'exercise' : 'lesson',
+          targetId: attachedExercise ? attachedExercise.id : lessonId,
+          lessonId,
+          exerciseId: attachedExercise ? attachedExercise.id : null,
+          problemId: lesson.recommendedPracticeIds?.[0] || null,
+          topicId: lesson.topicId,
+          topicTitle: topic?.title || lesson.topicId,
+          title: lesson.title,
+          badge: 'Invariant Focus',
+          evidenceType: 'check_in_focus_invariant',
+          focusArea: 'invariant',
+          variantKey: 'primary',
+          section: 'explanation',
+          reason: `You flagged the loop invariant as your primary focus area on "${lesson.title}". Inspect how the invariant maintains correctness across iterations.`,
+          explanation: `Review the formal invariant definition and state snapshot for "${lesson.title}".`,
+          sourceItem: { id: lessonId, type: 'lesson', title: lesson.title },
+          estimatedMinutes: 10,
+          isSelfReported: true,
+          isVerified: false,
+          savedAtTime: completedAtTime
+        });
+      }
+
+      if (focus === 'update_order' && !isSupersededByNewerSuccess) {
+        unresolvedStruggles.push({
+          id: `struggle-foc-ord-${lessonId}`,
+          targetType: attachedExercise ? 'exercise' : 'lesson',
+          targetId: attachedExercise ? attachedExercise.id : lessonId,
+          lessonId,
+          exerciseId: attachedExercise ? attachedExercise.id : null,
+          problemId: lesson.recommendedPracticeIds?.[0] || null,
+          topicId: lesson.topicId,
+          topicTitle: topic?.title || lesson.topicId,
+          title: attachedExercise ? attachedExercise.title : lesson.title,
+          badge: 'Update Order Focus',
+          evidenceType: 'check_in_focus_update_order',
+          focusArea: 'update_order',
+          variantKey: 'primary',
+          section: attachedExercise ? 'trace' : 'explanation',
+          reason: `You highlighted pointer or update order as tricky on "${lesson.title}". Step through the execution trace where candidate evaluation precedes state update.`,
+          explanation: `Carefully observe evaluation order vs update order in "${lesson.title}".`,
+          sourceItem: { id: lessonId, type: 'lesson', title: lesson.title },
+          estimatedMinutes: attachedExercise ? 12 : 8,
+          isSelfReported: true,
+          isVerified: false,
+          savedAtTime: completedAtTime
+        });
+      }
+
+      if (focus === 'edge_cases' && !isSupersededByNewerSuccess) {
+        unresolvedStruggles.push({
+          id: `struggle-foc-edge-${lessonId}`,
+          targetType: attachedExercise ? 'exercise' : 'lesson',
+          targetId: attachedExercise ? attachedExercise.id : lessonId,
+          lessonId,
+          exerciseId: attachedExercise ? attachedExercise.id : null,
+          problemId: lesson.recommendedPracticeIds?.[0] || null,
+          topicId: lesson.topicId,
+          topicTitle: topic?.title || lesson.topicId,
+          title: attachedExercise ? attachedExercise.title : lesson.title,
+          badge: 'Boundary & Edge Focus',
+          evidenceType: 'check_in_focus_edge_cases',
+          focusArea: 'edge_cases',
+          variantKey: attachedExercise?.alternateVariant ? 'alternate' : 'primary',
+          section: attachedExercise ? 'edge' : 'explanation',
+          reason: `You flagged boundary conditions and edge cases on "${lesson.title}". Tackle the boundary check and alternate input variant to test extreme inputs.`,
+          explanation: `Inspect the boundary scenarios and non-trivial edge cases for "${lesson.title}".`,
+          sourceItem: { id: lessonId, type: 'lesson', title: lesson.title },
+          estimatedMinutes: attachedExercise ? 12 : 8,
+          isSelfReported: true,
+          isVerified: false,
+          savedAtTime: completedAtTime
+        });
+      }
+    }
+  }
+
+  // 2. Process Exercise Attempts (Authoritative evaluation outcomes, check-ins, mistakes, support, due recall)
+  for (const [exerciseId, attempts] of Object.entries(exerciseAttempts)) {
+    const exercise = exerciseById.get(exerciseId);
+    if (!exercise || !Array.isArray(attempts) || attempts.length === 0) continue;
+    const latest = attempts[attempts.length - 1];
+    if (!latest) continue;
+
+    const topic = topicById.get(exercise.topicId);
+    const lesson = lessonById.get(exercise.lessonId);
+    const attemptTime = parseTime(latest.savedAt);
+    const isDue = Boolean(latest.nextReviewDate && latest.nextReviewDate <= todayIST);
+    const usedSupport = latest.outcome !== 'independent' || (latest.mistakeCount && latest.mistakeCount > 0);
+
+    // Check-in on exercise attempt itself
+    if (latest.checkIn && typeof latest.checkIn === 'object') {
+      const conf = VALID_CONFIDENCES.has(latest.checkIn.confidence) ? latest.checkIn.confidence : null;
+      const focus = VALID_FOCUSES.has(latest.checkIn.focus) ? latest.checkIn.focus : null;
+
+      if (conf === 'needs_example') {
+        unresolvedStruggles.push({
+          id: `struggle-ex-ne-${exerciseId}`,
+          targetType: 'exercise',
+          targetId: exerciseId,
+          lessonId: exercise.lessonId,
+          exerciseId,
+          topicId: exercise.topicId,
+          topicTitle: topic?.title || exercise.topicId,
+          title: exercise.title,
+          badge: 'Worked Example Needed',
+          evidenceType: 'check_in_needs_example',
+          focusArea: focus && focus !== 'none' ? focus : null,
+          variantKey: 'primary',
+          section: 'example',
+          reason: `You requested another worked example while working on "${exercise.title}". Review the primary trace steps before attempting a fresh run.`,
+          explanation: `Revisit the step-by-step example in "${lesson?.title || exercise.title}" to clarify the invariant.`,
+          sourceItem: { id: exerciseId, type: 'exercise', title: exercise.title },
+          estimatedMinutes: 10,
+          isSelfReported: true,
+          isVerified: false,
+          savedAtTime: attemptTime
+        });
+      }
+
+      if (conf === 'unsure') {
+        unresolvedStruggles.push({
+          id: `struggle-ex-unsure-${exerciseId}`,
+          targetType: 'exercise',
+          targetId: exerciseId,
+          lessonId: exercise.lessonId,
+          exerciseId,
+          topicId: exercise.topicId,
+          topicTitle: topic?.title || exercise.topicId,
+          title: exercise.title,
+          badge: 'Concept Check',
+          evidenceType: 'check_in_unsure',
+          focusArea: focus && focus !== 'none' ? focus : null,
+          variantKey: 'primary',
+          section: 'check',
+          reason: `You noted uncertainty on "${exercise.title}". Practice the step choices again to reinforce the correct transitions.`,
+          explanation: `Try the interactive trace on "${exercise.title}" again to clarify key invariants.`,
+          sourceItem: { id: exerciseId, type: 'exercise', title: exercise.title },
+          estimatedMinutes: 10,
+          isSelfReported: true,
+          isVerified: false,
+          savedAtTime: attemptTime
+        });
+      }
+
+      if (focus === 'edge_cases') {
+        unresolvedStruggles.push({
+          id: `struggle-ex-edge-${exerciseId}`,
+          targetType: 'exercise',
+          targetId: exerciseId,
+          lessonId: exercise.lessonId,
+          exerciseId,
+          topicId: exercise.topicId,
+          topicTitle: topic?.title || exercise.topicId,
+          title: `${exercise.title} (Alternate Input)`,
+          badge: 'Boundary & Alternate Variant',
+          evidenceType: 'check_in_focus_edge_cases',
+          focusArea: 'edge_cases',
+          variantKey: 'alternate',
+          section: 'edge',
+          reason: `You selected edge cases as your focus area on "${exercise.title}". Try the alternate input variant to test boundary reasoning.`,
+          explanation: `Work through the alternate trace on "${exercise.title}" to master boundary handling.`,
+          sourceItem: { id: exerciseId, type: 'exercise', title: exercise.title },
+          estimatedMinutes: 12,
+          isSelfReported: true,
+          isVerified: false,
+          savedAtTime: attemptTime
+        });
+      }
+    }
+
+    // Due recall review
+    if (isDue) {
+      dueReviews.push({
+        id: `due-ex-${exerciseId}`,
+        targetType: 'exercise',
+        targetId: exerciseId,
+        lessonId: exercise.lessonId,
+        exerciseId,
+        topicId: exercise.topicId,
+        topicTitle: topic?.title || exercise.topicId,
+        title: exercise.title,
+        badge: 'Spaced Recall Due',
+        evidenceType: 'due_recall',
+        variantKey: 'primary',
+        section: 'trace',
+        reason: `Spaced recall review is due (${latest.nextReviewDate}) for "${exercise.title}". Complete an active retrieval trace to consolidate your memory.`,
+        explanation: `Scheduled spaced repetition review for "${exercise.title}".`,
+        sourceItem: { id: exerciseId, type: 'exercise', title: exercise.title },
+        estimatedMinutes: 12,
+        isSelfReported: false,
+        isVerified: true,
+        nextReviewDate: latest.nextReviewDate,
+        savedAtTime: attemptTime
+      });
+    }
+
+    // Supported trace needing unassisted retry
+    if (usedSupport) {
+      supportedTraces.push({
+        id: `supp-ex-${exerciseId}`,
+        targetType: 'exercise',
+        targetId: exerciseId,
+        lessonId: exercise.lessonId,
+        exerciseId,
+        topicId: exercise.topicId,
+        topicTitle: topic?.title || exercise.topicId,
+        title: exercise.title,
+        badge: 'Unassisted Verification Needed',
+        evidenceType: 'supported_trace',
+        variantKey: 'primary',
+        section: 'trace',
+        reason: `Previous trace completed with ${
+          latest.outcome === 'needed_reference'
+            ? 'reference revealed'
+            : latest.outcome === 'with_hint'
+            ? 'a hint'
+            : `${latest.mistakeCount} step retry`
+        }. Complete an unassisted run to prove independent mastery.`,
+        explanation: `An unassisted run on "${exercise.title}" verifies you can navigate state invariants without hints.`,
+        sourceItem: { id: exerciseId, type: 'exercise', title: exercise.title },
+        estimatedMinutes: 10,
+        isSelfReported: false,
+        isVerified: true,
+        savedAtTime: attemptTime
+      });
+    }
+  }
+
+  // 3. Process Practice Attempts (External problems self-reported)
+  for (const [problemId, attempts] of Object.entries(practiceAttempts)) {
+    const problem = practiceById.get(problemId);
+    if (!problem || !Array.isArray(attempts) || attempts.length === 0) continue;
+    const latest = attempts[attempts.length - 1];
+    if (!latest) continue;
+
+    const topic = topicById.get(problem.topicId);
+    const linkedLessonId = problem.lessonIds?.[0] || null;
+    const isDue = Boolean(latest.nextReviewDate && latest.nextReviewDate <= todayIST);
+    const flagged = Boolean(
+      latest.needsReview || latest.outcome === 'with_hint' || latest.outcome === 'reviewed_editorial'
+    );
+    const attemptTime = parseTime(latest.savedAt);
+
+    if (isDue) {
+      dueReviews.push({
+        id: `due-prac-${problemId}`,
+        targetType: 'practice',
+        targetId: problemId,
+        lessonId: linkedLessonId,
+        problemId,
+        topicId: problem.topicId,
+        topicTitle: topic?.title || problem.topicId,
+        title: problem.title,
+        badge: 'Practice Spaced Recall',
+        evidenceType: 'due_recall',
+        section: 'practice',
+        reason: `External practice spaced recall due (${latest.nextReviewDate}) for "${problem.title}". Try solving it on ${problem.provider || 'the host site'} without notes.`,
+        explanation: `Scheduled retrieval practice on external problem "${problem.title}".`,
+        sourceItem: { id: problemId, type: 'practice', title: problem.title },
+        estimatedMinutes: problem.estimatedMinutes || 15,
+        isSelfReported: true,
+        isVerified: false,
+        nextReviewDate: latest.nextReviewDate,
+        savedAtTime: attemptTime
+      });
+    } else if (flagged) {
+      practiceReviews.push({
+        id: `flag-prac-${problemId}`,
+        targetType: 'practice',
+        targetId: problemId,
+        lessonId: linkedLessonId,
+        problemId,
+        topicId: problem.topicId,
+        topicTitle: topic?.title || problem.topicId,
+        title: problem.title,
+        badge: 'Practice Revisit Flagged',
+        evidenceType: 'self_reported_practice',
+        section: 'practice',
+        reason: `Self-reported as "${(latest.outcome || '').replace(/_/g, ' ')}" on ${problem.provider || 'external platform'}. Revisit to attempt an independent solution.`,
+        explanation: `Self-reported difficulty on "${problem.title}" flagged for reinforcement.`,
+        sourceItem: { id: problemId, type: 'practice', title: problem.title },
+        estimatedMinutes: problem.estimatedMinutes || 15,
+        isSelfReported: true,
+        isVerified: false,
+        savedAtTime: attemptTime
+      });
+    }
+  }
+
+  // Deduplicate and prioritize into master `items` array
+  const allCandidates = [
+    ...unresolvedStruggles,
+    ...dueReviews,
+    ...supportedTraces,
+    ...practiceReviews
+  ];
+
+  const seenTargets = new Set();
+  const deduplicatedItems = [];
+
+  for (const cand of allCandidates) {
+    const key = `${cand.targetType}-${cand.targetId}-${cand.variantKey || 'primary'}`;
+    if (!seenTargets.has(key)) {
+      seenTargets.add(key);
+      deduplicatedItems.push(cand);
+    }
+  }
+
+  deduplicatedItems.sort((a, b) => {
+    const priorityOrder = {
+      check_in_needs_example: 1,
+      check_in_unsure: 2,
+      check_in_focus_edge_cases: 3,
+      check_in_focus_invariant: 4,
+      check_in_focus_update_order: 5,
+      due_recall: 6,
+      supported_trace: 7,
+      self_reported_practice: 8
+    };
+    const pA = priorityOrder[a.evidenceType] || 99;
+    const pB = priorityOrder[b.evidenceType] || 99;
+    if (pA !== pB) return pA - pB;
+
+    const tA = a.savedAtTime || 0;
+    const tB = b.savedAtTime || 0;
+    if (tA !== tB) return tB - tA;
+
+    return (a.title || '').localeCompare(b.title || '');
+  });
+
+  let recommendedNextStep = null;
+  for (const lesson of lessons) {
+    const prog = lessonProgress[lesson.id];
+    if (prog?.status === 'completed') continue;
+    const prereqsMet = (lesson.prerequisites || []).every((pid) => lessonProgress[pid]?.status === 'completed');
+    if (prereqsMet) {
+      const topic = topicById.get(lesson.topicId);
+      recommendedNextStep = {
+        kind: 'next_unlocked_lesson',
+        title: lesson.title,
+        topicId: lesson.topicId,
+        topicTitle: topic?.title || lesson.topicId,
+        lessonId: lesson.id,
+        exerciseId: lesson.exerciseId || null,
+        problemId: lesson.recommendedPracticeIds?.[0] || null,
+        estimatedMinutes: lesson.estimatedMinutes || 15,
+        badge: 'Next Unlocked Lesson',
+        reason:
+          lesson.prerequisites && lesson.prerequisites.length > 0
+            ? `Unlocked because you completed prerequisite lesson ${lesson.prerequisites.join(', ')}.`
+            : `Recommended starting point in ${topic?.title || 'your topic path'} with zero unmet prerequisites.`
+      };
+      break;
+    }
+  }
+
+  if (!recommendedNextStep) {
+    const fallback = lessons[0];
+    recommendedNextStep = {
+      kind: 'revision_lesson',
+      title: fallback.title,
+      topicId: fallback.topicId,
+      topicTitle: topicById.get(fallback.topicId)?.title || fallback.topicId,
+      lessonId: fallback.id,
+      exerciseId: fallback.exerciseId || null,
+      problemId: fallback.recommendedPracticeIds?.[0] || null,
+      estimatedMinutes: fallback.estimatedMinutes || 15,
+      badge: 'Revision & Alternate Traces',
+      reason: 'All published lessons completed! Revisit interactive traces with alternate inputs.'
+    };
+  }
+
+  return {
+    items: deduplicatedItems,
+    dueReviews,
+    unresolvedStruggles,
+    supportedTraces,
+    practiceReviews,
+    recommendedNextStep
+  };
+}
+
+/**
+ * Derives a targeted practice session proposal ("Practise what needs work").
+ * Generates up to three linked activities strictly fitting the student's chosen
+ * time budget (10 / 20 / 30 minutes).
+ * Combines worked examples, trace/boundary retries, and relevant practice problems.
+ * Prioritizes studied or prerequisite-eligible material based on explainable reinforcement.
+ * Pure derivation without mutating workspace state.
+ */
+export function derivePracticeSessionProposal(
+  goal,
+  catalog,
+  { timeBudgetMinutes = 20, excludedActivityIds = [] } = {},
+  now = new Date()
+) {
+  const allowedBudgets = [10, 20, 30];
+  const budget = allowedBudgets.includes(timeBudgetMinutes) ? timeBudgetMinutes : 20;
+
+  const reinforcement = deriveAdaptiveReinforcement(goal, catalog, now);
+  const {
+    unresolvedStruggles = [],
+    dueReviews = [],
+    supportedTraces = [],
+    practiceReviews = [],
+    recommendedNextStep
+  } = reinforcement;
+
+  const excludedSet = new Set(excludedActivityIds || []);
+  const index = buildCurriculumSearchIndex(catalog);
+  const { lessonById, exerciseById, practiceById } = index;
+
+  const candidates = [];
+
+  // 1. Unresolved struggles (worked examples / checks / boundary cases)
+  for (const s of unresolvedStruggles) {
+    if (excludedSet.has(s.targetId) || excludedSet.has(s.id)) continue;
+    candidates.push({
+      taskId: `task_struggle_${s.targetId}_${s.variantKey || 'primary'}`,
+      activityType: s.section === 'example' ? 'worked_example' : (s.section === 'check' ? 'lesson_check' : (s.variantKey === 'alternate' ? 'boundary_retry' : 'trace_retry')),
+      targetId: s.targetId,
+      lessonId: s.lessonId,
+      exerciseId: s.exerciseId || null,
+      problemId: s.problemId || null,
+      variantKey: s.variantKey || 'primary',
+      title: s.section === 'example' ? `Review Worked Example: ${s.title}` : (s.section === 'check' ? `Knowledge Check: ${s.title}` : s.title),
+      topicId: s.topicId,
+      topicTitle: s.topicTitle,
+      estimatedMinutes: s.section === 'example' ? 8 : (s.section === 'check' ? 6 : s.estimatedMinutes || 10),
+      reason: s.reason,
+      evidenceType: s.evidenceType,
+      section: s.section
+    });
+  }
+
+  // 2. Supported traces needing unassisted retry
+  for (const st of supportedTraces) {
+    if (excludedSet.has(st.exerciseId) || excludedSet.has(st.id)) continue;
+    candidates.push({
+      taskId: `task_supp_${st.exerciseId}`,
+      activityType: 'trace_retry',
+      targetId: st.exerciseId,
+      lessonId: st.lessonId,
+      exerciseId: st.exerciseId,
+      variantKey: 'primary',
+      title: `Unassisted Proof: ${st.title}`,
+      topicId: st.topicId,
+      topicTitle: st.topicTitle,
+      estimatedMinutes: 10,
+      reason: st.reason,
+      evidenceType: 'supported_trace',
+      section: 'trace'
+    });
+  }
+
+  // 3. Due recall reviews
+  for (const d of dueReviews) {
+    if (excludedSet.has(d.targetId) || excludedSet.has(d.id)) continue;
+    candidates.push({
+      taskId: `task_due_${d.targetId}`,
+      activityType: d.targetType === 'exercise' ? 'trace_retry' : 'practice_problem',
+      targetId: d.targetId,
+      lessonId: d.lessonId,
+      exerciseId: d.exerciseId || null,
+      problemId: d.problemId || null,
+      variantKey: d.variantKey || 'primary',
+      title: `Retrieval Practice: ${d.title}`,
+      topicId: d.topicId,
+      topicTitle: d.topicTitle,
+      estimatedMinutes: d.estimatedMinutes || 12,
+      reason: d.reason,
+      evidenceType: 'due_recall',
+      section: d.section
+    });
+  }
+
+  // 4. Practice reviews
+  for (const pr of practiceReviews) {
+    if (excludedSet.has(pr.targetId) || excludedSet.has(pr.id)) continue;
+    candidates.push({
+      taskId: `task_prac_${pr.targetId}`,
+      activityType: 'practice_problem',
+      targetId: pr.targetId,
+      lessonId: pr.lessonId,
+      problemId: pr.problemId,
+      title: `External Practice: ${pr.title}`,
+      topicId: pr.topicId,
+      topicTitle: pr.topicTitle,
+      estimatedMinutes: pr.estimatedMinutes || 15,
+      reason: pr.reason,
+      evidenceType: 'self_reported_practice',
+      section: 'practice'
+    });
+  }
+
+  // 5. If candidates are sparse, add from recommendedNextStep
+  if (candidates.length < 3 && recommendedNextStep && !excludedSet.has(recommendedNextStep.lessonId)) {
+    const lesson = lessonById.get(recommendedNextStep.lessonId);
+    if (lesson) {
+      if (lesson.workedExample) {
+        candidates.push({
+          taskId: `task_next_ex_${lesson.id}`,
+          activityType: 'worked_example',
+          targetId: lesson.id,
+          lessonId: lesson.id,
+          exerciseId: lesson.exerciseId || null,
+          title: `Study Invariant: ${lesson.title}`,
+          topicId: lesson.topicId,
+          topicTitle: recommendedNextStep.topicTitle,
+          estimatedMinutes: 8,
+          reason: `Study the worked example for "${lesson.title}" (${recommendedNextStep.reason}).`,
+          evidenceType: 'next_lesson',
+          section: 'example'
+        });
+      }
+      if (lesson.exerciseId) {
+        const ex = exerciseById.get(lesson.exerciseId);
+        if (ex) {
+          candidates.push({
+            taskId: `task_next_trace_${ex.id}`,
+            activityType: 'trace_retry',
+            targetId: ex.id,
+            lessonId: lesson.id,
+            exerciseId: ex.id,
+            variantKey: 'primary',
+            title: `Interactive Proof: ${ex.title}`,
+            topicId: lesson.topicId,
+            topicTitle: recommendedNextStep.topicTitle,
+            estimatedMinutes: 10,
+            reason: `Practice the proof trace for ${lesson.title}.`,
+            evidenceType: 'next_exercise',
+            section: 'trace'
+          });
+        }
+      } else if (lesson.recommendedPracticeIds?.[0]) {
+        const p = practiceById.get(lesson.recommendedPracticeIds[0]);
+        if (p) {
+          candidates.push({
+            taskId: `task_next_prac_${p.id}`,
+            activityType: 'practice_problem',
+            targetId: p.id,
+            lessonId: lesson.id,
+            problemId: p.id,
+            title: `Practice: ${p.title}`,
+            topicId: p.topicId,
+            topicTitle: recommendedNextStep.topicTitle,
+            estimatedMinutes: 12,
+            reason: `External practice application for ${lesson.title}.`,
+            evidenceType: 'next_practice',
+            section: 'practice'
+          });
+        }
+      }
+    }
+  }
+
+  // Deduplicate candidates
+  const uniqueCandidates = [];
+  const seenCandKeys = new Set();
+  for (const c of candidates) {
+    const k = `${c.targetId}-${c.variantKey || 'primary'}`;
+    if (!seenCandKeys.has(k)) {
+      seenCandKeys.add(k);
+      uniqueCandidates.push(c);
+    }
+  }
+
+  // Strict budget constraint:
+  // 10m -> 1 task (max 10m)
+  // 20m -> up to 2 tasks (max 20m)
+  // 30m -> up to 3 tasks (max 30m)
+  const maxTasks = budget === 10 ? 1 : (budget === 20 ? 2 : 3);
+  const selectedTasks = [];
+  let allocatedMinutes = 0;
+
+  for (const cand of uniqueCandidates) {
+    if (selectedTasks.length >= maxTasks) break;
+    if (allocatedMinutes + cand.estimatedMinutes <= budget + 2 || selectedTasks.length === 0) {
+      selectedTasks.push({
+        ...cand,
+        taskId: `task_${selectedTasks.length + 1}`
+      });
+      allocatedMinutes += cand.estimatedMinutes;
+    }
+  }
+
+  let reason = '';
+  if (unresolvedStruggles.length > 0) {
+    reason = `Addresses your recent check-in feedback (${unresolvedStruggles[0].badge}) to reinforce core invariants.`;
+  } else if (dueReviews.length > 0) {
+    reason = `Includes ${dueReviews.length} due spaced-repetition review(s) to solidify memory retention.`;
+  } else if (supportedTraces.length > 0) {
+    reason = `Features unassisted verification retries for traces previously solved with hints.`;
+  } else {
+    reason = `Personalized progression with worked example and proof practice tailored to your curriculum pace.`;
+  }
+
+  return {
+    timeBudgetMinutes: budget,
+    totalEstimatedMinutes: allocatedMinutes,
+    reason,
+    tasks: selectedTasks,
+    candidateCount: uniqueCandidates.length,
+    canRegenerate: uniqueCandidates.length > selectedTasks.length
+  };
 }

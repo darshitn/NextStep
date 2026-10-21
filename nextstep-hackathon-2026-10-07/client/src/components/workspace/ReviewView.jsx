@@ -28,7 +28,10 @@ export default function ReviewView({
   isSaving,
   onSaveRecallAttempt,
   goal,
-  onRefresh
+  onRefresh,
+  onOpenPracticeProposal,
+  onOpenPracticeSession,
+  activePracticeSession
 }) {
   const [activeRecallItem, setActiveRecallItem] = useState(null);
   const [recallDrafts, setRecallDrafts] = useState({});
@@ -43,11 +46,27 @@ export default function ReviewView({
   return (
     <section id="view-review" role="region" aria-labelledby="review-heading" className="workspace-content review-view-container">
       {/* Review Header with Plain Student-Facing Copy */}
-      <div>
-        <h2 id="review-heading" className="text-xl font-bold ui-text-ink tracking-tight">Review</h2>
-        <p className="text-sm ui-text-muted mt-1">
-          Suggested from your saved notes, due recall dates, and completion history. These are practice suggestions, not a formal mastery test.
-        </p>
+      <div className="flex items-start justify-between gap-4 flex-wrap">
+        <div>
+          <h2 id="review-heading" className="text-xl font-bold ui-text-ink tracking-tight">Review</h2>
+          <p className="text-sm ui-text-muted mt-1">
+            Suggested from your saved notes, due recall dates, and completion history. These are practice suggestions, not a formal mastery test.
+          </p>
+        </div>
+        {onOpenPracticeProposal && (
+          <button
+            type="button"
+            onClick={activePracticeSession ? onOpenPracticeSession : onOpenPracticeProposal}
+            className="secondary-button text-xs py-2 px-3 inline-flex items-center justify-center gap-1.5 ui-border-border ui-bg-soft ui-text-accent hover:ui-bg-surface transition-colors w-full sm:w-auto max-w-full text-center"
+          >
+            <RotateCcw className="w-3.5 h-3.5 shrink-0" />
+            <span className="truncate">
+              {activePracticeSession
+                ? `Resume practice session (${(activePracticeSession.currentTaskIndex || 0) + 1}/${activePracticeSession.tasks?.length || 0})`
+                : 'Practise what needs work (10–30 min)'}
+            </span>
+          </button>
+        )}
       </div>
 
       {/* Active Recall Practice Panel with key to isolate state across missions */}

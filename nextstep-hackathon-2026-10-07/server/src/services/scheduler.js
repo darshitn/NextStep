@@ -123,6 +123,8 @@ export function normalizeStudyWorkspace(rawWorkspace) {
     practiceAttempts: base.practiceAttempts && typeof base.practiceAttempts === 'object' ? base.practiceAttempts : {},
     studyPlan: base.studyPlan && typeof base.studyPlan === 'object' ? base.studyPlan : null,
     continuation: normalizeContinuation(base.continuation),
+    activePracticeSession: base.activePracticeSession && typeof base.activePracticeSession === 'object' ? base.activePracticeSession : null,
+    practiceSessionHistory: Array.isArray(base.practiceSessionHistory) ? base.practiceSessionHistory.slice(-5) : [],
     updatedAt: base.updatedAt || null
   };
 }

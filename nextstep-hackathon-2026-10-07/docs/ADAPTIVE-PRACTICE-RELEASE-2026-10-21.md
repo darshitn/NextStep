@@ -1,0 +1,11 @@
+# Adaptive practice release checkpoint
+
+Owner authorized polishing the judge-facing repository description and pushing the verified changes on 2026-10-21. Branch: codex/adaptive-practice. Baseline fast-forwarded to PR7 merge 20f8b0142ca0cf098d26d8dc6b69d6e34f5b54dc; its file tree matched the prior branch baseline, so existing changes were preserved.
+
+Release scope: targeted reinforcement from saved evidence, short practice-session proposals and lifecycle, exact activity/variant navigation, topic evidence and weekly-planning integration. Includes authoritative session evidence repair, bounded histories/replay receipts, renamed Learning path copy, fixture rename parity and narrow Review layout repair. Existing learner history, environment files, dependencies, DB schema and curriculum source content preserved.
+
+Independent validation: all 15 release groups passed with exit code 0 (155 server tests, 152 client tests, production build and existing browser suites including adaptive 8/8). Independently repeated all 12 starter completion-recording UI flows with reload checkpoints: 18 checks passed. These are self-reported starter records, not a claim of solving every underlying task. Fresh wrong-variant attempt and altered replay probes return the intended 422 and 409 errors. See corrected FULL-LOCAL-QA-RESULT.md for partial/pending coverage and actual evidence.
+
+Judge-facing documentation now describes the real student journey, three-question checkpoint, published 12/48/18/120 catalog, LeetCode provider and actual appearance styles. README includes a labelled synthetic screenshot. Checked 139 local links across five current entry/report documents: no missing targets. Pattern/path scan of changed/untracked scope found no secret-shaped values or private/generated paths; this is not a proof of absence of every possible secret. Staged content receives a final scan before publication.
+
+Publication is commits on the branch and a PR against main. No branch deletion, physical repository reorganization, merge or production deployment is included. Both Render and Vercel must deploy the merged release before live acceptance. Real novice usability, live provider behavior and exhaustive per-lesson/per-variant browser acceptance remain separate. Do not report the live application as running adaptive practice solely because this PR exists.

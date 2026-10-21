@@ -296,5 +296,19 @@ export const liveApi = {
       method: 'POST',
       body: payload
     });
+  },
+
+  async startPracticeSession(payload) {
+    return request('/goal/workspace/practice-session/start', {
+      method: 'POST',
+      body: payload
+    });
+  },
+
+  async updatePracticeSession(payload) {
+    return request('/goal/workspace/practice-session/update', {
+      method: 'POST',
+      body: payload
+    });
   }
 };

@@ -41,7 +41,8 @@ export default function AtlasView({
   onOpenPracticeProblem,
   onPreviewWorkspacePlan,
   onApplyWorkspacePlan,
-  onSelectView
+  onSelectView,
+  onOpenContinuationPlan
 }) {
   const atlas = useMemo(() => deriveTopicAtlasModel(goal, catalog), [goal, catalog]);
   const recommendation = useMemo(
@@ -50,6 +51,16 @@ export default function AtlasView({
   );
 
   const [displayMode, setDisplayMode] = useState('map'); // 'map' | 'list'
+  const [expandedWhyTopicIds, setExpandedWhyTopicIds] = useState(() => new Set());
+
+  const toggleWhy = (topicId) => {
+    setExpandedWhyTopicIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(topicId)) next.delete(topicId);
+      else next.add(topicId);
+      return next;
+    });
+  };
   const [showPlanner, setShowPlanner] = useState(false);
   const [planAvailability, setPlanAvailability] = useState(
     () =>
@@ -158,7 +169,7 @@ export default function AtlasView({
       });
       setPlanPreview(null);
       setPreviewedSnapshot(null);
-      setPlanNotice('Study plan saved! Your sessions are now active in Today and Atlas.');
+      setPlanNotice('Study plan saved! Your sessions are now active in Today and Learning path.');
     } catch (err) {
       setPlanError(err.message || 'Could not apply study plan.');
     } finally {
@@ -182,15 +193,15 @@ export default function AtlasView({
           <p className="text-sm ui-text-muted mt-1">
             {atlas.topics.length} structured DSA topics · {atlas.completedLessonsCount}/
             {atlas.totalLessonsCount} lessons completed · {atlas.completedExercisesCount}/
-            {atlas.totalExercisesCount} Proof traces verified · {atlas.solvedPracticeCount}/
-            {atlas.totalPracticeCount} practice problems logged.
+            {atlas.totalExercisesCount} Proof traces verified ({atlas.topics.reduce((acc, t) => acc + (t.independentTracesCount || 0), 0)} solo) · {atlas.solvedPracticeCount}/
+            {atlas.totalPracticeCount} practice problems logged (self-reported).
           </p>
         </div>
 
         <div className="flex items-center gap-2 flex-wrap">
           <div
             role="group"
-            aria-label="Atlas display mode"
+            aria-label="Learning path display mode"
             className="inline-flex rounded-xl border ui-border-border ui-bg-surface p-1 gap-1"
           >
             <button
@@ -220,6 +231,18 @@ export default function AtlasView({
               <span>Accessible List</span>
             </button>
           </div>
+
+          {onOpenContinuationPlan && (
+            <button
+              type="button"
+              onClick={() => onOpenContinuationPlan()}
+              className="primary-button text-xs py-2 px-3.5 inline-flex items-center gap-1.5"
+              data-guide="atlas-plan-next-week"
+            >
+              <Calendar size={14} aria-hidden="true" />
+              <span>Plan my next week</span>
+            </button>
+          )}
 
           <button
             type="button"
@@ -557,6 +580,16 @@ export default function AtlasView({
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
                   {laneTopics.map((topic) => {
                     const isSelected = activeTopic?.id === topic.id;
+                    const isWhyExpanded = expandedWhyTopicIds.has(topic.id);
+                    const statusBadgeClass =
+                      topic.status === 'recent_evidence'
+                        ? 'status-success'
+                        : topic.status === 'practise_again'
+                        ? 'status-attention'
+                        : topic.status === 'learning'
+                        ? 'status-accent'
+                        : 'status-neutral';
+
                     return (
                       <article
                         key={topic.id}
@@ -572,24 +605,17 @@ export default function AtlasView({
                             <span className="text-xs font-bold uppercase tracking-wider ui-text-muted">
                               Topic {topic.order}
                             </span>
-                            <span
-                              className={`status-badge text-xs ${
-                                topic.status === 'completed'
-                                  ? 'status-success'
-                                  : topic.status === 'needs_review'
-                                  ? 'status-attention'
-                                  : topic.status === 'in_progress'
-                                  ? 'status-accent'
-                                  : 'status-neutral'
-                              }`}
-                            >
-                              {topic.status.replace(/_/g, ' ')}
+                            <span className={`status-badge text-xs ${statusBadgeClass}`}>
+                              {topic.statusLabel || topic.status.replace(/_/g, ' ')}
                             </span>
                           </div>
 
                           <h3 className="text-base font-bold ui-text-ink">{topic.title}</h3>
                           <p className="text-xs ui-text-muted leading-relaxed">
                             {topic.shortDescription}
+                          </p>
+                          <p className="text-[11px] ui-text-muted leading-snug">
+                            {topic.statusExplanation}
                           </p>
 
                           {/* Prerequisite Indicator */}
@@ -609,44 +635,191 @@ export default function AtlasView({
                           </div>
                         </div>
 
-                        <div className="pt-2 border-t ui-border-border space-y-2.5">
-                          <div className="flex items-center justify-between text-xs ui-text-ink font-medium">
-                            <span>
-                              {topic.completedLessonsCount}/{topic.totalLessonsCount} lessons
-                            </span>
-                            <span>
-                              {topic.completedExercisesCount}/{topic.totalExercisesCount} traces
-                            </span>
-                            <span>
-                              {topic.solvedPracticeCount}/{topic.totalPracticeCount} practice
-                            </span>
+                        {/* Topic Evidence Breakdown */}
+                        <div className="pt-2 border-t ui-border-border space-y-1.5 text-xs ui-text-ink">
+                          <div className="flex items-center justify-between font-medium">
+                            <span className="ui-text-muted">Lessons:</span>
+                            <span>{topic.completedLessonsCount}/{topic.totalLessonsCount} completed</span>
                           </div>
-
-                          <div className="flex items-center gap-2">
-                            <button
-                              type="button"
-                              onClick={() => onSelectTopic(topic.id)}
-                              className="secondary-button text-xs py-1.5 px-3 flex-1 justify-center"
-                            >
-                              <span>{isSelected ? 'Inspecting Topic' : 'Inspect Topic'}</span>
-                            </button>
-                            {topic.nextLesson && (
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  onOpenProofLesson(
-                                    topic.id,
-                                    topic.nextLesson.id,
-                                    topic.nextLesson.exerciseId
-                                  )
-                                }
-                                className="primary-button text-xs py-1.5 px-3 shrink-0"
-                              >
-                                <span>Proof</span>
-                                <ArrowRight size={12} aria-hidden="true" />
-                              </button>
+                          <div className="flex items-center justify-between font-medium">
+                            <span className="ui-text-muted">Proof Traces:</span>
+                            {topic.hasTraces ? (
+                              <span>
+                                {topic.distinctTracesVerifiedCount}/{topic.totalExercisesCount} verified{' '}
+                                <span className="ui-text-muted font-normal text-[11px]">
+                                  ({topic.independentTracesCount} solo · {topic.supportedTracesCount} assisted)
+                                </span>
+                              </span>
+                            ) : (
+                              <span className="ui-text-muted font-normal text-[11px]">Concept topic (no traces)</span>
                             )}
                           </div>
+                          <div className="flex items-center justify-between font-medium">
+                            <span className="ui-text-muted">External Practice:</span>
+                            <span>
+                              {topic.externalPracticeCount} logged{' '}
+                              <span className="ui-text-muted font-normal text-[10px] uppercase">(self-reported)</span>
+                            </span>
+                          </div>
+                          <div className="flex items-center justify-between font-medium">
+                            <span className="ui-text-muted">Reviews &amp; Signals:</span>
+                            {topic.dueReviewCount > 0 || topic.unresolvedSignalCount > 0 ? (
+                              <span className="ui-text-attention font-semibold">
+                                {topic.dueReviewCount} due · {topic.unresolvedSignalCount} signal{topic.unresolvedSignalCount === 1 ? '' : 's'}
+                              </span>
+                            ) : (
+                              <span className="ui-text-accent font-normal text-[11px]">Clean</span>
+                            )}
+                          </div>
+
+                          {/* Actionable "Show why" toggle */}
+                          <div className="pt-1">
+                            <button
+                              type="button"
+                              onClick={() => toggleWhy(topic.id)}
+                              className="text-xs font-semibold ui-text-accent hover:underline inline-flex items-center gap-1"
+                              aria-expanded={isWhyExpanded}
+                            >
+                              <span>{isWhyExpanded ? 'Hide evidence' : 'Show why'}</span>
+                              <ArrowRight
+                                size={11}
+                                className={isWhyExpanded ? 'rotate-90 transition-transform' : 'transition-transform'}
+                                aria-hidden="true"
+                              />
+                            </button>
+                            {isWhyExpanded && (
+                              <div className="mt-2 p-2.5 rounded-lg border ui-border-border ui-bg-soft text-xs space-y-2">
+                                <div className="font-semibold ui-text-ink">
+                                  Evidence for "{topic.statusLabel || topic.status}":
+                                </div>
+                                {topic.status === 'recent_evidence' && (
+                                  <p className="ui-text-muted leading-relaxed">
+                                    All published lessons in this topic are completed, with verified trace evidence and no overdue spaced reviews.
+                                  </p>
+                                )}
+                                {topic.status === 'not_started' && (
+                                  <p className="ui-text-muted leading-relaxed">
+                                    {topic.prerequisitesMet
+                                      ? 'No lessons or traces started yet. Prerequisites are met and this topic is ready to begin.'
+                                      : `Waiting on prerequisite topic: ${topic.missingPrerequisites.map((p) => p.title).join(', ')}.`}
+                                  </p>
+                                )}
+                                {topic.unresolvedReinforcements?.length > 0 && (
+                                  <div className="space-y-1">
+                                    <span className="text-[11px] font-bold uppercase tracking-wider ui-text-muted block">
+                                      Unresolved Signals ({topic.unresolvedReinforcements.length})
+                                    </span>
+                                    <ul className="space-y-1">
+                                      {topic.unresolvedReinforcements.map((r, rIdx) => (
+                                        <li key={rIdx} className="text-xs ui-text-ink flex items-start gap-1.5">
+                                          <span className="ui-text-accent font-bold">•</span>
+                                          <div>
+                                            <strong>{r.targetTitle || r.sourceTitle}:</strong> {r.reason}
+                                          </div>
+                                        </li>
+                                      ))}
+                                    </ul>
+                                  </div>
+                                )}
+                                {topic.dueReviews?.length > 0 && (
+                                  <div className="space-y-1">
+                                    <span className="text-[11px] font-bold uppercase tracking-wider ui-text-muted block">
+                                      Due Recall Reviews ({topic.dueReviews.length})
+                                    </span>
+                                    <ul className="space-y-1">
+                                      {topic.dueReviews.map((dr, drIdx) => (
+                                        <li key={drIdx} className="text-xs ui-text-ink flex items-start gap-1.5">
+                                          <span className="ui-text-attention font-bold">•</span>
+                                          <div>
+                                            <strong>{dr.title}:</strong> {dr.reason}
+                                          </div>
+                                        </li>
+                                      ))}
+                                    </ul>
+                                  </div>
+                                )}
+                                {topic.actionableTarget && (
+                                  <div className="pt-1">
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        if (topic.actionableTarget.actionableRoute === 'practice_problem' && topic.actionableTarget.practiceId) {
+                                          onOpenPracticeProblem(topic.actionableTarget.practiceId);
+                                        } else {
+                                          onOpenProofLesson(topic.id, topic.actionableTarget.lessonId, topic.actionableTarget.exerciseId);
+                                        }
+                                      }}
+                                      className="secondary-button text-xs py-1 px-2.5 inline-flex items-center gap-1.5 w-full justify-center"
+                                    >
+                                      <span>Open Recommended Activity</span>
+                                      <ArrowRight size={12} aria-hidden="true" />
+                                    </button>
+                                  </div>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Card Actions */}
+                        <div className="flex items-center gap-2 pt-2 border-t ui-border-border">
+                          <button
+                            type="button"
+                            onClick={() => onSelectTopic(topic.id)}
+                            className="secondary-button text-xs py-1.5 px-3 flex-1 justify-center"
+                          >
+                            <span>{isSelected ? 'Inspecting Topic' : 'Inspect Topic'}</span>
+                          </button>
+                          {topic.status === 'practise_again' ? (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                if (topic.actionableTarget?.actionableRoute === 'practice_problem' && topic.actionableTarget?.practiceId) {
+                                  onOpenPracticeProblem(topic.actionableTarget.practiceId);
+                                } else {
+                                  onOpenProofLesson(
+                                    topic.id,
+                                    topic.actionableTarget?.lessonId || topic.nextLesson?.id,
+                                    topic.actionableTarget?.exerciseId || topic.nextLesson?.exerciseId
+                                  );
+                                }
+                              }}
+                              className="primary-button text-xs py-1.5 px-3 shrink-0 inline-flex items-center gap-1"
+                            >
+                              <span>Practise</span>
+                              <ArrowRight size={12} aria-hidden="true" />
+                            </button>
+                          ) : topic.nextLesson ? (
+                            <button
+                              type="button"
+                              onClick={() =>
+                                onOpenProofLesson(
+                                  topic.id,
+                                  topic.nextLesson.id,
+                                  topic.nextLesson.exerciseId
+                                )
+                              }
+                              className="primary-button text-xs py-1.5 px-3 shrink-0 inline-flex items-center gap-1"
+                            >
+                              <span>Proof</span>
+                              <ArrowRight size={12} aria-hidden="true" />
+                            </button>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() =>
+                                onOpenProofLesson(
+                                  topic.id,
+                                  topic.lessons[0]?.id,
+                                  topic.lessons[0]?.exerciseId
+                                )
+                              }
+                              className="secondary-button text-xs py-1.5 px-3 shrink-0 inline-flex items-center gap-1"
+                            >
+                              <span>Review</span>
+                              <ArrowRight size={12} aria-hidden="true" />
+                            </button>
+                          )}
                         </div>
 
                         {/* Immediate In-Flow Mobile Details (Visible only on mobile/tablet screens < lg) */}
@@ -859,9 +1032,22 @@ export default function AtlasView({
                   </h3>
                   <p className="text-xs ui-text-muted mt-0.5">{topic.shortDescription}</p>
                 </div>
-                <span className="status-badge status-neutral text-xs">
-                  {topic.completedLessonsCount}/{topic.totalLessonsCount} Lessons Completed
-                </span>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className={`status-badge text-xs ${
+                    topic.status === 'recent_evidence'
+                      ? 'status-success'
+                      : topic.status === 'practise_again'
+                      ? 'status-attention'
+                      : topic.status === 'learning'
+                      ? 'status-accent'
+                      : 'status-neutral'
+                  }`}>
+                    {topic.statusLabel || topic.status.replace(/_/g, ' ')}
+                  </span>
+                  <span className="text-xs ui-text-muted">
+                    {topic.completedLessonsCount}/{topic.totalLessonsCount} Lessons · {topic.distinctTracesVerifiedCount}/{topic.totalExercisesCount} Traces ({topic.independentTracesCount} Solo) · {topic.externalPracticeCount} Practice (Self-reported)
+                  </span>
+                </div>
               </div>
 
               <ul className="space-y-2">
